@@ -112,6 +112,12 @@ func Register(session *discordgo.Session, services *quack.Services, componentReg
 	if err := registry.Register(MessageCaseCommandSpec()); err != nil {
 		return err
 	}
+	// The temporary gallery is never registered on staging or production bots.
+	if services.Config.Environment == "dev" {
+		if err := registry.Register(UIPreviewCommandSpec()); err != nil {
+			return err
+		}
+	}
 	dispatcher := interactions.NewDispatcher(services, registry)
 	if provider, ok := services.Store.(interface{ Redis() *redis.Client }); ok {
 		dispatcher.Deduper = interactions.NewRedisInteractionDeduper(provider.Redis(), 15*time.Minute)
