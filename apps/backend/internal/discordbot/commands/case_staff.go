@@ -22,7 +22,7 @@ func handleCaseStaffSubcommand(ctx ui.Context, data discordgo.ApplicationCommand
 	if selected == nil {
 		return ui.Immediate(ui.Error("Choose a case operation."))
 	}
-	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
+	return ui.Async(ui.DeferPublic(), func(taskCtx context.Context, responder ui.Responder) error {
 		guildContext, err := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
 		if err != nil {
 			_, editErr := responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(err)))
@@ -57,23 +57,23 @@ func handleCaseStaffSubcommand(ctx ui.Context, data discordgo.ApplicationCommand
 			}
 		case "retry":
 			_, err = ctx.Services.Actions.Retry(taskCtx, guildContext, optionStringValue(selected.GetOption("execution")))
-			response = ui.Content("**Action retry queued**\nThe same configured action will be attempted after current permission and hierarchy checks.", false)
+			response = ui.Signal("retry", "Retry queued. Quack will check its permissions before trying again.", false)
 		case "dismiss":
 			_, err = ctx.Services.Actions.Dismiss(taskCtx, guildContext, optionStringValue(selected.GetOption("execution")))
-			response = ui.Content("**Action failure dismissed**\nAttempt history remains visible on the case.", false)
+			response = ui.Signal("review", "Failure dismissed. The attempt history is still on the case.", false)
 		case "void":
 			if confirm := selected.GetOption("confirm"); confirm == nil || !confirm.BoolValue() {
 				err = quack.ErrCaseValidation
 			} else {
 				_, err = ctx.Services.Cases.Void(taskCtx, guildContext, optionStringValue(selected.GetOption("case")), optionStringValue(selected.GetOption("reason")), nil)
-				response = ui.Content("**Case voided**\nThe correction remains visible in history.", false)
+				response = ui.Signal("case_void", "Case voided. The correction remains in its history.", false)
 			}
 		case "reverse":
 			if confirm := selected.GetOption("confirm"); confirm == nil || !confirm.BoolValue() {
 				err = quack.ErrCaseValidation
 			} else {
 				_, err = ctx.Services.Actions.Reverse(taskCtx, guildContext, optionStringValue(selected.GetOption("case")), optionStringValue(selected.GetOption("execution")), model.ActionType(optionStringValue(selected.GetOption("action"))))
-				response = ui.Content("**Reversal queued**\nThe original action and reversal remain visible in history.", false)
+				response = ui.Signal("retry", "Reversal queued. The original action stays in the case history.", false)
 			}
 		default:
 			err = quack.ErrCaseValidation

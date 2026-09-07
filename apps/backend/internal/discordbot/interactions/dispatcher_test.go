@@ -103,8 +103,8 @@ func TestDispatcherConvertsAsyncErrorsToErrorEdit(t *testing.T) {
 
 	if len(client.edits) != 1 ||
 		client.edits[0].Embeds == nil ||
-		len(*client.edits[0].Embeds) != 1 ||
-		(*client.edits[0].Embeds)[0].Description != "Quack could not finish that interaction." {
+		len(*client.edits[0].Embeds) != 0 ||
+		client.edits[0].Content == nil || *client.edits[0].Content != "Quack could not finish that interaction." {
 		t.Fatalf("expected standard error edit, got %+v", client.edits)
 	}
 }

@@ -46,7 +46,7 @@ func HandleMessageCaseInteraction(ctx ui.Context) ui.HandlerResult {
 			return ui.Immediate(ui.Error("Use `/case add` to select a template for this message."))
 		}
 		selectMenu := discordgo.SelectMenu{CustomID: customID, Placeholder: "Choose an active case template", MinValues: intPointer(1), MaxValues: 1, Options: options}
-		return ui.Immediate(ui.Ephemeral(ui.Message{Content: "Choose the template that matches this message.", Components: []discordgo.MessageComponent{ui.Row(selectMenu)}, Ephemeral: true}))
+		return ui.Immediate(ui.Ephemeral(ui.Message{Content: "{{quack:case}} Choose the template that matches this message.", Components: []discordgo.MessageComponent{ui.Row(selectMenu)}, Ephemeral: true}))
 	}
 	template := templates[0]
 	if len(template.ContextFields) > 1 || (len(template.ContextFields) == 1 && template.ContextFields[0].FieldType != model.ContextFieldMessageLink) {
@@ -58,7 +58,7 @@ func HandleMessageCaseInteraction(ctx ui.Context) ui.HandlerResult {
 		raw, _ := json.Marshal(link)
 		values = append(values, quack.CaseContextValueInput{Key: template.ContextFields[0].Key, Value: raw})
 	}
-	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
+	return ui.Async(ui.DeferPublic(), func(taskCtx context.Context, responder ui.Responder) error {
 		created, createErr := ctx.Services.Cases.Create(taskCtx, guildContext, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: message.Author.ID, Source: model.CaseSourceDiscord, ContextChannelDiscordID: message.ChannelID, ContextMessageDiscordID: message.ID, ContextValues: values, EvidenceLinks: []string{link}, IdempotencyKey: interaction.ID})
 		if createErr != nil {
 			_, editErr := responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(createErr)))
@@ -109,7 +109,7 @@ func HandleCaseInteraction(ctx ui.Context) ui.HandlerResult {
 		}
 	}
 
-	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
+	return ui.Async(ui.DeferPublic(), func(taskCtx context.Context, responder ui.Responder) error {
 		result, err := createCaseFromInteraction(taskCtx, ctx.Services, interaction, add)
 		if err != nil {
 			_, editErr := responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(err)))

@@ -49,7 +49,7 @@ func updatePublicCaseResult(ctx context.Context, responder ui.Responder, service
 				}
 			}
 			if terminal {
-				_, err := responder.EditFollowup(messageID, ui.EditMessage(views.CaseCreatedMessage(views.CaseCreated{Case: &snapshot, Template: template})))
+				_, err := responder.EditOriginal(ui.EditMessage(views.CaseCreatedMessage(views.CaseCreated{Case: &snapshot, Template: template})))
 				if err != nil {
 					slog.WarnContext(ctx, "Could not update public case result", "case_id", snapshot.ID, "error_type", "discord_response")
 				}

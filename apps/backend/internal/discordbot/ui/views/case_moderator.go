@@ -13,41 +13,66 @@ import (
 
 const casePageSize = 10
 
-// CaseDetailMessage renders authorized staff detail with validity, enforcement,
-// appeal availability, visible context, evidence, and immutable history separated.
+// CaseDetailMessage retains authorized context and recovery controls while
+// describing the decision as a conversation rather than a field grid.
 func CaseDetailMessage(detail *quack.CaseDetailResponse) ui.Message {
 	if detail == nil {
-		return ui.EmbedMessage(ui.WarningEmbed("Case", "Case not found."), true)
+		return ui.Signal("error", "That case couldn’t be found. Check its number and try again.", true)
 	}
-	embed := ui.NewInfoEmbed(fmt.Sprintf("Case #%d", detail.CaseNumber), detail.Reason).
-		AddField("Target", "<@"+detail.TargetDiscordUserID+">", true).
-		AddField("Validity", detail.Validity, true).
-		AddField("Source", detail.Source, true)
-	if detail.SelectedLevel != nil {
-		embed.AddField("Selected outcome", detail.SelectedLevel.Name, true)
+	lead := "Case for <@" + detail.TargetDiscordUserID + ">"
+	if detail.TemplateSnapshot != nil && detail.TemplateSnapshot.Template.Name != "" {
+		lead += " for **" + ui.PlainText(detail.TemplateSnapshot.Template.Name) + "**"
 	}
-	if detail.TemplateSnapshot != nil {
-		state := "Not eligible"
-		if detail.TemplateSnapshot.Template.Appealable {
-			state = "Eligible"
+	icon := "case"
+	parts := []string{}
+	if detail.Validity == model.CaseValidityVoided {
+		icon = "case_void"
+		parts = append(parts, "This case was voided and no longer counts toward escalation.")
+		if detail.VoidedReason != "" {
+			parts = append(parts, ui.Quote(ui.PlainText(detail.VoidedReason)))
 		}
-		embed.AddField("Appeal", state, true)
 	}
-	embed.AddField("Enforcement", staffActionSummary(detail.Actions), false)
+	outcome := []string{staffActionSummary(detail.Actions)}
 	if detail.Notification != nil {
-		embed.AddField("Notification", detail.Notification.Status, true)
+		outcome = append(outcome, notificationDeliverySentence(string(detail.Notification.Status)))
 	}
-	if context := contextSummary(detail.ContextValues); context != "" {
-		embed.AddField("Visible context", context, false)
+	if detail.TemplateSnapshot != nil && detail.TemplateSnapshot.Template.Appealable {
+		outcome = append(outcome, "The member can appeal this case.")
 	}
-	if evidence := evidenceSummary(detail.Evidence); evidence != "" {
-		embed.AddField("Evidence", evidence, false)
+	parts = append(parts, strings.Join(outcome, " "))
+	for _, context := range []string{contextSummary(detail.ContextValues), evidenceSummary(detail.Evidence), eventSummary(detail.Events)} {
+		if context != "" {
+			parts = append(parts, context)
+		}
 	}
-	if history := eventSummary(detail.Events); history != "" {
-		embed.AddField("History", history, false)
+	meta := []string{fmt.Sprintf("Case #%d", detail.CaseNumber)}
+	if detail.SelectedLevel != nil {
+		meta = append(meta, ui.PlainText(detail.SelectedLevel.Name))
 	}
-	components := caseDetailComponents(detail)
-	return ui.Message{Embeds: []*discordgo.MessageEmbed{embed.Build()}, Components: components, Ephemeral: false}
+	if date := ui.RelativeTime(detail.CreatedAt); date != "" {
+		meta = append(meta, "Created "+date)
+	}
+	message := ui.Conversation(icon, lead+".", ui.PlainText(detail.Reason), strings.Join(parts, "\n\n"), strings.Join(meta, " · "), false)
+	message.Components = caseDetailComponents(detail)
+	return message
+}
+
+// notificationDeliverySentence distinguishes delivery from enforcement.
+func notificationDeliverySentence(status string) string {
+	switch status {
+	case "sent":
+		return "The member was sent a DM."
+	case "failed":
+		return "The member’s DM couldn’t be delivered."
+	case "pending", "prepared", "claimed":
+		return "The member’s DM is queued."
+	case "sending", "running":
+		return "The member’s DM is being sent."
+	case "skipped":
+		return "No DM was sent to the member."
+	default:
+		return "The member’s DM status is **" + ui.PlainText(strings.ReplaceAll(status, "_", " ")) + "**."
+	}
 }
 
 // CaseListMessage renders one stable case page and its navigation controls.
@@ -58,11 +83,18 @@ func CaseListMessage(list *quack.CaseListResponse, page int, targetID string) ui
 	rows := make([]string, 0)
 	if list != nil {
 		for _, item := range list.Cases {
-			level := ""
+			summary := "Case recorded"
 			if item.SelectedLevel != nil {
-				level = " · " + item.SelectedLevel.Name
+				summary = ui.PlainText(ui.TruncateRunes(item.SelectedLevel.Name, 100))
 			}
-			rows = append(rows, fmt.Sprintf("**#%d** · <@%s> · %s%s", item.CaseNumber, item.TargetDiscordUserID, item.Validity, level))
+			row := fmt.Sprintf("**#%d**  <@%s> · %s", item.CaseNumber, item.TargetDiscordUserID, summary)
+			if item.Validity == model.CaseValidityVoided {
+				row += " · **Voided**"
+			}
+			if date := ui.RelativeTime(item.CreatedAt); date != "" {
+				row += "\n" + date
+			}
+			rows = append(rows, row)
 		}
 	}
 	if len(rows) == 0 {
@@ -82,12 +114,20 @@ func CaseListMessage(list *quack.CaseListResponse, page int, targetID string) ui
 		prefix = "user"
 	}
 	components, _ := ui.Pagination("case", prefix, payload, page, totalPages)
-	title := "Recent Cases"
+	lead := "Here are the latest cases."
 	if targetID != "" {
-		title = "Case History for <@" + targetID + ">"
+		lead = "Here’s the case history for <@" + targetID + ">."
 	}
-	embed := ui.NewInfoEmbed(title, strings.Join(rows, "\n")).SetFooter(fmt.Sprintf("Page %d/%d · %d total", page, totalPages, total)).Build()
-	return ui.Message{Embeds: []*discordgo.MessageEmbed{embed}, Components: components, Ephemeral: false}
+	if total == 0 {
+		lead = "No cases yet."
+		if targetID != "" {
+			lead = "No cases found for <@" + targetID + ">."
+		}
+		rows = nil
+	}
+	message := ui.Conversation("history", lead, "", strings.Join(rows, "\n\n"), fmt.Sprintf("Page %d/%d · %d total", page, totalPages, total), false)
+	message.Components = components
+	return message
 }
 
 // FailedActionMessage renders the active recovery queue with real retry, dismiss, and void controls.
@@ -104,7 +144,7 @@ func FailedActionMessage(result *model.FailedCaseActionResult, page int) ui.Mess
 				retryID := ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "retry", Version: "v1", Payload: item.ID})
 				dismissID := ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "dismiss", Version: "v1", Payload: item.ID})
 				voidID := ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "void", Version: "v1", Payload: item.CaseID})
-				components = append(components, ui.Row(ui.Button(retryID, "Retry first", discordgo.PrimaryButton, false), ui.Button(dismissID, "Dismiss first", discordgo.SecondaryButton, false), ui.Button(voidID, "Void case", discordgo.DangerButton, false)))
+				components = append(components, ui.Row(ui.Button(retryID, "Retry first", discordgo.SecondaryButton, false), ui.Button(dismissID, "Dismiss first", discordgo.SecondaryButton, false), ui.Button(voidID, "Void case", discordgo.DangerButton, false)))
 			}
 		}
 	}
@@ -121,15 +161,23 @@ func FailedActionMessage(result *model.FailedCaseActionResult, page int) ui.Mess
 	}
 	pagination, _ := ui.Pagination("case", "failures", fmt.Sprintf("%d", page), page, totalPages)
 	components = append(components, pagination...)
-	embed := ui.NewErrorEmbed(strings.Join(rows, "\n")).SetTitle("Failed Actions").SetFooter(fmt.Sprintf("Page %d/%d · %d active", page, totalPages, total)).Build()
-	return ui.Message{Embeds: []*discordgo.MessageEmbed{embed}, Components: components, Ephemeral: false}
+	icon, lead := "success", "No action failures need review."
+	if result != nil && len(result.Executions) > 0 {
+		icon, lead = "error", "These actions need a hand."
+	} else {
+		rows = nil
+	}
+	message := ui.Conversation(icon, lead, "", strings.Join(rows, "\n\n"), fmt.Sprintf("Page %d/%d · %d active", page, totalPages, total), false)
+	message.Components = components
+	return message
 }
 
+// caseDetailComponents retains explicit recovery controls for authorized staff.
 func caseDetailComponents(detail *quack.CaseDetailResponse) []discordgo.MessageComponent {
 	buttons := []discordgo.MessageComponent{ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "void", Version: "v1", Payload: detail.ID}), "Void case", discordgo.DangerButton, detail.Validity == model.CaseValidityVoided)}
 	for _, action := range detail.Actions {
 		if action.Status == model.ActionExecutionFailed {
-			buttons = append(buttons, ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "retry", Version: "v1", Payload: action.ID}), "Retry", discordgo.PrimaryButton, false), ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "dismiss", Version: "v1", Payload: action.ID}), "Dismiss", discordgo.SecondaryButton, false))
+			buttons = append(buttons, ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "retry", Version: "v1", Payload: action.ID}), "Retry", discordgo.SecondaryButton, false), ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "dismiss", Version: "v1", Payload: action.ID}), "Dismiss", discordgo.SecondaryButton, false))
 			break
 		}
 		if action.Status == model.ActionExecutionSucceeded && (action.ActionType == model.ActionTimeoutUser || action.ActionType == model.ActionBanUser) {
@@ -145,33 +193,39 @@ func caseDetailComponents(detail *quack.CaseDetailResponse) []discordgo.MessageC
 	return []discordgo.MessageComponent{ui.Row(buttons...)}
 }
 
+// staffActionSummary preserves enforcement and failure details in readable sentences.
 func staffActionSummary(actions []quack.CaseActionDetailResponse) string {
 	if len(actions) == 0 {
-		return "No Discord action configured"
+		return "Recorded without a Discord action."
 	}
 	rows := make([]string, 0, len(actions))
 	for _, action := range actions {
-		row := fmt.Sprintf("%s · %s · %d attempt(s)", action.ActionType.Label(), action.Status.Label(), action.AttemptCount)
+		row := ui.ActionSentence(action.ActionType, action.Status)
 		if action.LastErrorCode != "" {
-			row += " · " + safeFailure(action.LastErrorCode)
+			row += "\n" + safeFailure(action.LastErrorCode)
 		}
 		rows = append(rows, row)
 	}
 	return strings.Join(rows, "\n")
 }
 
+// contextSummary keeps member-visible context bounded and escapes user formatting.
 func contextSummary(values []quack.CaseContextValueResponse) string {
 	rows := make([]string, 0, len(values))
 	for _, value := range values {
-		rows = append(rows, fmt.Sprintf("**%s:** %s", value.Label, ui.TruncateRunes(fmt.Sprint(value.Value), 180)))
+		rows = append(rows, ui.Quote(ui.PlainText(value.Label)+" — "+ui.PlainText(fmt.Sprint(value.Value))))
 	}
 	return strings.Join(rows, "\n")
 }
 
+// evidenceSummary uses descriptive links while preserving capture outcomes.
 func evidenceSummary(evidence []quack.CaseEvidenceResponse) string {
 	rows := make([]string, 0, len(evidence))
 	for _, item := range evidence {
-		label := item.MessageURL
+		label := ""
+		if item.MessageURL != "" {
+			label = "[View message](" + item.MessageURL + ")"
+		}
 		if label == "" {
 			label = item.CaptureOutcome
 		}
@@ -181,12 +235,13 @@ func evidenceSummary(evidence []quack.CaseEvidenceResponse) string {
 			if url == "" {
 				url = attachment.OriginalURL
 			}
-			rows = append(rows, fmt.Sprintf("[%s](%s) · %s", attachment.Filename, url, attachment.CopyOutcome))
+			rows = append(rows, fmt.Sprintf("[%s](%s) · %s", ui.PlainText(attachment.Filename), url, ui.PlainText(attachment.CopyOutcome)))
 		}
 	}
 	return strings.Join(rows, "\n")
 }
 
+// eventSummary shows the latest six history entries with localized event times.
 func eventSummary(events []quack.CaseEventResponse) string {
 	start := 0
 	if len(events) > 6 {
@@ -194,14 +249,15 @@ func eventSummary(events []quack.CaseEventResponse) string {
 	}
 	rows := make([]string, 0, len(events)-start)
 	for _, event := range events[start:] {
-		rows = append(rows, fmt.Sprintf("%s · %s", event.EventType, event.Body))
+		rows = append(rows, "-# "+strings.TrimSpace(ui.RelativeTime(event.CreatedAt)+" · "+ui.PlainText(event.Body)))
 	}
 	return strings.Join(rows, "\n")
 }
 
+// safeFailure exposes only a bounded diagnostic code, never raw Discord responses.
 func safeFailure(code string) string {
 	if strings.TrimSpace(code) == "" {
 		return "Discord action failed"
 	}
-	return strings.ReplaceAll(strings.TrimSpace(code), "_", " ")
+	return ui.PlainText(strings.ReplaceAll(ui.TruncateRunes(strings.TrimSpace(code), 160), "_", " "))
 }

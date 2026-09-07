@@ -8,77 +8,39 @@ import (
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 )
 
-// deferredResponder models Discord's first-followup aliasing of a deferred original.
+// deferredResponder records edits; unexpected followup/deletion calls panic via
+// the embedded nil interface, catching accidental replacement of the original.
 type deferredResponder struct {
 	ui.Responder
-	completed                     bool
-	originalDeleted               bool
-	published                     *discordgo.Message
-	editErr, followErr, deleteErr error
+	edit    ui.Edit
+	editErr error
+	edits   int
 }
 
-// EditOriginal consumes the deferred response so a followup can be a separate message.
-func (r *deferredResponder) EditOriginal(ui.Edit) (*discordgo.Message, error) {
+// EditOriginal models Discord retaining the original response's identity.
+func (r *deferredResponder) EditOriginal(edit ui.Edit) (*discordgo.Message, error) {
+	r.edit, r.edits = edit, r.edits+1
 	if r.editErr != nil {
 		return nil, r.editErr
 	}
-	r.completed = true
 	return &discordgo.Message{ID: "original"}, nil
 }
 
-// Followup preserves the original's visibility until its defer has been completed.
-func (r *deferredResponder) Followup(message ui.Message) (*discordgo.Message, error) {
-	if r.followErr != nil {
-		return nil, r.followErr
-	}
-	r.published = &discordgo.Message{ID: "result", Flags: message.WebhookParams().Flags}
-	if !r.completed {
-		r.published.ID = "original"
-		r.published.Flags = discordgo.MessageFlagsEphemeral
-	}
-	return r.published, nil
-}
-
-// DeleteOriginal models the disappearing-result bug if a followup reused the original.
-func (r *deferredResponder) DeleteOriginal() error {
-	if r.deleteErr != nil {
-		return r.deleteErr
-	}
-	r.originalDeleted = true
-	if r.published != nil && r.published.ID == "original" {
-		r.published = nil
-	}
-	return nil
-}
-
-// TestPublishSurvivesPrivateAcknowledgementCleanup reproduces the Discord lifecycle
-// and ensures failures never delete an acknowledgement before a result exists.
-func TestPublishSurvivesPrivateAcknowledgementCleanup(t *testing.T) {
-	failure := errors.New("transport failed")
-	for _, stage := range []string{"success", "edit", "followup", "cleanup"} {
-		t.Run(stage, func(t *testing.T) {
-			r := &deferredResponder{}
-			switch stage {
-			case "edit":
-				r.editErr = failure
-			case "followup":
-				r.followErr = failure
-			case "cleanup":
-				r.deleteErr = failure
+// TestPublishEditsTheDeferredOriginal preserves the reply decorator by never
+// creating a separate result, deleting the defer, or adding an interim message.
+func TestPublishEditsTheDeferredOriginal(t *testing.T) {
+	for _, failure := range []error{nil, errors.New("transport failed")} {
+		responder := &deferredResponder{editErr: failure}
+		result, err := ui.Publish(responder, ui.Content("Case added.", false))
+		if responder.edits != 1 || responder.edit.Content == nil || *responder.edit.Content != "Case added." {
+			t.Fatalf("unexpected edits: %+v", responder)
+		}
+		if failure != nil {
+			if !errors.Is(err, failure) || result != nil {
+				t.Fatalf("edit failure was lost: %v", err)
 			}
-			result, err := ui.Publish(r, ui.Content("Case created", true))
-			if stage == "edit" || stage == "followup" {
-				if !errors.Is(err, failure) || r.originalDeleted || r.published != nil {
-					t.Fatalf("lost acknowledgement on failure: %+v, %v", r, err)
-				}
-				return
-			}
-			if err != nil || result == nil || r.published == nil || result.ID == "original" || result.Flags&discordgo.MessageFlagsEphemeral != 0 {
-				t.Fatalf("result did not persist publicly: %+v, %v", r, err)
-			}
-			if stage == "success" && !r.originalDeleted {
-				t.Fatal("private acknowledgement not cleaned up")
-			}
-		})
+		} else if err != nil || result == nil || result.ID != "original" {
+			t.Fatalf("response identity changed: %+v %v", result, err)
+		}
 	}
 }

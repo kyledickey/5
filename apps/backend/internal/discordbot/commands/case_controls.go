@@ -62,7 +62,7 @@ func handleVoidModal(ctx ui.Context) ui.HandlerResult {
 		return ui.Immediate(ui.Error("That case control is invalid."))
 	}
 	reason := modalTextValue(ctx.Interaction.ModalSubmitData(), "reason")
-	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
+	return ui.Async(ui.DeferPublic(), func(taskCtx context.Context, responder ui.Responder) error {
 		guildContext, resolveErr := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
 		if resolveErr != nil {
 			return resolveErr
@@ -72,7 +72,7 @@ func handleVoidModal(ctx ui.Context) ui.HandlerResult {
 			_, editErr := responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(voidErr)))
 			return editErr
 		}
-		_, editErr := ui.Publish(responder, ui.Content("**Case voided**\n"+fmt.Sprintf("Case #%d remains in history and no longer contributes to escalation.", item.CaseNumber), false))
+		_, editErr := ui.Publish(responder, ui.Conversation("case_void", fmt.Sprintf("Case #%d was voided.", item.CaseNumber), "", "It stays in history and no longer counts toward escalation.", "", false))
 		return editErr
 	})
 }
@@ -92,7 +92,7 @@ func handleReverseModal(ctx ui.Context) ui.HandlerResult {
 	if err != nil || len(parts) != 3 || modalTextValue(ctx.Interaction.ModalSubmitData(), "confirm") != "REVERSE" {
 		return ui.Immediate(ui.Error("Reversal confirmation did not match."))
 	}
-	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
+	return ui.Async(ui.DeferPublic(), func(taskCtx context.Context, responder ui.Responder) error {
 		guildContext, resolveErr := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
 		if resolveErr != nil {
 			return resolveErr
@@ -102,7 +102,7 @@ func handleReverseModal(ctx ui.Context) ui.HandlerResult {
 			_, editErr := responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(reverseErr)))
 			return editErr
 		}
-		_, editErr := ui.Publish(responder, ui.Content("**Reversal queued**\nThe original action remains visible in case history.", false))
+		_, editErr := ui.Publish(responder, ui.Conversation("retry", "The reversal is queued.", "", "The original action stays in the case history.", "", false))
 		return editErr
 	})
 }

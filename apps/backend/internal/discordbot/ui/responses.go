@@ -2,7 +2,6 @@ package ui
 
 import (
 	"context"
-	"log/slog"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/quack"
@@ -121,28 +120,17 @@ func Modal(title, customID string, components []discordgo.MessageComponent) *dis
 
 // Error formats - as a standard Go error without discarding its classification.
 func Error(content string) *discordgo.InteractionResponse {
-	return Ephemeral(EmbedMessage(ErrorEmbed(content), true))
+	return Ephemeral(Signal("error", content, true))
 }
 
 // ErrorEdit encapsulates the error edit rule so callers share one consistent package implementation.
 func ErrorEdit(content string) Edit {
-	return EditMessage(EmbedMessage(ErrorEmbed(content), false))
+	return EditMessage(Signal("error", content, false))
 }
 
-// Publish completes a private deferred acknowledgement before posting a permanent
-// channel result. Discord otherwise treats the first followup as an edit of the
-// private original, ignoring its public flag. Only the acknowledgement is deleted.
+// Publish replaces a public deferred response in place, preserving Discord's
+// command attribution. Callers must acknowledge with DeferPublic first because
+// Discord fixes the response visibility when the interaction is acknowledged.
 func Publish(responder Responder, message Message) (*discordgo.Message, error) {
-	if _, err := responder.EditOriginal(EditMessage(Content("Posting result…", true))); err != nil {
-		return nil, err
-	}
-	message.Ephemeral = false
-	published, err := responder.Followup(message)
-	if err != nil {
-		return nil, err
-	}
-	if err := responder.DeleteOriginal(); err != nil {
-		slog.Warn("Could not remove private interaction acknowledgement", "error_type", "discord_response")
-	}
-	return published, nil
+	return responder.EditOriginal(EditMessage(message))
 }

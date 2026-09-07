@@ -35,7 +35,7 @@ func handleContextModal(ctx ui.Context) ui.HandlerResult {
 	if draft.Page*5 < len(draft.Template.ContextFields) {
 		caseContextDrafts.save(draft)
 		continueID := ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "context_next", Version: "v1", Payload: draft.Token})
-		return ui.Immediate(ui.Ephemeral(ui.Message{Content: fmt.Sprintf("Saved context page %d. Continue to page %d.", draft.Page, draft.Page+1), Components: []discordgo.MessageComponent{ui.Row(ui.Button(continueID, "Continue context", discordgo.PrimaryButton, false))}, Ephemeral: true}))
+		return ui.Immediate(ui.Ephemeral(ui.Message{Content: fmt.Sprintf("{{quack:success}} Your answers are saved. Continue to page %d.", draft.Page+1), Components: []discordgo.MessageComponent{ui.Row(ui.Button(continueID, "Continue context", discordgo.PrimaryButton, false))}, Ephemeral: true}))
 	}
 	caseContextDrafts.delete(draft.Token)
 	orderedValues := make([]quack.CaseContextValueInput, 0, len(draft.Values))
@@ -44,7 +44,7 @@ func handleContextModal(ctx ui.Context) ui.HandlerResult {
 			orderedValues = append(orderedValues, quack.CaseContextValueInput{Key: field.Key, Value: value})
 		}
 	}
-	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
+	return ui.Async(ui.DeferPublic(), func(taskCtx context.Context, responder ui.Responder) error {
 		guildContext, resolveErr := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
 		if resolveErr != nil {
 			return resolveErr
@@ -103,7 +103,7 @@ func handleMessageTemplateComponent(ctx ui.Context) ui.HandlerResult {
 		}
 		return ui.Immediate(modal)
 	}
-	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
+	return ui.Async(ui.DeferPublic(), func(taskCtx context.Context, responder ui.Responder) error {
 		created, createErr := ctx.Services.Cases.Create(taskCtx, guildContext, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: parts[0], Source: model.CaseSourceDiscord, ContextChannelDiscordID: parts[1], ContextMessageDiscordID: parts[2], ContextValues: values, EvidenceLinks: []string{link}, IdempotencyKey: ctx.Interaction.ID})
 		if createErr != nil {
 			return createErr

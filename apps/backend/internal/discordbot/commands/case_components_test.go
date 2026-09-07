@@ -44,23 +44,23 @@ func TestCaseAddUsesStructuredModalAndKeepsPublicSummaryLimited(t *testing.T) {
 	modal.ID = "modal-interaction-2"
 	modal.Data = discordgo.ModalSubmitInteractionData{CustomID: customID, Components: []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{discordgo.TextInput{CustomID: "context_details", Value: "Repeated abusive replies"}}}}}
 	modalResult := handleContextModal(ui.Context{Context: context.Background(), Services: services, Interaction: modal})
-	if modalResult.Response == nil || modalResult.Task == nil || modalResult.Response.Data.Flags&discordgo.MessageFlagsEphemeral == 0 {
-		t.Fatalf("expected private validation acknowledgement, got %+v", modalResult)
+	if modalResult.Response == nil || modalResult.Task == nil || (modalResult.Response.Data != nil && modalResult.Response.Data.Flags&discordgo.MessageFlagsEphemeral != 0) {
+		t.Fatalf("expected public deferred result, got %+v", modalResult)
 	}
 	responder := &fakeResponder{}
 	if err := modalResult.Task(context.Background(), responder); err != nil {
 		t.Fatal(err)
 	}
-	if !responder.deleted || responder.followup.Ephemeral || len(responder.followup.Embeds) != 0 || responder.editCount != 1 {
-		t.Fatalf("expected public text after private validation, got %+v", responder)
+	if responder.deleted || responder.followup.Content != "" || responder.edit.Content == nil || responder.edit.Embeds == nil || len(*responder.edit.Embeds) != 0 || responder.editCount != 1 {
+		t.Fatalf("expected one in-place public result, got %+v", responder)
 	}
 	for _, want := range []string{"<@target-2>", "Abuse", "Default"} {
-		if !strings.Contains(responder.followup.Content, want) {
+		if !strings.Contains(*responder.edit.Content, want) {
 			t.Fatalf("missing %q: %+v", want, responder.followup)
 		}
 	}
 	for _, hidden := range []string{"Moderator", "Matching Cases", "Visible context", "Evidence", "Repeated abusive replies"} {
-		if strings.Contains(responder.followup.Content, hidden) {
+		if strings.Contains(*responder.edit.Content, hidden) {
 			t.Fatalf("public result leaked %s", hidden)
 		}
 	}
@@ -125,7 +125,7 @@ func TestCaseContextWizardSupportsMoreThanFiveStructuredFields(t *testing.T) {
 		t.Fatalf("expected completed wizard to create case, got %+v", final)
 	}
 	responder := &fakeResponder{}
-	if err := final.Task(context.Background(), responder); err != nil || !responder.deleted {
+	if err := final.Task(context.Background(), responder); err != nil || responder.deleted || responder.editCount != 1 {
 		t.Fatalf("wizard did not create public case result: responder=%+v err=%v", responder, err)
 	}
 }

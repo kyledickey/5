@@ -195,7 +195,7 @@ func (d *Dispatcher) respond(interaction *discordgo.InteractionCreate, response 
 	if d.Client == nil {
 		return fmt.Errorf("discord interaction client is not configured")
 	}
-	return d.Client.InteractionRespond(interaction.Interaction, response)
+	return d.Client.InteractionRespond(interaction.Interaction, ui.PrepareResponse(response, interaction.AppID))
 }
 
 // responder encapsulates the responder rule so callers share one consistent package implementation.
@@ -211,17 +211,17 @@ type responder struct {
 
 // EditOriginal encapsulates the edit original rule so callers share one consistent package implementation.
 func (r responder) EditOriginal(edit ui.Edit) (*discordgo.Message, error) {
-	return r.client.InteractionResponseEdit(r.interaction, edit.WebhookEdit())
+	return r.client.InteractionResponseEdit(r.interaction, edit.ForApplication(r.interaction.AppID).WebhookEdit())
 }
 
 // Followup encapsulates the followup rule so callers share one consistent package implementation.
 func (r responder) Followup(message ui.Message) (*discordgo.Message, error) {
-	return r.client.FollowupMessageCreate(r.interaction, true, message.WebhookParams())
+	return r.client.FollowupMessageCreate(r.interaction, true, message.ForApplication(r.interaction.AppID).WebhookParams())
 }
 
 // EditFollowup updates a previously published public result after asynchronous work reaches a terminal state.
 func (r responder) EditFollowup(messageID string, edit ui.Edit) (*discordgo.Message, error) {
-	return r.client.FollowupMessageEdit(r.interaction, messageID, edit.WebhookEdit())
+	return r.client.FollowupMessageEdit(r.interaction, messageID, edit.ForApplication(r.interaction.AppID).WebhookEdit())
 }
 
 // DeleteOriginal encapsulates the delete original rule so callers share one consistent package implementation.
@@ -275,7 +275,7 @@ func (d *Dispatcher) taskError(interaction *discordgo.InteractionCreate, respons
 	const message = "Quack could not finish that interaction."
 	responder := d.responder(interaction)
 	if responseType == discordgo.InteractionResponseDeferredMessageUpdate {
-		_, _ = responder.Followup(ui.EmbedMessage(ui.ErrorEmbed(message), true))
+		_, _ = responder.Followup(ui.Signal("error", message, true))
 		return
 	}
 	_, _ = responder.EditOriginal(ui.ErrorEdit(message))

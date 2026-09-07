@@ -29,12 +29,12 @@ func TestAppealEntryMessageRequiresHTTPSAndTargetsOwnedCase(t *testing.T) {
 
 func TestAppealStaffMessageOffersOnlyExplicitReversalControls(t *testing.T) {
 	message := AppealStaffMessage(&quack.AppealResponse{ID: "appeal", CaseID: "case", TargetDiscordUserID: "target", Status: model.AppealStatusAccepted, ReversalOffers: []quack.AppealReversalOffer{{OriginalExecutionID: "execution", ActionType: model.ActionUnbanUser}}})
-	if len(message.Components) != 1 || len(message.Embeds) != 1 {
+	if len(message.Components) != 1 || len(message.Embeds) != 0 || !strings.Contains(message.Content, "<@target>") {
 		t.Fatalf("expected one explicit reversal offer: %+v", message)
 	}
 	row := message.Components[0].(discordgo.ActionsRow)
 	button := row.Components[0].(discordgo.Button)
-	if button.Style != discordgo.DangerButton || !strings.Contains(button.CustomID, "appeal:reverse:v1") {
+	if button.Style != discordgo.SecondaryButton || !strings.HasPrefix(button.Label, "Confirm ") || !strings.Contains(button.CustomID, "appeal:reverse:v1") {
 		t.Fatalf("reversal was not an explicit confirmation control: %+v", button)
 	}
 }

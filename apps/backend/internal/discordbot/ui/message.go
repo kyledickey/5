@@ -19,11 +19,11 @@ const (
 )
 
 const (
-	ColorMain    = 0x5865F2
-	ColorSuccess = 0x57F287
-	ColorWarning = 0xFEE75C
+	ColorMain    = 0xE5AA2C
+	ColorSuccess = ColorMain
+	ColorWarning = ColorMain
 	ColorError   = 0xED4245
-	ColorMuted   = 0x99AAB5
+	ColorMuted   = ColorMain
 )
 
 // Message is the package-owned Discord response model used for both initial responses and followups.
@@ -51,6 +51,7 @@ func (m Message) ResponseData() *discordgo.InteractionResponseData {
 		Content:         m.Content,
 		Embeds:          m.Embeds,
 		Components:      m.Components,
+		Files:           m.Files,
 		AllowedMentions: m.AllowedMentions,
 	}
 	if data.AllowedMentions == nil {
@@ -74,8 +75,9 @@ func (m Message) WebhookParams() *discordgo.WebhookParams {
 	if params.AllowedMentions == nil {
 		params.AllowedMentions = &discordgo.MessageAllowedMentions{}
 	}
+	params.Flags = discordgo.MessageFlagsSuppressEmbeds
 	if m.Ephemeral {
-		params.Flags = discordgo.MessageFlagsEphemeral
+		params.Flags |= discordgo.MessageFlagsEphemeral
 	}
 	return params
 }
@@ -89,6 +91,10 @@ func (e Edit) WebhookEdit() *discordgo.WebhookEdit {
 		Files:           e.Files,
 		AllowedMentions: e.AllowedMentions,
 	}
+	if e.Content != nil {
+		attachments := []*discordgo.MessageAttachment{}
+		edit.Attachments = &attachments
+	}
 	if edit.AllowedMentions == nil {
 		edit.AllowedMentions = &discordgo.MessageAllowedMentions{}
 	}
@@ -98,8 +104,8 @@ func (e Edit) WebhookEdit() *discordgo.WebhookEdit {
 // EditMessage converts edit message into its transport presentation without leaking transport types into the core.
 func EditMessage(m Message) Edit {
 	content := m.Content
-	embeds := m.Embeds
-	components := m.Components
+	embeds := append([]*discordgo.MessageEmbed{}, m.Embeds...)
+	components := append([]discordgo.MessageComponent{}, m.Components...)
 	return Edit{
 		Content:         &content,
 		Embeds:          &embeds,
@@ -131,22 +137,22 @@ func EmbedsMessage(ephemeral bool, embeds ...*discordgo.MessageEmbed) Message {
 
 // SuccessEmbed converts success embed into its transport presentation without leaking transport types into the core.
 func SuccessEmbed(title, description string) *discordgo.MessageEmbed {
-	return NewEmbed().SetTitle(title).SetDescription(description).SetColor(ColorSuccess).SetTimestamp(time.Now()).Build()
+	return NewEmbed().SetTitle(title).SetDescription(description).SetColor(ColorSuccess).Build()
 }
 
 // ErrorEmbed converts error embed into its transport presentation without leaking transport types into the core.
 func ErrorEmbed(description string) *discordgo.MessageEmbed {
-	return NewEmbed().SetTitle("Error").SetDescription(description).SetColor(ColorError).SetTimestamp(time.Now()).Build()
+	return NewEmbed().SetTitle("Couldn’t do that").SetDescription(description).SetColor(ColorError).Build()
 }
 
 // WarningEmbed converts warning embed into its transport presentation without leaking transport types into the core.
 func WarningEmbed(title, description string) *discordgo.MessageEmbed {
-	return NewEmbed().SetTitle(title).SetDescription(description).SetColor(ColorWarning).SetTimestamp(time.Now()).Build()
+	return NewEmbed().SetTitle(title).SetDescription(description).SetColor(ColorWarning).Build()
 }
 
 // InfoEmbed converts info embed into its transport presentation without leaking transport types into the core.
 func InfoEmbed(title, description string) *discordgo.MessageEmbed {
-	return NewEmbed().SetTitle(title).SetDescription(description).SetColor(ColorMain).SetTimestamp(time.Now()).Build()
+	return NewEmbed().SetTitle(title).SetDescription(description).SetColor(ColorMain).Build()
 }
 
 // TruncateRunes enforces Discord text limits without splitting a UTF-8 code point.
@@ -168,7 +174,7 @@ type Embed struct {
 
 // NewEmbed constructs embed with required dependencies explicit so callers control lifecycle and substitution.
 func NewEmbed() *Embed {
-	return &Embed{embed: &discordgo.MessageEmbed{}}
+	return &Embed{embed: &discordgo.MessageEmbed{Color: ColorMain}}
 }
 
 // NewInfoEmbed constructs info embed with required dependencies explicit so callers control lifecycle and substitution.
@@ -183,7 +189,7 @@ func NewSuccessEmbed(title, description string) *Embed {
 
 // NewErrorEmbed constructs error embed with required dependencies explicit so callers control lifecycle and substitution.
 func NewErrorEmbed(description string) *Embed {
-	return NewEmbed().SetTitle("Error").SetDescription(description).SetColor(ColorError)
+	return NewEmbed().SetTitle("Couldn’t do that").SetDescription(description).SetColor(ColorError)
 }
 
 // SetTitle encapsulates the set title rule so callers share one consistent package implementation.
@@ -291,7 +297,29 @@ func Field(name string, value any, inline bool) *discordgo.MessageEmbedField {
 	}
 }
 
-// Build builds build from validated domain state.
+// Build bounds the aggregate card text as well as each field. Discord rejects
+// an entire message above 6000 characters, so optional trailing details yield first.
 func (e *Embed) Build() *discordgo.MessageEmbed {
-	return e.embed
+	result := *e.embed
+	remaining := 6000 - len([]rune(result.Title))
+	if result.Author != nil {
+		remaining -= len([]rune(result.Author.Name))
+	}
+	if result.Footer != nil {
+		remaining -= len([]rune(result.Footer.Text))
+	}
+	result.Description = TruncateRunes(result.Description, remaining)
+	remaining -= len([]rune(result.Description))
+	result.Fields = nil
+	for _, field := range e.embed.Fields {
+		cost := len([]rune(field.Name))
+		if remaining <= cost {
+			break
+		}
+		copy := *field
+		copy.Value = TruncateRunes(copy.Value, remaining-cost)
+		result.Fields = append(result.Fields, &copy)
+		remaining -= cost + len([]rune(copy.Value))
+	}
+	return &result
 }

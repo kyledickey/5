@@ -46,6 +46,8 @@ func TestEmbedTruncatesByRuneLimit(t *testing.T) {
 	embed := ui.NewEmbed().
 		SetTitle(strings.Repeat("t", ui.EmbedTitleLimit+10)).
 		SetDescription(strings.Repeat("d", ui.EmbedDescriptionLimit+10)).
+		Build()
+	fieldEmbed := ui.NewEmbed().
 		AddField(strings.Repeat("n", ui.EmbedFieldNameLimit+10), strings.Repeat("v", ui.EmbedFieldValueLimit+10), false).
 		SetFooter(strings.Repeat("f", ui.EmbedFooterLimit+10)).
 		Build()
@@ -56,13 +58,13 @@ func TestEmbedTruncatesByRuneLimit(t *testing.T) {
 	if len([]rune(embed.Description)) != ui.EmbedDescriptionLimit {
 		t.Fatalf("description was not truncated")
 	}
-	if len([]rune(embed.Fields[0].Name)) != ui.EmbedFieldNameLimit {
+	if len([]rune(fieldEmbed.Fields[0].Name)) != ui.EmbedFieldNameLimit {
 		t.Fatalf("field name was not truncated")
 	}
-	if len([]rune(embed.Fields[0].Value)) != ui.EmbedFieldValueLimit {
+	if len([]rune(fieldEmbed.Fields[0].Value)) != ui.EmbedFieldValueLimit {
 		t.Fatalf("field value was not truncated")
 	}
-	if len([]rune(embed.Footer.Text)) != ui.EmbedFooterLimit {
+	if len([]rune(fieldEmbed.Footer.Text)) != ui.EmbedFooterLimit {
 		t.Fatalf("footer was not truncated")
 	}
 }
@@ -102,18 +104,14 @@ func TestEmbedHelpersBuildPresetEmbedsAndMessages(t *testing.T) {
 	}
 }
 
-func TestErrorResponsesUseEmbeds(t *testing.T) {
+func TestErrorResponsesUseConversationAndClearOldEmbeds(t *testing.T) {
 	response := ui.Error("Nope")
-	if response.Data == nil || response.Data.Content != "" || len(response.Data.Embeds) != 1 {
-		t.Fatalf("expected embed error response, got %+v", response)
+	if response.Data == nil || response.Data.Content != "{{quack:error}} Nope" || len(response.Data.Embeds) != 0 || response.Data.Flags&discordgo.MessageFlagsEphemeral == 0 {
+		t.Fatalf("expected private conversational error: %+v", response)
 	}
-	if response.Data.Embeds[0].Color != ui.ColorError {
-		t.Fatalf("expected error color, got %d", response.Data.Embeds[0].Color)
-	}
-
 	edit := ui.ErrorEdit("Nope").WebhookEdit()
-	if edit.Content == nil || *edit.Content != "" || edit.Embeds == nil || len(*edit.Embeds) != 1 {
-		t.Fatalf("expected embed error edit, got %+v", edit)
+	if edit.Content == nil || *edit.Content != "{{quack:error}} Nope" || edit.Embeds == nil || len(*edit.Embeds) != 0 {
+		t.Fatalf("expected text error edit clearing previous embeds: %+v", edit)
 	}
 }
 
