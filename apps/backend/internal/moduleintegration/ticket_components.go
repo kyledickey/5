@@ -46,7 +46,7 @@ func (r *Runtime) openTicketComponent(ctx ui.Context) ui.HandlerResult {
 			_, _ = responder.EditOriginal(ui.ErrorEdit(ticketErrorMessage(err)))
 			return nil
 		}
-		message := ui.Content("Ticket opened: <#"+ticket.ThreadDiscordChannelID+">", true)
+		message := ui.Signal("ticket", "Your ticket is ready: <#"+ticket.ThreadDiscordChannelID+">", true)
 		message.Components = ticketControls(ticket.ID, actor.CanManage)
 		_, err = responder.EditOriginal(ui.EditMessage(message))
 		return err
@@ -61,14 +61,14 @@ func (r *Runtime) ticketQueueComponent(ctx ui.Context) ui.HandlerResult {
 			_, _ = responder.EditOriginal(ui.ErrorEdit(ticketErrorMessage(err)))
 			return nil
 		}
-		lines := []string{"Open tickets:"}
+		lines := []string{fmt.Sprintf("You have **%d open tickets** to review.", len(queue))}
 		for _, ticket := range queue {
-			lines = append(lines, fmt.Sprintf("• `%s` — <#%s>", ticket.ID, ticket.ThreadDiscordChannelID))
+			lines = append(lines, fmt.Sprintf("<#%s> · <@%s> · %s", ticket.ThreadDiscordChannelID, ticket.OwnerDiscordUserID, ui.RelativeTime(ticket.CreatedAt)))
 		}
 		if len(queue) == 0 {
-			lines = append(lines, "No open tickets.")
+			lines = []string{"No open tickets right now."}
 		}
-		_, err = responder.EditOriginal(ui.EditMessage(ui.Content(strings.Join(lines, "\n"), true)))
+		_, err = responder.EditOriginal(ui.EditMessage(ui.Signal("ticket", strings.Join(lines, "\n\n"), true)))
 		return err
 	})
 }
@@ -85,11 +85,11 @@ func (r *Runtime) viewTicketComponent(ctx ui.Context) ui.HandlerResult {
 			_, _ = responder.EditOriginal(ui.ErrorEdit(ticketErrorMessage(err)))
 			return nil
 		}
-		lines := []string{fmt.Sprintf("Ticket `%s` is **%s**.", ticket.ID, ticket.Status)}
+		lines := []string{fmt.Sprintf("The ticket for <@%s> is **%s**.", ticket.OwnerDiscordUserID, ticket.Status)}
 		for _, event := range events {
-			lines = append(lines, fmt.Sprintf("• %s — %s", event.Type, ui.TruncateRunes(event.Body, 240)))
+			lines = append(lines, ui.Quote(ui.PlainText(event.Body))+"\n-# "+ui.RelativeTime(event.CreatedAt))
 		}
-		message := ui.Content(strings.Join(lines, "\n"), true)
+		message := ui.Signal("ticket", strings.Join(lines, "\n\n"), true)
 		message.Components = ticketControls(ticket.ID, actor.CanManage)
 		_, err = responder.EditOriginal(ui.EditMessage(message))
 		return err
@@ -107,7 +107,7 @@ func (r *Runtime) repairTicketComponent(ctx ui.Context) ui.HandlerResult {
 			_, _ = responder.EditOriginal(ui.ErrorEdit(ticketErrorMessage(err)))
 			return nil
 		}
-		_, err := responder.EditOriginal(ui.EditMessage(ui.Content("Ticket permissions repaired.", true)))
+		_, err := responder.EditOriginal(ui.EditMessage(ui.Signal("lock", "Ticket permissions are repaired. Access is limited to the member and staff again.", true)))
 		return err
 	})
 }
@@ -154,7 +154,7 @@ func (r *Runtime) submitTicketReplyModal(ctx ui.Context) ui.HandlerResult {
 			_, _ = responder.EditOriginal(ui.ErrorEdit(ticketErrorMessage(err)))
 			return nil
 		}
-		_, err := responder.EditOriginal(ui.EditMessage(ui.Content("Reply sent.", true)))
+		_, err := responder.EditOriginal(ui.EditMessage(ui.Signal("reply", "Your reply was sent.", true)))
 		return err
 	})
 }
@@ -170,7 +170,7 @@ func (r *Runtime) closeTicketComponent(ctx ui.Context) ui.HandlerResult {
 			_, _ = responder.EditOriginal(ui.ErrorEdit(ticketErrorMessage(err)))
 			return nil
 		}
-		_, err := responder.EditOriginal(ui.EditMessage(ui.Content("Ticket closed and transcript captured.", true)))
+		_, err := responder.EditOriginal(ui.EditMessage(ui.Signal("lock", "Ticket closed. The transcript has been saved.", true)))
 		return err
 	})
 }

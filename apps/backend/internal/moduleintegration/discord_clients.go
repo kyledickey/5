@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/modules/tickets"
 )
 
@@ -135,9 +136,7 @@ func (c ticketDiscordClient) SendTicketReply(ctx context.Context, channelID, bod
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	_, err := c.session.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
-		Content: body, AllowedMentions: &discordgo.MessageAllowedMentions{},
-	}, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+	_, err := c.session.ChannelMessageSendComplex(channelID, ui.Conversation("reply", "A reply to your ticket.", ui.PlainText(body), "", "", false).SendParams(ui.SessionApplicationID(c.session)), discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 	return err
 }
 

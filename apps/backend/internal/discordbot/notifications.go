@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/discordbot/ui/views"
 	"github.com/quackdiscord/bot/internal/quack/actionmods"
 )
@@ -21,7 +22,7 @@ func (b *Bot) SendDM(ctx context.Context, userID, message string) (map[string]an
 	if err != nil {
 		return nil, classifyDiscordError("send_dm_channel", err)
 	}
-	sent, err := b.Session.ChannelMessageSendComplex(channel.ID, &discordgo.MessageSend{Content: message, AllowedMentions: &discordgo.MessageAllowedMentions{}}, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+	sent, err := b.Session.ChannelMessageSendComplex(channel.ID, ui.Signal("message", message, false).SendParams(ui.SessionApplicationID(b.Session)), discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 	if err != nil {
 		return nil, classifyDiscordError("send_dm_message", err)
 	}
@@ -52,7 +53,7 @@ func (b *Bot) SendPreparedDM(ctx context.Context, channelID, message string) (ma
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	sent, err := b.Session.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{Content: message, AllowedMentions: &discordgo.MessageAllowedMentions{}}, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+	sent, err := b.Session.ChannelMessageSendComplex(channelID, ui.Signal("message", message, false).SendParams(ui.SessionApplicationID(b.Session)), discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 	if err != nil {
 		return nil, classifyDiscordOperation("dm_send", err, true)
 	}
@@ -83,7 +84,9 @@ func (b *Bot) SendCaseNotification(ctx context.Context, userID, channelID, messa
 	if err != nil {
 		return nil, err
 	}
-	sent, err := b.Session.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{Content: message, Components: entry.Components, AllowedMentions: &discordgo.MessageAllowedMentions{}}, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+	notice := ui.Signal("message", message, false)
+	notice.Components = entry.Components
+	sent, err := b.Session.ChannelMessageSendComplex(channelID, notice.SendParams(ui.SessionApplicationID(b.Session)), discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 	if err != nil {
 		return nil, classifyDiscordOperation("dm_send", err, true)
 	}

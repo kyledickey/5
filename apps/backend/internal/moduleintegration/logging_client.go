@@ -5,6 +5,8 @@ import (
 	"errors"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/internal/discordbot/ui"
+	"github.com/quackdiscord/bot/internal/discordbot/ui/views"
 )
 
 // loggingDiscordClient sends already-redacted payloads only to channels whose
@@ -19,9 +21,7 @@ func (c loggingDiscordClient) SendStaffLog(ctx context.Context, guildID, channel
 	if err := c.ValidateStaffOnlyChannel(ctx, guildID, channelID); err != nil {
 		return err
 	}
-	_, err := c.session.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
-		Content: payload, AllowedMentions: &discordgo.MessageAllowedMentions{},
-	}, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+	_, err := c.session.ChannelMessageSendComplex(channelID, views.StaffLogMessage(payload).SendParams(ui.SessionApplicationID(c.session)), discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 	return err
 }
 

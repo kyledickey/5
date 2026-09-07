@@ -2,12 +2,14 @@ package quack
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 	"time"
 
+	"github.com/quackdiscord/bot/internal/discordtext"
 	actionmods "github.com/quackdiscord/bot/internal/quack/actionmods"
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
@@ -65,7 +67,18 @@ func (s *ActionService) processNotification(ctx context.Context, workerID, caseI
 	if err != nil {
 		return err
 	}
-	message := renderCaseNotification(*item, guild, settings, actions)
+	// Read recorded Discord responses so displayed expiry times reflect the actual successful attempt.
+	executionIDs := make([]string, 0, len(actions))
+	for _, action := range actions {
+		executionIDs = append(executionIDs, action.ID)
+	}
+	var attempts []model.CaseActionAttempt
+	if reader, ok := s.store.(interface {
+		ListCaseActionAttempts(context.Context, []string) ([]model.CaseActionAttempt, error)
+	}); ok && len(executionIDs) > 0 {
+		attempts, _ = reader.ListCaseActionAttempts(ctx, executionIDs)
+	}
+	message := renderCaseNotification(*item, guild, settings, actions, attempts...)
 	if err := s.store.BeginCaseNotificationDelivery(ctx, claimed.ID, claimed.LeaseToken); err != nil {
 		return err
 	}
@@ -114,35 +127,93 @@ func (s *ActionService) processNotification(ctx context.Context, workerID, caseI
 	return nil
 }
 
-// renderCaseNotification builds the bounded product-owned message without executable guild templates.
-func renderCaseNotification(item model.Case, guild *model.Guild, settings *model.GuildSettings, actions []model.CaseActionExecution) string {
+// renderCaseNotification describes recorded enforcement, member-visible context,
+// and next steps. The transport preserves long messages in a same-destination file.
+func renderCaseNotification(item model.Case, guild *model.Guild, settings *model.GuildSettings, actions []model.CaseActionExecution, attempts ...model.CaseActionAttempt) string {
 	guildName := "this server"
 	if guild != nil && strings.TrimSpace(guild.Name) != "" {
 		guildName = guild.Name
 	}
-	parts := []string{}
-	if settings != nil && strings.TrimSpace(settings.NotificationIntroduction) != "" {
-		parts = append(parts, truncateRunes(strings.TrimSpace(settings.NotificationIntroduction), 150))
+	server := "**" + notificationPlain(guildName) + "**"
+	icon, lead := "case", "A case was added for you in "+server
+	primary := -1
+	removed := false
+	for i, action := range actions {
+		if action.Status != model.ActionExecutionSucceeded {
+			continue
+		}
+		switch action.ActionType {
+		case model.ActionTimeoutUser:
+			icon, lead = "timeout", "You’ve been timed out in "+server
+		case model.ActionKickUser:
+			icon, lead = "kick", "You’ve been removed from "+server
+		case model.ActionBanUser:
+			icon, lead = "ban", "You’ve been banned from "+server
+		case model.ActionRemoveTimeout:
+			icon, lead, removed = "untimeout", "Your timeout in "+server+" has been removed", true
+		case model.ActionUnbanUser:
+			icon, lead, removed = "unban", "Your ban from "+server+" has been removed", true
+		default:
+			continue
+		}
+		primary = i
+		break
 	}
-	parts = append(parts, fmt.Sprintf("Moderation case #%d in %s", item.CaseNumber, guildName), "Reason: "+truncateRunes(item.Reason, 200))
-	for _, value := range parseCaseContextValues(item.ContextValuesJSON) {
-		if value.Value != nil {
-			parts = append(parts, fmt.Sprintf("%s: %s", truncateRunes(value.Label, 40), truncateRunes(fmt.Sprint(value.Value), 50)))
+	snapshot := templateSnapshotResponse(item.TemplateSnapshotJSON)
+	parts := []string{}
+	if snapshot != nil && strings.TrimSpace(snapshot.Template.Name) != "" {
+		rule := "**" + notificationPlain(snapshot.Template.Name) + "**"
+		if removed {
+			parts = append(parts, "This updates your case for "+rule+".")
+		} else {
+			lead += " for " + rule
 		}
 	}
-	outcome := "No Discord enforcement action was configured."
-	if len(actions) > 0 {
-		action := actions[0]
-		outcome = fmt.Sprintf("Outcome: %s (%s)", action.ActionType.Label(), action.Status.Label())
+	if settings != nil && strings.TrimSpace(settings.NotificationIntroduction) != "" {
+		parts = append(parts, notificationPlain(strings.TrimSpace(settings.NotificationIntroduction)))
 	}
-	parts = append(parts, outcome)
-	if snapshot := templateSnapshotResponse(item.TemplateSnapshotJSON); snapshot != nil && snapshot.Template.Appealable {
-		parts = append(parts, "This case can be appealed from your Quack dashboard.")
+	for _, value := range parseCaseContextValues(item.ContextValuesJSON) {
+		if value.Value != nil {
+			parts = append(parts, discordtext.Quote(notificationPlain(value.Label)+" — "+notificationPlain(fmt.Sprint(value.Value))))
+		}
+	}
+	for i, action := range actions {
+		if action.Status == model.ActionExecutionFailed && primary == -1 {
+			icon = "error"
+		}
+		if i != primary && action.ActionType != model.ActionSendDM {
+			parts = append(parts, discordtext.ActionSentence(action.ActionType, action.Status))
+		}
+		if action.Status != model.ActionExecutionSucceeded || action.ActionType != model.ActionTimeoutUser {
+			continue
+		}
+		for _, attempt := range attempts {
+			if attempt.ExecutionID != action.ID || attempt.Status != model.ActionAttemptSucceeded {
+				continue
+			}
+			var response struct {
+				Until string `json:"timeout_until"`
+			}
+			if json.Unmarshal([]byte(attempt.ResponsePayloadJSON), &response) != nil {
+				continue
+			}
+			if until, err := time.Parse(time.RFC3339, response.Until); err == nil {
+				parts = append(parts, fmt.Sprintf("You can chat again <t:%d:R> — <t:%d:f>.", until.Unix(), until.Unix()))
+				break
+			}
+		}
+	}
+	if snapshot != nil && snapshot.Template.Appealable {
+		parts = append(parts, "You can ask staff to review this decision from your Quack dashboard.")
 	}
 	if settings != nil && strings.TrimSpace(settings.NotificationFooter) != "" {
-		parts = append(parts, truncateRunes(strings.TrimSpace(settings.NotificationFooter), 150))
+		parts = append(parts, notificationPlain(strings.TrimSpace(settings.NotificationFooter)))
 	}
-	return truncateRunes(strings.Join(parts, "\n"), 2000)
+	meta := fmt.Sprintf("Case #%d", item.CaseNumber)
+	if !item.CreatedAt.IsZero() {
+		meta += fmt.Sprintf(" · <t:%d:R>", item.CreatedAt.Unix())
+	}
+	return discordtext.Conversation(icon, lead+".", notificationPlain(item.Reason), strings.Join(parts, "\n\n"), meta)
 }
 
 // redactDiscordError converts adapter failures to safe durable notification diagnostics.
@@ -158,4 +229,10 @@ func redactDiscordError(err error) string {
 		return "Discord request timed out"
 	}
 	return "Discord request failed"
+}
+
+// notificationPlain keeps guild and member text literal inside product-owned Markdown.
+// This formatter remains Discord-type-free so the core does not import the bot adapter.
+func notificationPlain(value string) string {
+	return discordtext.Plain(value)
 }

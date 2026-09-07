@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
-	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/internal/discordbot/ui"
+	"github.com/quackdiscord/bot/internal/discordbot/ui/views"
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
@@ -24,22 +24,8 @@ func (b *Bot) SendAuditMirror(ctx context.Context, message quack.AuditMirrorMess
 	if err := b.ValidateStaffChannel(ctx, message.DiscordGuildID, message.ChannelDiscordID); err != nil {
 		return fmt.Errorf("%w: private destination validation failed", quack.ErrAuditMirrorChannelUnavailable)
 	}
-	fields := []*discordgo.MessageEmbedField{
-		{Name: "Result", Value: string(message.Result), Inline: true},
-		{Name: "Resource", Value: fmt.Sprintf("%s · `%s`", message.ResourceType, message.ResourceID), Inline: true},
-	}
-	if message.ActorDiscordUserID != "" {
-		fields = append(fields, &discordgo.MessageEmbedField{Name: "Actor", Value: "<@" + message.ActorDiscordUserID + ">", Inline: true})
-	}
-	if message.FailureReason != "" {
-		fields = append(fields, &discordgo.MessageEmbedField{Name: "Failure", Value: truncateAuditMirrorText(message.FailureReason, 256)})
-	}
-	trace := strings.TrimSpace(message.CorrelationID)
-	if trace == "" {
-		trace = strings.TrimSpace(message.RequestID)
-	}
-	embed := &discordgo.MessageEmbed{Title: truncateAuditMirrorText(message.Action, 256), Description: "Quack moderation audit event", Fields: fields, Color: auditMirrorColor(string(message.Result)), Timestamp: message.OccurredAt.UTC().Format(time.RFC3339), Footer: &discordgo.MessageEmbedFooter{Text: "Audit " + message.AuditEntryID + " · Trace " + trace}}
-	_, err := b.Session.ChannelMessageSendComplex(message.ChannelDiscordID, &discordgo.MessageSend{Embed: embed, AllowedMentions: &discordgo.MessageAllowedMentions{}}, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+	notice := views.AuditMirrorMessage(message)
+	_, err := b.Session.ChannelMessageSendComplex(message.ChannelDiscordID, notice.SendParams(ui.SessionApplicationID(b.Session)), discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 	if err == nil {
 		return nil
 	}
@@ -48,23 +34,4 @@ func (b *Bot) SendAuditMirror(ctx context.Context, message quack.AuditMirrorMess
 		return fmt.Errorf("%w: Discord rejected configured channel", quack.ErrAuditMirrorChannelUnavailable)
 	}
 	return errors.New("Discord audit mirror delivery failed")
-}
-
-func auditMirrorColor(result string) int {
-	switch result {
-	case "success":
-		return 0x57F287
-	case "denied":
-		return 0xFEE75C
-	default:
-		return 0xED4245
-	}
-}
-
-func truncateAuditMirrorText(value string, limit int) string {
-	runes := []rune(strings.TrimSpace(value))
-	if len(runes) <= limit {
-		return string(runes)
-	}
-	return string(runes[:limit])
 }

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/quackdiscord/bot/internal/discordtext"
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
@@ -93,7 +94,7 @@ func (s *AppealService) Submit(ctx context.Context, caseID, memberDiscordUserID 
 		Event:        model.AppealEvent{EventType: string(model.AppealEventSubmitted), ActorDiscordUserID: memberDiscordUserID, ActorType: "member", Body: "Appeal submitted", MetadataJSON: "{}"},
 		CaseEvent:    model.CaseEvent{EventType: model.CaseEventAppealCreated, ActorDiscordUserID: memberDiscordUserID, ActorType: "member", Visibility: model.EventVisibilityPublic, Body: "Appeal submitted", MetadataJSON: "{}"},
 		Audit:        appealAudit(ctx, item.GuildID, memberDiscordUserID, 0, "appeal.submit", "appeal", "", model.AuditResultSuccess),
-		Notification: model.AppealNotification{TargetDiscordUserID: memberDiscordUserID, Audience: model.AppealNotificationStaff, Status: model.AppealNotificationPending, Body: fmt.Sprintf("A new appeal was submitted for case #%d.", item.CaseNumber)},
+		Notification: model.AppealNotification{TargetDiscordUserID: memberDiscordUserID, Audience: model.AppealNotificationStaff, Status: model.AppealNotificationPending, Body: discordtext.Conversation("appeal", fmt.Sprintf("<@%s> asked staff to review case #%d.", memberDiscordUserID, item.CaseNumber), "", "You can review their appeal from the Quack dashboard.", "")},
 	})
 	if errors.Is(err, model.ErrAppealAlreadyExists) {
 		return nil, ErrAppealConflict
@@ -140,7 +141,7 @@ func (s *AppealService) SubmitInformation(ctx context.Context, appealID, memberD
 		AppealID: item.ID, TargetDiscordUserID: memberDiscordUserID, Body: body,
 		Event:        model.AppealEvent{EventType: string(model.AppealEventInformationAdded), ActorDiscordUserID: memberDiscordUserID, ActorType: "member", Body: body, MetadataJSON: "{}"},
 		Audit:        appealAudit(ctx, item.GuildID, memberDiscordUserID, 0, "appeal.information.submit", "appeal", item.ID, model.AuditResultSuccess),
-		Notification: model.AppealNotification{TargetDiscordUserID: memberDiscordUserID, Audience: model.AppealNotificationStaff, Status: model.AppealNotificationPending, Body: "A member submitted additional appeal information."},
+		Notification: model.AppealNotification{TargetDiscordUserID: memberDiscordUserID, Audience: model.AppealNotificationStaff, Status: model.AppealNotificationPending, Body: discordtext.Conversation("reply", fmt.Sprintf("<@%s> added information to their appeal.", memberDiscordUserID), "", "You can read their reply from the Quack dashboard.", "Appeal "+item.ID)},
 	})
 	if errors.Is(err, model.ErrAppealStateConflict) {
 		return nil, ErrAppealConflict

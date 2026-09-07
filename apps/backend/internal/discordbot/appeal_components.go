@@ -44,7 +44,7 @@ func appealReversalHandler(services *quack.Services, appeals *quack.AppealServic
 		if displayName == "" {
 			displayName = actor.GlobalName
 		}
-		return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
+		return ui.Async(ui.DeferPublic(), func(taskCtx context.Context, responder ui.Responder) error {
 			guildContext, err := services.Guilds.ResolveDiscordStaffContext(taskCtx, quack.DiscordStaffContextInput{DiscordGuildID: guildID, DiscordUserID: actor.ID, DisplayName: displayName, LastActiveAt: time.Now().UTC()})
 			if err != nil {
 				_, _ = responder.EditOriginal(ui.ErrorEdit("Live Discord authorization failed."))
@@ -60,7 +60,7 @@ func appealReversalHandler(services *quack.Services, appeals *quack.AppealServic
 				_, _ = responder.EditOriginal(ui.ErrorEdit("The reversal could not be authorized or queued."))
 				return nil
 			}
-			message := ui.Content("**Reversal Queued**\n"+"The confirmed reversal passed live permission and hierarchy checks.", false)
+			message := ui.Signal("retry", "The reversal is queued. You can follow its progress in the case history.", false)
 			_, err = ui.Publish(responder, message)
 			return err
 		})

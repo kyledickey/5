@@ -53,7 +53,7 @@ func TestActionServiceProcessesSafeActions(t *testing.T) {
 		t.Fatalf("process actions: %v", err)
 	}
 
-	if len(fakeDiscord.dms) != 1 || fakeDiscord.dms[0].TargetID != "target-1" || !strings.Contains(fakeDiscord.dms[0].Message, "Reason: No spam") {
+	if len(fakeDiscord.dms) != 1 || fakeDiscord.dms[0].TargetID != "target-1" || !strings.Contains(fakeDiscord.dms[0].Message, "No spam") || !strings.Contains(fakeDiscord.dms[0].Message, "**Spam**") || !strings.Contains(fakeDiscord.dms[0].Message, "Case #1") {
 		t.Fatalf("unexpected DMs: %+v", fakeDiscord.dms)
 	}
 	actions, err := store.ListCaseActionExecutions(ctx, created.ID)
