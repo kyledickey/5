@@ -1210,3 +1210,48 @@ means further work is required, not completion.
   rather than wrapping every remaining infrastructure repository access. Evidence
   collections remain unbounded and need deterministic pagination; no associated
   live correctness failure or authorization bypass was established by that review.
+
+### Live replacement-timeout ownership check
+
+- Loaded `/tmp/quack-v5-appeal-detail-review` from `7c9f95f` in the authorized
+  beta pane, preserving the rehearsal database and dashboard process. Readiness
+  passed all dependencies after the additive appeal intent schema update.
+- Tester triggered synthetic honeypot case #6 (`01M20PFS06PHQV876QGE74V1YT`).
+  After its one-minute timeout expired, administrator applied a separate
+  five-minute timeout through Discord's native moderation panel, then voided
+  the original case. Native case detail rendered correctly on the new projection.
+- SQL confirmed the case void and a failed reversal with
+  `reversal_ownership_conflict`. The audit mirror explained that the current
+  timeout differed and nothing was removed; the tester still visibly had a
+  timeout. Administrator then manually removed this synthetic replacement as
+  cleanup. Retry from the mirror remains the next live step after its source
+  message preservation fix is loaded.
+
+### Recovery controls and ticket publication integration
+
+- `ca1f969` preserves public audit sources when Retry/Dismiss is clicked and
+  refreshes existing ephemeral queues in place. Void/reversal modal failures stay
+  private; committed results remain visible despite later publication failures.
+- `bdd5170` lets Repair ticket restore a definitely missing initial staff queue
+  post. A durable admission marker prevents repeated initial sends after network
+  uncertainty or a lost receipt; only explicit nondelivery releases it. Such
+  uncertain deliveries still require administrator inspection, with no new manual
+  receipt reconciliation workflow. Transcript messages retain View ticket, allowing
+  staff to reach Finish closing after cleanup fails.
+- Full MySQL-enabled backend tests and build passed. Output is in
+  `/tmp/recovery-controls-ticket-full.log`; focused ticket/moduleintegration race
+  tests also passed three repetitions. Loaded `/tmp/quack-v5-recovery-review`
+  from `bdd5170` in the authorized beta pane; readiness passed, database preserved.
+- Administrator clicked Retry on case #6's original failure audit message after
+  manually cleaning up the replacement timeout. The original message remained
+  intact. A separate private response reported the queued retry and empty active
+  failure queue; separate semantic audit messages recorded retry and confirmed
+  absence without removal. SQL verified the same execution
+  `01M20PNP7BY7KTBSF3AEZCYFPS` succeeded with two retained attempts: ownership
+  conflict followed by `timeout_already_absent`/`reversal_noop=true`.
+- Remaining source-confirmed workflow gaps from this audit: honeypot warning and
+  counter refresh failures lack independent eventual repair; the initial compact
+  case receipt omits parts of Q21's moderator feedback. Its member/staff audience
+  split needs care because Q20 allows command use anywhere and public command
+  results already exist. These are separate from unverified live ban/evidence,
+  ticket repair/deletion-failure, import and scale acceptance.

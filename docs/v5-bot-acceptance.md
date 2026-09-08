@@ -63,7 +63,7 @@ All paths below are backend paths; the production runtime registers native comma
 | 30 | Preferred preservation receipt | D: no concrete preference supplied; current warnings and detail views provide observable outcomes. |
 | 33 | Members see template reason, not staff context/evidence | P: N/E; private staff evidence navigation rechecks authorization. |
 | 34–36 | Discord evidence storage, retained admin edits, reopenable copies | P/U: E. Existing channel ACLs are preserved; newly created channels grant ordinary staff read access. Existing live ACLs and long-term saved-copy access still require acceptance. |
-| 37–40 | Permission block; failure queue/retry; automatic reversal on void | P/U: A. Member evidence denial and actual early timeout removal on void passed live. Action failure/retry and guarded replacement-punishment rehearsals remain outstanding. |
+| 37–40 | Permission block; failure queue/retry; automatic reversal on void | P/U: A. Member evidence denial, early timeout removal, and preservation of a newer manual timeout passed live. Retrying that failed reversal after manual cleanup preserved its failed attempt and succeeded with confirmed absence; public audit source remained intact and feedback was private. Ban ownership and permission-loss rehearsals remain open. |
 | 41–42 | Notifications default on; concise outcome/reason; hidden staff identity; failed DM recorded | P/U: T/N. Actual blocked-DM/ban behavior needs rehearsal. |
 | 43 | No member self-history Discord command | D/P: staff history is gated; dashboard self-history deferred. |
 | 44 | Pagination and web-equivalent link | P/U: native paging and configured case/history/evidence web links are implemented (`1c3fa74`); command regression tests pass. Live configured-link acceptance remains open. Dashboard UI remains D. |
@@ -100,7 +100,7 @@ All paths below are backend paths; the production runtime registers native comma
 | 14 Evidence lifecycle rough edges | P/U: stable message links and admin-preserving ACL lifecycle. Precommit upload failures can leave orphan copies; long-term live access unverified. |
 | 15 Different case entry flows | P: immediate common creation, paginated picker, no required context/JSON input. |
 | 16 Fragile mandatory drafts | P: superseded by accepted simple flow; Q24 does not require persistent drafts. |
-| 17 Public deferred errors | P/U: safer private acknowledgement/public publication paths with regression tests; live visibility acceptance remains necessary. |
+| 17 Public deferred errors | P/U: void/reversal modals now acknowledge privately before live checks; successful recovery receipts publish separately. Retry from a public audit entry passed live with private feedback and source preservation. Other visibility paths still require review; slash creation retains its existing public acknowledgement contract. |
 | 18 Stale results after restart | P/U: durable receipt refresh is driven by source mutations in `9933511`; old receipt #2 updated to voided after restart and became idle. Outage/race tests pass; delayed action/reversal live coverage remains separate. |
 | 19 Expected events logged as failures | P: logging queue distinguishes disabled/unrouted events; old logs do not establish present health. |
 | 20 Architecture/documentation mismatch | P/I: core worker and registration ownership is corrected; combined repository exposure and core/presentation coupling remain. This matrix supersedes broad completion claims, not the user's requirements. |
