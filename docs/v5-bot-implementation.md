@@ -665,3 +665,15 @@ means further work is required, not completion.
   public visibility. Focused and full backend suites pass. Selected-template
   failure privacy, durable result refresh and live Discord verification remain
   pending, along with the remaining review requirements.
+
+- User/message template selections now defer privately through authorization,
+  template lookup and creation, then publish successful cases through the same
+  private-receipt/public-result path as sole-template context commands. Removed
+  the nested user-case handler/task invocation. Public publication failures keep
+  the successful private case receipt with a clear explanation; private-copy
+  cleanup failures no longer trigger a generic failed-command replacement after
+  moderation has committed. Tests verify private selection acknowledgements,
+  revoked-authority rejection without public output, successful public results,
+  and publication/cleanup failure preservation. Focused and full backend suites
+  pass. Durable result delivery/refresh, live rehearsal and remaining review
+  requirements are still pending.

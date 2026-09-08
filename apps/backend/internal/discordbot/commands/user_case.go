@@ -5,7 +5,6 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
-	"github.com/quackdiscord/bot/internal/discordbot/ui/views"
 	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
@@ -62,7 +61,7 @@ func handleUserTemplateComponent(ctx ui.Context) ui.HandlerResult {
 	if err != nil || parsed.Payload == "" || len(data.Values) != 1 {
 		return ui.Immediate(ui.Error("That case selection is unavailable."))
 	}
-	return ui.Async(ui.DeferPublic(), func(taskCtx context.Context, responder ui.Responder) error {
+	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
 		guild, err := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
 		if err != nil {
 			_, err = responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(err)))
@@ -77,23 +76,11 @@ func handleUserTemplateComponent(ctx ui.Context) ui.HandlerResult {
 			_, err = responder.EditOriginal(ui.ErrorEdit("That case template is not available."))
 			return err
 		}
-		return createUserContextCase(ctx, guild, parsed.Payload, template).Task(taskCtx, responder)
-	})
-}
-
-// createUserContextCase applies the selected policy immediately through the normal
-// case boundary and keeps the result's action statuses current.
-func createUserContextCase(ctx ui.Context, guild *quack.GuildStaffContext, target string, template *quack.TemplateResponse) ui.HandlerResult {
-	return ui.Async(ui.DeferPublic(), func(taskCtx context.Context, responder ui.Responder) error {
-		created, err := ctx.Services.Cases.Create(taskCtx, guild, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: target, Source: model.CaseSourceDiscord, IdempotencyKey: ctx.Interaction.ID})
+		created, err := ctx.Services.Cases.Create(taskCtx, guild, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: parsed.Payload, Source: model.CaseSourceDiscord, IdempotencyKey: ctx.Interaction.ID})
 		if err != nil {
 			_, err = responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(err)))
 			return err
 		}
-		message, err := ui.Publish(responder, views.CaseCreatedMessage(views.CaseCreated{Case: created, Template: template}))
-		if err == nil && message != nil {
-			updatePublicCaseResult(taskCtx, responder, ctx.Services, created, message.ID, template)
-		}
-		return err
+		return publishPrivateContextCase(taskCtx, responder, ctx.Services, created, template)
 	})
 }

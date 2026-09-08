@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -21,7 +22,7 @@ func handleMessageTemplateComponent(ctx ui.Context) ui.HandlerResult {
 	if err != nil || len(parts) != 3 || len(data.Values) != 1 {
 		return ui.Immediate(ui.Error("That message case flow is invalid."))
 	}
-	return ui.Async(ui.DeferPublic(), func(taskCtx context.Context, responder ui.Responder) error {
+	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
 		guildContext, resolveErr := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
 		if resolveErr != nil {
 			_, err := responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(resolveErr)))
@@ -43,11 +44,7 @@ func handleMessageTemplateComponent(ctx ui.Context) ui.HandlerResult {
 			_, err := responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(createErr)))
 			return err
 		}
-		message, followErr := ui.Publish(responder, views.CaseCreatedMessage(views.CaseCreated{Case: created, Template: template}))
-		if followErr == nil && message != nil {
-			updatePublicCaseResult(taskCtx, responder, ctx.Services, created, message.ID, template)
-		}
-		return followErr
+		return publishPrivateContextCase(taskCtx, responder, ctx.Services, created, template)
 	})
 }
 
@@ -98,10 +95,20 @@ func publishPrivateContextCase(ctx context.Context, responder ui.Responder, serv
 	}
 	message, err := responder.Followup(result)
 	if err != nil {
-		return err
+		// Moderation already committed. Do not let the dispatcher's generic error
+		// replace this durable case receipt or suggest issuing the punishment again.
+		slog.WarnContext(ctx, "Could not publish context-menu case result", "case_id", created.ID, "error_type", fmt.Sprintf("%T", err))
+		result.Content += "\n\nThe case was created, but Quack could not post its result publicly. This private copy is still usable."
+		if _, editErr := responder.EditOriginal(ui.EditMessage(result)); editErr != nil {
+			slog.WarnContext(ctx, "Could not explain case publication failure", "case_id", created.ID, "error_type", fmt.Sprintf("%T", editErr))
+		}
+		return nil
 	}
 	if message != nil {
 		updatePublicCaseResult(ctx, responder, services, created, message.ID, template)
 	}
-	return responder.DeleteOriginal()
+	if err := responder.DeleteOriginal(); err != nil {
+		slog.WarnContext(ctx, "Could not remove private case receipt", "case_id", created.ID, "error_type", fmt.Sprintf("%T", err))
+	}
+	return nil
 }

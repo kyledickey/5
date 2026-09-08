@@ -39,7 +39,7 @@ func TestUserContextCreatesCaseForSelectedMember(t *testing.T) {
 	if err := result.Task(context.Background(), responder); err != nil {
 		t.Fatal(err)
 	}
-	if responder.edit.Content == nil || !strings.Contains(*responder.edit.Content, "<@target-2>") || !strings.Contains(*responder.edit.Content, "Profile rule") {
+	if responder.followup.Ephemeral || !responder.deleted || !strings.Contains(responder.followup.Content, "<@target-2>") || !strings.Contains(responder.followup.Content, "Profile rule") {
 		t.Fatalf("incorrect target/result: %+v", responder.edit)
 	}
 	if UserCaseCommandSpec().Definition.Type != discordgo.UserApplicationCommand {

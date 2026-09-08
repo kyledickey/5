@@ -25,7 +25,7 @@ func TestTemplateSelectionDefersLiveAuthorization(t *testing.T) {
 			interaction.Data = discordgo.MessageComponentInteractionData{CustomID: ui.MustCustomID(ui.CustomID{Namespace: "case", Action: selection.action, Version: "v1", Payload: selection.payload}), Values: []string{"template"}}
 			// Missing services prove that the initial handler performs no eager lookup.
 			result := selection.handler(ui.Context{Context: context.Background(), Interaction: interaction})
-			if result.Response == nil || result.Response.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource || result.Task == nil {
+			if result.Response == nil || result.Response.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource || result.Task == nil || result.Response.Data.Flags&discordgo.MessageFlagsEphemeral == 0 {
 				t.Fatalf("selection was not deferred: %+v", result)
 			}
 			_, services, _ := newCaseCommandHarnessWithLivePermissions(t, 0)
@@ -34,7 +34,7 @@ func TestTemplateSelectionDefersLiveAuthorization(t *testing.T) {
 			if err := result.Task(context.Background(), responder); err != nil {
 				t.Fatal(err)
 			}
-			if responder.edit.Content == nil || !strings.Contains(*responder.edit.Content, "permission") {
+			if responder.edit.Content == nil || !strings.Contains(*responder.edit.Content, "permission") || responder.followup.Content != "" {
 				t.Fatalf("missing permission rejection: %+v", responder.edit.Content)
 			}
 		})
