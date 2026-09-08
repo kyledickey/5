@@ -1491,3 +1491,24 @@ means further work is required, not completion.
   and deleted-channel forwarding without changing repair behavior.
 - Full backend tests passed with MySQL enabled. This refactor has not replaced
   the running beta binary or closed outstanding live recovery/permission gates.
+
+### Restricted moderator and revoked-role rehearsal
+
+- The beta passed readiness. A read-only inspection confirmed monkey had no
+  roles and the existing evidence channel retained only bot access plus the
+  everyone View Channel deny. The inspection helper initially double-prefixed
+  the configured authorization value, causing 401; using the runtime's exact
+  token format corrected the helper without changing credentials or the bot.
+- Temporary role `1547028302932476038` (Quack beta permission rehearsal) granted
+  only Moderate Members and was assigned only to monkey. Native `/case view`
+  opened case #10 privately, and View evidence opened its private saved-file
+  metadata page. Existing storage-channel ACLs were not changed; this does not
+  establish that a restricted moderator can open the stored file in that channel.
+- A ban-template case request was denied privately. SQL remained at 11 cases,
+  with latest case #11. The generic creation-denial copy did not explain the
+  reason or next step and was flagged for a focused fix. Code tracing showed
+  this request hit self-target rejection before the action-specific permission
+  check; it is not live proof of a missing Ban Members rejection.
+- The temporary role was deleted, then the same old View evidence control
+  returned a private permission denial. A fresh REST read confirmed monkey's
+  roles were empty again and the original evidence overwrites were unchanged.
