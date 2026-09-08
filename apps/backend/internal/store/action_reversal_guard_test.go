@@ -35,7 +35,7 @@ func exerciseReversalProvenanceQueries(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Second)
-	if err := db.AutoMigrate(&model.Case{}, &model.CaseActionExecution{}, &model.CaseActionAttempt{}, &model.AuditLogEntry{}); err != nil {
+	if err := db.AutoMigrate(&model.Case{}, &model.CaseActionExecution{}, &model.CaseActionAttempt{}, &model.AuditLogEntry{}, &auditMirrorDelivery{}); err != nil {
 		t.Fatal(err)
 	}
 	repository := New(db, nil)

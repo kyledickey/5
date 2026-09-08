@@ -22,8 +22,13 @@ func (s *Store) CreateAuditLogEntry(ctx context.Context, entry *model.AuditLogEn
 	if s == nil || s.db == nil {
 		return errors.New("database not connected")
 	}
+	if entry == nil || !model.IsAuditEvent(entry.Action) {
+		return nil
+	}
 
-	return createAuditLogEntry(s.db.WithContext(ctx), entry, time.Now().UTC())
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return createAuditLogEntry(tx, entry, time.Now().UTC())
+	})
 }
 
 // ListAuditLogEntries returns audit log entries subject to authorization, ordering, and filtering constraints.
@@ -127,7 +132,9 @@ func filteredAuditQuery(query *gorm.DB, params ListAuditLogEntriesParams) *gorm.
 	return query
 }
 
-// createAuditLogEntry creates audit log entry while preserving validation, authorization, and persistence invariants.
+// createAuditLogEntry atomically adds immutable staff history and its mirror queue
+// row inside the caller's source transaction. Standalone callers must use
+// CreateAuditLogEntry; a queue failure must roll back the underlying decision.
 func createAuditLogEntry(db *gorm.DB, entry *model.AuditLogEntry, now time.Time) error {
 	if entry == nil || !model.IsAuditEvent(entry.Action) {
 		return nil
@@ -147,6 +154,9 @@ func createAuditLogEntry(db *gorm.DB, entry *model.AuditLogEntry, now time.Time)
 		return fmt.Errorf("create audit log entry: %w", err)
 	}
 
+	if err := db.Create(&auditMirrorDelivery{AuditEntryID: entry.ID, RetryAt: entry.CreatedAt.UTC()}).Error; err != nil {
+		return fmt.Errorf("enqueue audit mirror entry: %w", err)
+	}
 	return nil
 }
 

@@ -18,6 +18,8 @@ var ErrSchemaAdoptionRequired = errors.New("schema adoption required")
 // definitions. It is separate from the historical migration checksum ledger.
 type currentSchema struct {
 	ID uint `gorm:"primaryKey;autoIncrement:false"`
+	// AuditMirrorQueueReady records the completed idempotent historical backfill.
+	AuditMirrorQueueReady bool `gorm:"not null;default:false"`
 }
 
 // TableName identifies the direct-initialization marker.
@@ -45,6 +47,24 @@ func (s *Store) InitializeSchema() error {
 				return fmt.Errorf("create current schema marker: %w", err)
 			}
 		}
+		// A ready queue cannot be reconstructed from history without resending
+		// completed events. Refuse reconciliation if its delivery ledger is lost.
+		if db.Migrator().HasColumn(&currentSchema{}, "AuditMirrorQueueReady") && !db.Migrator().HasTable(&auditMirrorDelivery{}) {
+			var ready int64
+			if err := s.db.Model(&currentSchema{}).Where("audit_mirror_queue_ready = ?", true).Count(&ready).Error; err != nil {
+				return fmt.Errorf("inspect audit mirror queue readiness: %w", err)
+			}
+			if ready != 0 {
+				return errors.New("audit mirror delivery ledger is missing from a ready schema; restore the ledger before startup")
+			}
+		}
+		// Upgrade only the readiness column; the marker's historical primary key
+		// is already established and must not be rewritten during reconciliation.
+		if !db.Migrator().HasColumn(&currentSchema{}, "AuditMirrorQueueReady") {
+			if err := db.Migrator().AddColumn(&currentSchema{}, "AuditMirrorQueueReady"); err != nil {
+				return fmt.Errorf("initialize audit mirror queue marker: %w", err)
+			}
+		}
 		models := append(schemaModels(),
 			&GuildSettingsRecord{},
 			&GuildAppealSettingsRecord{},
@@ -69,6 +89,6 @@ func (s *Store) InitializeSchema() error {
 		if err := s.db.FirstOrCreate(&currentSchema{ID: 1}).Error; err != nil {
 			return fmt.Errorf("record current schema initialization: %w", err)
 		}
-		return nil
+		return initializeAuditMirrorQueue(s.db)
 	})
 }

@@ -54,6 +54,7 @@ var recoveryTables = []recoveryTableDefinition{
 	{"guild_appeal_settings", []string{"id", "guild_id", "questions_json"}, "id"},
 	{"appeal_notifications", []string{"id", "appeal_id", "event_id", "audience", "status"}, "id"},
 	{"audit_log_entries", []string{"id", "guild_id", "action", "resource_id", "result"}, "id"},
+	{"audit_mirror_deliveries", []string{"audit_entry_id", "finished", "retry_at"}, "audit_entry_id"},
 	{"module_configurations", []string{"id", "guild_id", "module_id", "enabled", "config_json"}, "id"},
 	{"module_import_records", []string{"id", "guild_id", "module_id", "source_id", "target_id"}, "id"},
 	{"tickets", []string{"id", "guild_id", "owner_discord_user_id", "status"}, "id"},

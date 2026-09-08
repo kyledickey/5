@@ -8,6 +8,7 @@ import (
 
 	"github.com/quackdiscord/bot/internal/modules/honeypot"
 	"github.com/quackdiscord/bot/internal/modules/tickets"
+	"github.com/quackdiscord/bot/internal/quack/model"
 
 	"gorm.io/gorm"
 )
@@ -28,6 +29,10 @@ func TestAdoptCurrentSchemaPreservesHistory(t *testing.T) {
 			repository := New(db, nil)
 			before, err := repository.BuildRecoveryManifest(context.Background())
 			if err != nil {
+				t.Fatal(err)
+			}
+			var oldDeliveries []auditMirrorDelivery
+			if err := db.Find(&oldDeliveries).Error; err != nil {
 				t.Fatal(err)
 			}
 			if err := repository.AdoptCurrentSchema(); err != nil {
@@ -51,6 +56,21 @@ func TestAdoptCurrentSchemaPreservesHistory(t *testing.T) {
 				}
 				delete(after.Tables, table)
 			}
+			// Current startup adds pending transport rows for historical events.
+			// Every existing completion and retry stays byte-for-byte equivalent;
+			// immutable audit/source tables still use strict manifest comparison.
+			for _, old := range oldDeliveries {
+				var current auditMirrorDelivery
+				if err := db.Where("audit_entry_id = ?", old.AuditEntryID).First(&current).Error; err != nil || current.Finished != old.Finished || !current.RetryAt.Equal(old.RetryAt) {
+					t.Fatalf("adoption changed existing delivery %+v -> %+v: %v", old, current, err)
+				}
+			}
+			var missing int64
+			if err := db.Model(&model.AuditLogEntry{}).Where("action IN ?", model.ImportantAuditActions()).Where("NOT EXISTS (SELECT 1 FROM audit_mirror_deliveries delivery WHERE delivery.audit_entry_id = audit_log_entries.id)").Count(&missing).Error; err != nil || missing != 0 {
+				t.Fatalf("historical mirror work omitted: %d %v", missing, err)
+			}
+			delete(before.Tables, "audit_mirror_deliveries")
+			delete(after.Tables, "audit_mirror_deliveries")
 			if !reflect.DeepEqual(before.Tables, after.Tables) || !reflect.DeepEqual(before.GuildCaseHighWater, after.GuildCaseHighWater) {
 				t.Fatal("adoption changed preserved history or case numbering")
 			}

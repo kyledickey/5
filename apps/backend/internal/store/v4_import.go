@@ -250,5 +250,5 @@ func (s *Store) RecordV4ImportFailure(ctx context.Context, batch v4import.Batch,
 	if s == nil || s.db == nil {
 		return errors.New("database not connected")
 	}
-	return createAuditLogEntry(s.db.WithContext(ctx), &model.AuditLogEntry{GuildID: batch.GuildID, ActorDiscordUserID: batch.ActorDiscordUserID, Source: model.AuditSourceSystem, Action: "v4_import.batch", ResourceType: "v4_import_batch", ResourceID: batch.ID, Result: model.AuditResultFailure, FailureReason: code, MetadataJSON: fmt.Sprintf(`{"checksum":"%s","records":%d,"failures":%d}`, batch.Checksum, batch.RecordCount, failures)}, time.Now().UTC())
+	return s.CreateAuditLogEntry(ctx, &model.AuditLogEntry{GuildID: batch.GuildID, ActorDiscordUserID: batch.ActorDiscordUserID, Source: model.AuditSourceSystem, Action: "v4_import.batch", ResourceType: "v4_import_batch", ResourceID: batch.ID, Result: model.AuditResultFailure, FailureReason: code, MetadataJSON: fmt.Sprintf(`{"checksum":"%s","records":%d,"failures":%d}`, batch.Checksum, batch.RecordCount, failures)})
 }

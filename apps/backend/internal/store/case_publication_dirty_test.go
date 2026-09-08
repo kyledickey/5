@@ -34,7 +34,7 @@ func TestMySQLPublicationMutationRequests(t *testing.T) {
 // observer repeatedly sleeps the receipt and checks that the next change wakes it.
 func exercisePublicationMutationRequests(t *testing.T, db *gorm.DB) {
 	t.Helper()
-	if err := db.AutoMigrate(&model.Case{}, &model.CaseActionExecution{}, &model.CaseActionAttempt{}, &model.CaseEvent{}, &model.CaseNotification{}, &model.CaseEvidenceSnapshot{}, &model.CaseEvidenceAttachment{}, &model.AuditLogEntry{}, &model.CasePublication{}, &AppealRecord{}); err != nil {
+	if err := db.AutoMigrate(&model.Case{}, &model.CaseActionExecution{}, &model.CaseActionAttempt{}, &model.CaseEvent{}, &model.CaseNotification{}, &model.CaseEvidenceSnapshot{}, &model.CaseEvidenceAttachment{}, &model.AuditLogEntry{}, &auditMirrorDelivery{}, &model.CasePublication{}, &AppealRecord{}); err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
