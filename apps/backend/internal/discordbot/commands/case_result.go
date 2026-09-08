@@ -87,7 +87,7 @@ func refreshPublicCaseResult(ctx context.Context, responder ui.Responder, listAc
 				}
 			}
 			if dirty || terminal {
-				_, err := responder.EditFollowup(messageID, ui.EditMessage(views.CaseCreatedMessage(views.CaseCreated{MemberReason: memberReason, Case: snapshot, Template: template})))
+				_, err := responder.EditChannel(ctx, messageID, ui.EditMessage(views.CaseCreatedMessage(views.CaseCreated{MemberReason: memberReason, Case: snapshot, Template: template})))
 				if err == nil {
 					dirty = false
 					if terminal {

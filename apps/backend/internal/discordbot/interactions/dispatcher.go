@@ -24,6 +24,8 @@ type CommandLookup interface {
 
 // Client defines the external operations needed by this package, keeping the concrete client at the adapter boundary.
 type Client interface {
+	ChannelMessageSend(context.Context, string, *discordgo.MessageSend) (*discordgo.Message, error)
+	ChannelMessageEdit(context.Context, *discordgo.MessageEdit) (*discordgo.Message, error)
 	InteractionRespond(*discordgo.Interaction, *discordgo.InteractionResponse) error
 	InteractionResponseEdit(*discordgo.Interaction, *discordgo.WebhookEdit) (*discordgo.Message, error)
 	FollowupMessageCreate(*discordgo.Interaction, bool, *discordgo.WebhookParams) (*discordgo.Message, error)
@@ -222,6 +224,29 @@ func (r responder) Followup(message ui.Message) (*discordgo.Message, error) {
 	return r.client.FollowupMessageCreate(r.interaction, true, message.ForApplication(r.interaction.AppID).WebhookParams())
 }
 
+// PublishChannel sends a standalone notice without a reply reference to the
+// hidden interaction acknowledgement. Ephemeral content is rejected rather than
+// silently made public. Non-idempotent delivery is attempted only once.
+func (r responder) PublishChannel(ctx context.Context, message ui.Message) (*discordgo.Message, error) {
+	if message.Ephemeral {
+		return nil, errors.New("cannot publish an ephemeral message to a channel")
+	}
+	if r.interaction.ChannelID == "" {
+		return nil, errors.New("interaction channel unavailable")
+	}
+	return r.client.ChannelMessageSend(ctx, r.interaction.ChannelID, message.SendParams(r.interaction.AppID))
+}
+
+// EditChannel refreshes a standalone notice through the same channel coordinate
+// using bot credentials; it does not depend on an interaction webhook lifetime.
+func (r responder) EditChannel(ctx context.Context, messageID string, edit ui.Edit) (*discordgo.Message, error) {
+	if r.interaction.ChannelID == "" || messageID == "" {
+		return nil, errors.New("message coordinate unavailable")
+	}
+	prepared := edit.ForApplication(r.interaction.AppID).WebhookEdit()
+	return r.client.ChannelMessageEdit(ctx, &discordgo.MessageEdit{ID: messageID, Channel: r.interaction.ChannelID, Content: prepared.Content, Embeds: prepared.Embeds, Components: prepared.Components, Files: prepared.Files, Attachments: prepared.Attachments, AllowedMentions: prepared.AllowedMentions})
+}
+
 // EditFollowup updates a previously published public result after asynchronous work reaches a terminal state.
 func (r responder) EditFollowup(messageID string, edit ui.Edit) (*discordgo.Message, error) {
 	return r.client.FollowupMessageEdit(r.interaction, messageID, edit.ForApplication(r.interaction.AppID).WebhookEdit())
@@ -240,6 +265,17 @@ func (r responder) UpdateMessage(edit ui.Edit) (*discordgo.Message, error) {
 // sessionClient defines the external operations needed by this package, keeping the concrete client at the adapter boundary.
 type sessionClient struct {
 	session *discordgo.Session
+}
+
+// ChannelMessageSend publishes without automatic retries because an uncertain
+// POST could already have created the notice. The private case receipt survives.
+func (c sessionClient) ChannelMessageSend(ctx context.Context, channelID string, message *discordgo.MessageSend) (*discordgo.Message, error) {
+	return c.session.ChannelMessageSendComplex(channelID, message, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+}
+
+// ChannelMessageEdit performs a context-bound bot edit of the persisted notice.
+func (c sessionClient) ChannelMessageEdit(ctx context.Context, edit *discordgo.MessageEdit) (*discordgo.Message, error) {
+	return c.session.ChannelMessageEditComplex(edit, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 }
 
 // InteractionRespond encapsulates the interaction respond rule so callers share one consistent package implementation.

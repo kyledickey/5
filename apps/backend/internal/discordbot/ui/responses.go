@@ -17,6 +17,10 @@ type Context struct {
 
 // Responder exposes the Discord response operations available to asynchronous interaction tasks.
 type Responder interface {
+	// PublishChannel sends a standalone public notice in the originating channel.
+	PublishChannel(context.Context, Message) (*discordgo.Message, error)
+	// EditChannel updates that notice with bot credentials, not a webhook token.
+	EditChannel(context.Context, string, Edit) (*discordgo.Message, error)
 	EditOriginal(Edit) (*discordgo.Message, error)
 	Followup(Message) (*discordgo.Message, error)
 	EditFollowup(string, Edit) (*discordgo.Message, error)

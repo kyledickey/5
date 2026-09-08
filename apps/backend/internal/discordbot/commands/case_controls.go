@@ -139,7 +139,7 @@ func handleReverseModal(ctx ui.Context) ui.HandlerResult {
 
 // retainRecoveryReceipt delivers a committed result without surfacing publication
 // failures as failed moderation. The private original stays available; a public
-// followup is attempted only after its visibility has been established by editing
+// notice is attempted only after its private receipt has been established by editing
 // the deferred original. No cleanup can erase the moderator's success receipt.
 func retainRecoveryReceipt(ctx context.Context, responder ui.Responder, receipt ui.Message, publish bool) {
 	if _, err := establishPrivateCaseReceipt(ctx, responder, receipt); err != nil {
@@ -150,7 +150,7 @@ func retainRecoveryReceipt(ctx context.Context, responder ui.Responder, receipt 
 	}
 	if publish {
 		receipt.Ephemeral = false
-		if _, err := responder.Followup(receipt); err != nil {
+		if _, err := responder.PublishChannel(ctx, receipt); err != nil {
 			slog.WarnContext(ctx, "Could not publish committed recovery receipt", "error_type", "discord_response")
 		}
 	}

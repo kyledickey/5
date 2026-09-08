@@ -102,7 +102,7 @@ func TestHandleCaseInteractionCreatesCase(t *testing.T) {
 	if err := result.Task(ctx, responder); err != nil {
 		t.Fatalf("run deferred task: %v", err)
 	}
-	if responder.deleted || responder.followup.Content == "" || responder.followup.Ephemeral || responder.edit.Content == nil || responder.edit.Embeds == nil || len(*responder.edit.Embeds) != 0 || responder.editCount != 1 {
+	if responder.channelPublishes != 1 || responder.webhookFollowups != 0 || responder.deleted || responder.followup.Content == "" || responder.followup.Ephemeral || responder.edit.Content == nil || responder.edit.Embeds == nil || len(*responder.edit.Embeds) != 0 || responder.editCount != 1 {
 		t.Fatalf("expected original response to become the result: %+v", responder)
 	}
 	for _, want := range []string{"Case #1 added for", "<@target-1>", "Spam", "Default", "Warning recorded."} {
@@ -252,11 +252,13 @@ func TestTemplateAutocompleteLabelTruncatesToDiscordLimit(t *testing.T) {
 }
 
 type fakeResponder struct {
-	edit      ui.Edit
-	followup  ui.Message
-	deleted   bool
-	updated   ui.Edit
-	editCount int
+	channelPublishes int
+	webhookFollowups int
+	edit             ui.Edit
+	followup         ui.Message
+	deleted          bool
+	updated          ui.Edit
+	editCount        int
 }
 
 func (f *fakeResponder) EditOriginal(edit ui.Edit) (*discordgo.Message, error) {
@@ -266,6 +268,7 @@ func (f *fakeResponder) EditOriginal(edit ui.Edit) (*discordgo.Message, error) {
 }
 
 func (f *fakeResponder) Followup(message ui.Message) (*discordgo.Message, error) {
+	f.webhookFollowups++
 	if f.editCount == 0 {
 		message.Ephemeral = true
 	}
@@ -434,4 +437,17 @@ func embedFields(embed *discordgo.MessageEmbed) map[string]string {
 		fields[field.Name] = field.Value
 	}
 	return fields
+}
+
+// PublishChannel records a standalone public notice independently of webhook replies.
+func (f *fakeResponder) PublishChannel(_ context.Context, message ui.Message) (*discordgo.Message, error) {
+	f.channelPublishes++
+	f.followup = message
+	return &discordgo.Message{ID: "channel-message", ChannelID: "channel-1"}, nil
+}
+
+// EditChannel records bot-token refreshes of standalone notices.
+func (f *fakeResponder) EditChannel(_ context.Context, messageID string, edit ui.Edit) (*discordgo.Message, error) {
+	f.updated = edit
+	return &discordgo.Message{ID: messageID, ChannelID: "channel-1"}, nil
 }

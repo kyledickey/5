@@ -51,7 +51,7 @@ func TestCasePublicationFailureKeepsSuccessfulReceipt(t *testing.T) {
 			if responder.edit.Content == nil || !strings.Contains(*responder.edit.Content, "12") {
 				t.Fatalf("case receipt lost: %+v", responder.edit.Content)
 			}
-			if failure == "publish" && (!strings.Contains(*responder.edit.Content, "case was created") || responder.deleted) {
+			if failure == "publish" && (responder.channelPublishes != 1 || responder.webhookFollowups != 0 || !strings.Contains(*responder.edit.Content, "case was created") || responder.deleted) {
 				t.Fatal("publication failure discarded successful private result")
 			}
 			if failure == "cleanup" && responder.followup.Content == "" {
@@ -94,13 +94,13 @@ type retryingCaseRefresh struct {
 	attempts int
 }
 
-// EditFollowup simulates a transient Discord outage on the first status refresh.
-func (r *retryingCaseRefresh) EditFollowup(id string, edit ui.Edit) (*discordgo.Message, error) {
+// EditChannel simulates a transient Discord outage on the first status refresh.
+func (r *retryingCaseRefresh) EditChannel(ctx context.Context, id string, edit ui.Edit) (*discordgo.Message, error) {
 	r.attempts++
 	if r.attempts == 1 {
 		return nil, errors.New("unavailable")
 	}
-	return r.fakeResponder.EditFollowup(id, edit)
+	return r.fakeResponder.EditChannel(ctx, id, edit)
 }
 
 // TestPublicCaseRefreshRetriesReadAndEdit ensures transient failures cannot leave
@@ -149,4 +149,13 @@ func TestCasePublicationPersistsOnlyPublicSnapshot(t *testing.T) {
 	if repository.receipt.ChannelID != "channel" || repository.receipt.CaseID != "case" || strings.Contains(repository.receipt.PresentationJSON, "SECRET") || strings.Contains(repository.receipt.PresentationJSON, "12345") || strings.Contains(repository.receipt.PresentationJSON, "54321") || !strings.Contains(repository.receipt.PresentationJSON, "Public rule") {
 		t.Fatalf("invalid public snapshot: %+v", repository.receipt)
 	}
+}
+
+// PublishChannel models a one-shot public send failure without retrying a POST.
+func (r *failingCasePublication) PublishChannel(ctx context.Context, message ui.Message) (*discordgo.Message, error) {
+	if r.failPublish {
+		r.channelPublishes++
+		return nil, errors.New("Discord unavailable")
+	}
+	return r.fakeResponder.PublishChannel(ctx, message)
 }

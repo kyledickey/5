@@ -85,9 +85,9 @@ func modalTextValue(data discordgo.ModalSubmitInteractionData, customID string) 
 	return ""
 }
 
-// publishPrivateContextCase completes the private acknowledgement before posting
-// a public case result. Discord otherwise makes the first followup inherit the
-// private deferred response. A publication failure retains a usable private case.
+// publishPrivateContextCase retains a private moderator receipt before sending
+// a standalone public notice. The notice never references the hidden receipt;
+// failed or uncertain publication cannot discard the committed case.
 func publishPrivateContextCase(ctx context.Context, responder ui.Responder, services *quack.Services, created *quack.CaseResponse, template *quack.TemplateResponse) error {
 	projection := initialModeratorReceipt(created, template)
 	if services != nil && services.Cases != nil {
@@ -108,7 +108,7 @@ func publishPrivateContextCase(ctx context.Context, responder ui.Responder, serv
 	publicCase := *projection.Case
 	publicCase.Reason = ""
 	public := views.CaseCreatedMessage(views.CaseCreated{MemberReason: projection.MemberReason, Case: &publicCase, Template: &quack.TemplateResponse{Name: projection.RuleName}})
-	message, err := responder.Followup(public)
+	message, err := responder.PublishChannel(ctx, public)
 	if err != nil {
 		private.Content += "\n\nThe case was created, but Quack could not post its result publicly. This private copy is still usable."
 		_, _ = responder.EditOriginal(ui.EditMessage(private))

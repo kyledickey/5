@@ -272,3 +272,13 @@ func TestPermissionFailuresExplainDenialPrivately(t *testing.T) {
 		}
 	}
 }
+
+// ChannelMessageSend records standalone bot messages at the interaction channel.
+func (f *fakeClient) ChannelMessageSend(_ context.Context, channelID string, message *discordgo.MessageSend) (*discordgo.Message, error) {
+	return &discordgo.Message{ID: "channel-message", ChannelID: channelID}, nil
+}
+
+// ChannelMessageEdit implements the bot-message edit dependency for dispatcher tests.
+func (f *fakeClient) ChannelMessageEdit(_ context.Context, edit *discordgo.MessageEdit) (*discordgo.Message, error) {
+	return &discordgo.Message{ID: edit.ID, ChannelID: edit.Channel}, nil
+}
