@@ -33,7 +33,7 @@ func (a *AppealNotificationAdapter) SendAppealMemberNotification(ctx context.Con
 	if err != nil {
 		return "", appealMemberSendError(err)
 	}
-	message, err := a.Session.ChannelMessageSendComplex(channel.ID, ui.Signal("appeal", appealMemberNotificationBody(notice), false).SendParams(ui.SessionApplicationID(a.Session)), discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+	message, err := a.Session.ChannelMessageSendComplex(channel.ID, appealMemberNotificationMessage(notice).SendParams(ui.SessionApplicationID(a.Session)), discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 	if err != nil {
 		return "", appealMemberSendError(err)
 	}

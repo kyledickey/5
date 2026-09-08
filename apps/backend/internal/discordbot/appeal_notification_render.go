@@ -1,6 +1,8 @@
 package discordbot
 
 import (
+	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/discordtext"
 	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/quackdiscord/bot/internal/quack/model"
@@ -27,4 +29,15 @@ func appealMemberNotificationBody(notice quack.AppealMemberNotification) string 
 		body += "\n\nIf you left or were banned, you can rejoin once any ban has been removed: " + notice.Intent.RejoinURL
 	}
 	return body
+}
+
+// appealMemberNotificationMessage adds a rejoin control only to accepted typed
+// intent with its validated, immutable invite URL. Legacy bodies remain literal
+// and never become a source of executable links or inferred decision state.
+func appealMemberNotificationMessage(notice quack.AppealMemberNotification) ui.Message {
+	message := ui.Signal("appeal", appealMemberNotificationBody(notice), false)
+	if notice.Intent != nil && notice.Intent.Status == model.AppealStatusAccepted && notice.Intent.RejoinURL != "" {
+		message.Components = []discordgo.MessageComponent{ui.Row(ui.LinkButton(notice.Intent.RejoinURL, "Rejoin Server", false))}
+	}
+	return message
 }
