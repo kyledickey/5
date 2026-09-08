@@ -246,3 +246,12 @@ means further work is required, not completion.
   backend suite pass. End-to-end setup transport/live validation, bot thread
   permission preflight and updating an existing panel instead of posting another
   remain pending; the running bot has not been restarted.
+
+- Ticket setup now checks the bot's effective entry and queue permissions from
+  fresh guild, bot-member and channel REST responses before saving configuration.
+  The entry requires private-thread creation, thread posting/management and normal
+  message/history access; the queue requires message/history access and transcript
+  attachments. Failures identify the missing permissions and channel. Transport
+  tests prove channel overwrite denials beat stale cached administrator authority
+  and cover both thread-management and transcript-upload failures. Focused and
+  full backend suites pass. Panel reuse and full live setup rehearsal remain pending.

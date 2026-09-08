@@ -43,6 +43,10 @@ func (r *Runtime) SetupTickets(ctx ui.Context) ui.HandlerResult {
 			_, err = responder.EditOriginal(ui.ErrorEdit("The queue must be a private text channel in this server, visible only to moderators and Quack."))
 			return err
 		}
+		if err := (ticketDiscordClient{session: r.session}).validateTicketBotPermissions(taskCtx, ctx.Interaction.GuildID, entryID, queueID); err != nil {
+			_, err = responder.EditOriginal(ui.ErrorEdit(err.Error()))
+			return err
+		}
 		settings, _, err := r.Tickets.Settings(taskCtx, actor)
 		if err != nil {
 			_, err = responder.EditOriginal(ui.ErrorEdit("Could not load ticket settings. Try again."))
