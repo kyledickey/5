@@ -306,3 +306,14 @@ func (s *Service) audit(ctx context.Context, actor Actor, action, resourceID, re
 		slog.ErrorContext(ctx, "Module audit could not be recorded", "module", "tickets", "guild_id", actor.GuildID, "action", action)
 	}
 }
+
+// RecordEntryPanel saves delivery bookkeeping without another staff audit event.
+func (s *Service) RecordEntryPanel(ctx context.Context, actor Actor, channelID, messageID string) error {
+	if !actor.CanManage {
+		return ErrPermissionDenied
+	}
+	if channelID == "" || messageID == "" {
+		return errors.New("entry panel receipt is incomplete")
+	}
+	return s.store.saveEntryPanel(ctx, actor.GuildID, channelID, messageID)
+}

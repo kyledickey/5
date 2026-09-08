@@ -404,3 +404,35 @@ func TestTicketJoinRequiresCurrentModeratorAndOpenTicket(t *testing.T) {
 		t.Fatalf("unexpected invitations: %v", client.joined)
 	}
 }
+
+// TestEntryPanelReceiptPreservesCurrentSettings prevents a delayed publication
+// from overwriting a newer administrator channel selection.
+func TestEntryPanelReceiptPreservesCurrentSettings(t *testing.T) {
+	_, service, _ := setup(t)
+	ctx := context.Background()
+	actor := tickets.Actor{GuildID: "guild-a", DiscordUserID: "admin", CanManage: true}
+	if err := service.RecordEntryPanel(ctx, actor, "entry", "panel"); err != nil {
+		t.Fatal(err)
+	}
+	settings, _, err := service.Settings(ctx, actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.EntryPanelMessageID != "panel" || settings.QueueChannelDiscordID != "queue" {
+		t.Fatalf("receipt changed settings: %+v", settings)
+	}
+	settings.EntryChannelDiscordID = "new-entry"
+	if _, err := service.UpdateSettings(ctx, actor, true, settings); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RecordEntryPanel(ctx, actor, "entry", "late-panel"); err == nil {
+		t.Fatal("stale panel receipt accepted")
+	}
+	settings, _, err = service.Settings(ctx, actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.EntryChannelDiscordID != "new-entry" || settings.EntryPanelMessageID != "panel" {
+		t.Fatalf("stale receipt overwrote settings: %+v", settings)
+	}
+}

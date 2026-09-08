@@ -50,6 +50,8 @@ var (
 
 // Settings fixes the module's Discord, privacy, retention, and abuse-control policy for one guild.
 type Settings struct {
+	EntryPanelMessageID     string `json:"entry_panel_message_id,omitempty"`
+	EntryPanelChannelID     string `json:"entry_panel_channel_id,omitempty"`
 	QueueChannelDiscordID   string `json:"queue_channel_discord_id"`
 	EntryChannelDiscordID   string `json:"entry_channel_discord_id"`
 	TranscriptRetentionDays int    `json:"transcript_retention_days"`

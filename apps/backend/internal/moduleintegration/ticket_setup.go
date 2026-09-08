@@ -57,11 +57,13 @@ func (r *Runtime) SetupTickets(ctx ui.Context) ui.HandlerResult {
 			_, err = responder.EditOriginal(ui.ErrorEdit("Could not save ticket settings. Try again."))
 			return err
 		}
-		message := ui.Signal("ticket", "Need to talk to a moderator? Open a private ticket below.", false)
-		message.Components = []discordgo.MessageComponent{ui.Row(ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "ticket", Action: "open", Version: "v1"}), "Open ticket", discordgo.PrimaryButton, false))}
-		_, err = r.session.ChannelMessageSendComplex(entryID, message.SendParams(ui.SessionApplicationID(r.session)), discordgo.WithContext(taskCtx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+		panel, err := (ticketDiscordClient{session: r.session}).publishTicketEntry(taskCtx, settings)
 		if err != nil {
 			_, err = responder.EditOriginal(ui.ErrorEdit("Ticket channels are saved, but Quack could not publish the opening button. Check Send Messages permission in the entry channel and run setup again."))
+			return err
+		}
+		if err := r.Tickets.RecordEntryPanel(taskCtx, actor, entryID, panel.ID); err != nil {
+			_, err = responder.EditOriginal(ui.ErrorEdit("The opening button was posted, but Quack could not save its message reference. Check the existing panel before running setup again."))
 			return err
 		}
 		_, err = responder.EditOriginal(ui.EditMessage(ui.Signal("ticket", fmt.Sprintf("Tickets are ready in <#%s>. Staff notifications and transcripts will go to <#%s>.", entryID, queueID), true)))

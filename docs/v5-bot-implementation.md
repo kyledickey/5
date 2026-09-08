@@ -255,3 +255,12 @@ means further work is required, not completion.
   tests prove channel overwrite denials beat stale cached administrator authority
   and cover both thread-management and transcript-upload failures. Focused and
   full backend suites pass. Panel reuse and full live setup rehearsal remain pending.
+
+- Ticket setup persists its entry-panel message/channel receipt and edits the same
+  panel when rerun. An explicit deleted-message response recreates the panel;
+  permission/transport failures do not fall back to another send. Receipt storage
+  locks the current module configuration and rejects a stale channel selection,
+  preserving other settings without emitting another staff audit event. Tests
+  cover reuse, deletion, forbidden edits and delayed receipt writes. Focused and
+  full backend suites pass. Concurrent first-time setup, disabling an old panel
+  when moving channels, and live setup rehearsal remain pending.

@@ -3,6 +3,7 @@ package tickets
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -339,4 +340,28 @@ func (s *Store) saveQueueReceipt(ctx context.Context, ticket *Ticket, channelID,
 	}
 	ticket.LogChannelDiscordID, ticket.LogMessageDiscordID, ticket.TranscriptURL = channelID, messageID, transcriptURL
 	return nil
+}
+
+// saveEntryPanel updates only the receipt in the current configuration. The row
+// lock prevents an old setup request from overwriting a newer channel selection.
+func (s *Store) saveEntryPanel(ctx context.Context, guildID, channelID, messageID string) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var config modules.Configuration
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("guild_id = ? AND module_id = ?", guildID, modules.Tickets).First(&config).Error; err != nil {
+			return err
+		}
+		var settings Settings
+		if err := json.Unmarshal([]byte(config.ConfigJSON), &settings); err != nil {
+			return err
+		}
+		if settings.EntryChannelDiscordID != channelID {
+			return errors.New("ticket entry channel changed during setup")
+		}
+		settings.EntryPanelChannelID, settings.EntryPanelMessageID = channelID, messageID
+		payload, err := json.Marshal(settings)
+		if err != nil {
+			return err
+		}
+		return tx.Model(&config).Update("config_json", string(payload)).Error
+	})
 }
