@@ -868,3 +868,10 @@ means further work is required, not completion.
   Root independently reran the schema/migration tests with MySQL successfully.
   The current schema also includes the public-case receipt table prerequisite for
   the durable Discord publication worker being implemented separately.
+- Closed ticket detail now removes dead thread navigation and impossible controls.
+  Authorized owners can retrieve retained transcript files; staff can also follow
+  the queue receipt. Finish closing is shown only while that ticket still holds
+  its owner's reservation. Long histories use native previous/next pages that
+  update the same private message and refresh live authorization. Root reviewed
+  the lifecycle/privacy boundaries and independently passed focused ticket and
+  closure tests. The service still loads the full timeline before presentation.

@@ -84,31 +84,51 @@ func (r *Runtime) ticketQueueComponent(ctx ui.Context) ui.HandlerResult {
 	})
 }
 
-// viewTicketComponent returns private ticket state and its immutable timeline.
+// viewTicketComponent returns authorized lifecycle state and a bounded history page.
 func (r *Runtime) viewTicketComponent(ctx ui.Context) ui.HandlerResult {
-	ticketID, err := ticketComponentID(ctx)
+	payload, err := ticketComponentID(ctx)
 	if err != nil {
 		return ui.Immediate(ui.Error("That ticket is unavailable."))
 	}
-	return r.ticketTask(ctx, func(taskCtx context.Context, responder ui.Responder, actor tickets.Actor) error {
+	ticketID, page := ticketDetailPayload(payload)
+	// Only our ephemeral detail messages may be updated in place. A routed button
+	// on a public queue must always receive a new private response.
+	pagination := strings.Contains(payload, "~") && ctx.Interaction.Message != nil && ctx.Interaction.Message.Flags&discordgo.MessageFlagsEphemeral != 0
+	acknowledgement := ui.DeferEphemeral()
+	if pagination {
+		acknowledgement = ui.DeferUpdate()
+	}
+	return r.ticketTaskWithResponse(ctx, acknowledgement, func(taskCtx context.Context, responder ui.Responder, actor tickets.Actor) error {
 		ticket, events, err := r.Tickets.Detail(taskCtx, actor, ticketID)
 		if err != nil {
 			_, _ = responder.EditOriginal(ui.ErrorEdit(ticketErrorMessage(err)))
 			return nil
 		}
-		if ticket.Status == tickets.StatusOpen && actor.CanModerate {
+		pending, err := r.Tickets.ClosurePending(taskCtx, actor, ticketID)
+		if err != nil {
+			_, _ = responder.EditOriginal(ui.ErrorEdit(ticketErrorMessage(err)))
+			return nil
+		}
+		if ticket.Status == tickets.StatusOpen && actor.CanModerate && !pagination {
 			if err := r.TicketDiscord.Join(taskCtx, actor, ticket.ID); err != nil {
 				_, _ = responder.EditOriginal(ui.ErrorEdit("Quack could not add you to the ticket thread. Check the bot's thread permissions and try again."))
 				return nil
 			}
 		}
-		lines := []string{fmt.Sprintf("The ticket for <@%s> is **%s**.", ticket.OwnerDiscordUserID, ticket.Status), "Open the conversation: <#" + ticket.ThreadDiscordChannelID + ">."}
-		for _, event := range events {
-			lines = append(lines, ui.Quote(ui.PlainText(event.Body))+"\n-# "+ui.RelativeTime(event.CreatedAt))
+		var transcript *tickets.Transcript
+		if ticket.Status != tickets.StatusOpen {
+			transcript, err = r.Tickets.Transcript(taskCtx, actor, ticketID)
+			if err != nil && !errors.Is(err, tickets.ErrNotFound) {
+				_, _ = responder.EditOriginal(ui.ErrorEdit(ticketErrorMessage(err)))
+				return nil
+			}
 		}
-		message := ui.Signal("ticket", strings.Join(lines, "\n\n"), true)
-		message.Components = ticketControls(ticket.ID, actor.CanManage)
-		_, err = responder.EditOriginal(ui.EditMessage(message))
+		edit := ui.EditMessage(ticketDetailMessage(ticket, events, actor, pending, transcript, page))
+		if pagination {
+			_, err = responder.UpdateMessage(edit)
+		} else {
+			_, err = responder.EditOriginal(edit)
+		}
 		return err
 	})
 }
@@ -156,7 +176,10 @@ func (r *Runtime) closeTicketComponent(ctx ui.Context) ui.HandlerResult {
 			_, editErr := responder.EditOriginal(ui.EditMessage(ticketCloseFailureMessage(ticket, err)))
 			return editErr
 		}
-		_, err := responder.EditOriginal(ui.EditMessage(ui.Signal("lock", "Ticket closed. The transcript has been saved.", true)))
+		message := ui.Signal("lock", "Ticket closed. The transcript has been saved and the private thread deleted.", true)
+		id := ui.MustCustomID(ui.CustomID{Namespace: "ticket", Action: "view", Version: "v1", Payload: ticketID})
+		message.Components = []discordgo.MessageComponent{ui.Row(ui.Button(id, "View closed ticket", discordgo.SecondaryButton, false))}
+		_, err := responder.EditOriginal(ui.EditMessage(message))
 		return err
 	})
 }
@@ -177,7 +200,13 @@ func ticketComponentID(ctx ui.Context) (string, error) {
 // ticketTask acknowledges before making fresh Discord authorization requests.
 // Gateway cache and channel-level overrides never grant guild staff authority.
 func (r *Runtime) ticketTask(ctx ui.Context, task func(context.Context, ui.Responder, tickets.Actor) error) ui.HandlerResult {
-	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
+	return r.ticketTaskWithResponse(ctx, ui.DeferEphemeral(), task)
+}
+
+// ticketTaskWithResponse shares fresh authorization for private initial views and
+// in-place history updates; callers must never update public messages with detail.
+func (r *Runtime) ticketTaskWithResponse(ctx ui.Context, acknowledgement *discordgo.InteractionResponse, task func(context.Context, ui.Responder, tickets.Actor) error) ui.HandlerResult {
+	return ui.Async(acknowledgement, func(taskCtx context.Context, responder ui.Responder) error {
 		taskCtx = quack.ContextWithAuditSource(taskCtx, model.AuditSourceDiscord)
 		current := ctx
 		current.Context = taskCtx
