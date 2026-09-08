@@ -16,39 +16,43 @@ import (
 // HandleMessageCaseInteraction derives the target from the selected live message and applies the sole active policy, or directs staff to explicit template selection.
 func HandleMessageCaseInteraction(ctx ui.Context) ui.HandlerResult {
 	interaction := ctx.Interaction
-	if interaction == nil || interaction.GuildID == "" {
+	if interaction == nil || interaction.Interaction == nil || interaction.GuildID == "" {
 		return ui.Immediate(ui.Error("Select a server message to create a case."))
 	}
 	data := interaction.ApplicationCommandData()
+	if data.Resolved == nil {
+		return ui.Immediate(ui.Error("The selected message is unavailable."))
+	}
 	message := data.Resolved.Messages[data.TargetID]
 	if message == nil || message.Author == nil {
 		return ui.Immediate(ui.Error("The selected message is unavailable."))
 	}
-	guildContext, err := resolveInteractionGuildContext(ctx.Context, ctx.Services, interaction)
-	if err != nil {
-		return ui.Immediate(ui.Error(caseCommandErrorMessage(err)))
-	}
-	templates, err := ctx.Services.Templates.ListActive(ctx.Context, guildContext)
-	if err != nil || len(templates) == 0 {
-		return ui.Immediate(ui.Error("No active case template is available."))
-	}
-	if len(templates) > 1 {
-		return ui.Immediate(ui.Ephemeral(caseTemplatePicker(templates, "m", strings.Join([]string{message.Author.ID, message.ChannelID, message.ID}, "|"), 0)))
-	}
-	template := templates[0]
-	link := fmt.Sprintf("https://discord.com/channels/%s/%s/%s", interaction.GuildID, message.ChannelID, message.ID)
-	values := messageLinkContext(&template, link)
-	return ui.Async(ui.DeferPublic(), func(taskCtx context.Context, responder ui.Responder) error {
-		created, createErr := ctx.Services.Cases.Create(taskCtx, guildContext, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: message.Author.ID, Source: model.CaseSourceDiscord, ContextChannelDiscordID: message.ChannelID, ContextMessageDiscordID: message.ID, ContextValues: values, EvidenceLinks: []string{link}, IdempotencyKey: interaction.ID})
-		if createErr != nil {
-			_, editErr := responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(createErr)))
-			return editErr
+	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
+		guildContext, err := resolveInteractionGuildContext(taskCtx, ctx.Services, interaction)
+		if err == nil {
+			err = ctx.Services.Guilds.Authorize(taskCtx, guildContext, model.PermissionActionCaseCreate, model.AuditSourceDiscord)
 		}
-		message, followErr := ui.Publish(responder, views.CaseCreatedMessage(views.CaseCreated{Case: created, Template: &template}))
-		if followErr == nil && message != nil {
-			updatePublicCaseResult(taskCtx, responder, ctx.Services, created, message.ID, &template)
+		if err != nil {
+			_, err = responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(err)))
+			return err
 		}
-		return followErr
+		templates, err := ctx.Services.Templates.ListActive(taskCtx, guildContext)
+		if err != nil || len(templates) == 0 {
+			_, err = responder.EditOriginal(ui.ErrorEdit("No active case template is available."))
+			return err
+		}
+		if len(templates) > 1 {
+			_, err = responder.EditOriginal(ui.EditMessage(caseTemplatePicker(templates, "m", strings.Join([]string{message.Author.ID, message.ChannelID, message.ID}, "|"), 0)))
+			return err
+		}
+		template := &templates[0]
+		link := fmt.Sprintf("https://discord.com/channels/%s/%s/%s", interaction.GuildID, message.ChannelID, message.ID)
+		created, err := ctx.Services.Cases.Create(taskCtx, guildContext, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: message.Author.ID, Source: model.CaseSourceDiscord, ContextChannelDiscordID: message.ChannelID, ContextMessageDiscordID: message.ID, ContextValues: messageLinkContext(template, link), EvidenceLinks: []string{link}, IdempotencyKey: interaction.ID})
+		if err != nil {
+			_, err = responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(err)))
+			return err
+		}
+		return publishPrivateContextCase(taskCtx, responder, ctx.Services, created, template)
 	})
 }
 

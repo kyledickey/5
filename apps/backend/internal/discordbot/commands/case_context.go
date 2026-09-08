@@ -87,3 +87,21 @@ func modalTextValue(data discordgo.ModalSubmitInteractionData, customID string) 
 	}
 	return ""
 }
+
+// publishPrivateContextCase completes the private acknowledgement before posting
+// a public case result. Discord otherwise makes the first followup inherit the
+// private deferred response. A publication failure retains a usable private case.
+func publishPrivateContextCase(ctx context.Context, responder ui.Responder, services *quack.Services, created *quack.CaseResponse, template *quack.TemplateResponse) error {
+	result := views.CaseCreatedMessage(views.CaseCreated{Case: created, Template: template})
+	if _, err := responder.EditOriginal(ui.EditMessage(result)); err != nil {
+		return err
+	}
+	message, err := responder.Followup(result)
+	if err != nil {
+		return err
+	}
+	if message != nil {
+		updatePublicCaseResult(ctx, responder, services, created, message.ID, template)
+	}
+	return responder.DeleteOriginal()
+}

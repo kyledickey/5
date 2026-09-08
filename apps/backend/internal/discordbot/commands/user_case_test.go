@@ -17,10 +17,17 @@ func TestUserContextCreatesCaseForSelectedMember(t *testing.T) {
 	interaction := caseAddInteraction("", "target-2", uint64(discordgo.PermissionModerateMembers))
 	interaction.Data = discordgo.ApplicationCommandInteractionData{Name: UserCaseCommandSpec().Definition.Name, CommandType: discordgo.UserApplicationCommand, TargetID: "target-2", Resolved: &discordgo.ApplicationCommandInteractionDataResolved{Users: map[string]*discordgo.User{"target-2": {ID: "target-2"}}}}
 	result := HandleUserCaseInteraction(ui.Context{Context: context.Background(), Services: services, Interaction: interaction})
-	if result.Response == nil || result.Response.Data == nil || len(result.Response.Data.Components) != 1 {
-		t.Fatalf("missing template picker: %+v", result)
+	if result.Task == nil {
+		t.Fatal("picker did not defer")
 	}
-	row := result.Response.Data.Components[0].(discordgo.ActionsRow)
+	picker := &fakeResponder{}
+	if err := result.Task(context.Background(), picker); err != nil {
+		t.Fatal(err)
+	}
+	if picker.edit.Components == nil || len(*picker.edit.Components) != 1 {
+		t.Fatal("missing template picker")
+	}
+	row := (*picker.edit.Components)[0].(discordgo.ActionsRow)
 	menu := row.Components[0].(discordgo.SelectMenu)
 	interaction.Type = discordgo.InteractionMessageComponent
 	interaction.Data = discordgo.MessageComponentInteractionData{CustomID: menu.CustomID, ComponentType: discordgo.SelectMenuComponent, Values: []string{template.ID}}

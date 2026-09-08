@@ -27,18 +27,32 @@ func HandleUserCaseInteraction(ctx ui.Context) ui.HandlerResult {
 	if data.TargetID == "" || data.Resolved == nil || data.Resolved.Users[data.TargetID] == nil {
 		return ui.Immediate(ui.Error("The selected member is unavailable."))
 	}
-	guild, err := resolveInteractionGuildContext(ctx.Context, ctx.Services, ctx.Interaction)
-	if err != nil {
-		return ui.Immediate(ui.Error(caseCommandErrorMessage(err)))
-	}
-	templates, err := ctx.Services.Templates.ListActive(ctx.Context, guild)
-	if err != nil || len(templates) == 0 {
-		return ui.Immediate(ui.Error("No active case template is available."))
-	}
-	if len(templates) == 1 {
-		return createUserContextCase(ctx, guild, data.TargetID, &templates[0])
-	}
-	return ui.Immediate(ui.Ephemeral(caseTemplatePicker(templates, "u", data.TargetID, 0)))
+	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
+		guild, err := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
+		if err == nil {
+			err = ctx.Services.Guilds.Authorize(taskCtx, guild, model.PermissionActionCaseCreate, model.AuditSourceDiscord)
+		}
+		if err != nil {
+			_, err = responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(err)))
+			return err
+		}
+		templates, err := ctx.Services.Templates.ListActive(taskCtx, guild)
+		if err != nil || len(templates) == 0 {
+			_, err = responder.EditOriginal(ui.ErrorEdit("No active case template is available."))
+			return err
+		}
+		if len(templates) > 1 {
+			_, err = responder.EditOriginal(ui.EditMessage(caseTemplatePicker(templates, "u", data.TargetID, 0)))
+			return err
+		}
+		template := &templates[0]
+		created, err := ctx.Services.Cases.Create(taskCtx, guild, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: data.TargetID, Source: model.CaseSourceDiscord, IdempotencyKey: ctx.Interaction.ID})
+		if err != nil {
+			_, err = responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(err)))
+			return err
+		}
+		return publishPrivateContextCase(taskCtx, responder, ctx.Services, created, template)
+	})
 }
 
 // handleUserTemplateComponent refreshes moderator authority when a policy is selected.

@@ -13,7 +13,7 @@ import (
 )
 
 // updatePublicCaseResult follows enforcement for at most 30 seconds. It edits
-// the original public result once a terminal outcome is known, without mutating
+// the public result by its message ID once a terminal outcome is known, without mutating
 // the caller's case snapshot or polling an idle case indefinitely.
 func updatePublicCaseResult(ctx context.Context, responder ui.Responder, services *quack.Services, created *quack.CaseResponse, messageID string, template *quack.TemplateResponse) {
 	if services == nil || services.Store == nil || responder == nil || created == nil || created.ID == "" || messageID == "" || len(created.Actions) == 0 {
@@ -49,7 +49,7 @@ func updatePublicCaseResult(ctx context.Context, responder ui.Responder, service
 				}
 			}
 			if terminal {
-				_, err := responder.EditOriginal(ui.EditMessage(views.CaseCreatedMessage(views.CaseCreated{Case: &snapshot, Template: template})))
+				_, err := responder.EditFollowup(messageID, ui.EditMessage(views.CaseCreatedMessage(views.CaseCreated{Case: &snapshot, Template: template})))
 				if err != nil {
 					slog.WarnContext(ctx, "Could not update public case result", "case_id", snapshot.ID, "error_type", "discord_response")
 				}

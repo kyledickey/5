@@ -65,10 +65,17 @@ func TestMessageContextActionOffersActiveTemplateSelection(t *testing.T) {
 	createCaseCommandTemplate(t, services, guildContext, quack.TemplateInput{Slug: "other", Name: "Other", ReasonTemplate: "Other reason", Levels: []quack.TemplateLevelInput{{Name: "Default", Position: 1, IsDefault: true}}})
 	interaction := &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{ID: "message-command", Type: discordgo.InteractionApplicationCommand, GuildID: "guild-1", ChannelID: "channel-1", Member: &discordgo.Member{User: &discordgo.User{ID: "mod-1", Username: "mod"}, Permissions: int64(discordgo.PermissionModerateMembers)}, Data: discordgo.ApplicationCommandInteractionData{Name: messageCaseCommandName, TargetID: "message-1", Resolved: &discordgo.ApplicationCommandInteractionDataResolved{Messages: map[string]*discordgo.Message{"message-1": {ID: "message-1", ChannelID: "channel-1", Author: &discordgo.User{ID: "target-1"}}}}}}}
 	result := HandleMessageCaseInteraction(ui.Context{Context: context.Background(), Services: services, Interaction: interaction})
-	if result.Response == nil || result.Response.Data.Flags&discordgo.MessageFlagsEphemeral == 0 || len(result.Response.Data.Components) != 1 {
-		t.Fatalf("expected private template selection, got %+v", result.Response)
+	if result.Response == nil || result.Response.Data.Flags&discordgo.MessageFlagsEphemeral == 0 || result.Task == nil {
+		t.Fatal("expected private acknowledgement")
 	}
-	row := result.Response.Data.Components[0].(discordgo.ActionsRow)
+	picker := &fakeResponder{}
+	if err := result.Task(context.Background(), picker); err != nil {
+		t.Fatal(err)
+	}
+	if picker.edit.Components == nil || len(*picker.edit.Components) != 1 {
+		t.Fatal("missing template picker")
+	}
+	row := (*picker.edit.Components)[0].(discordgo.ActionsRow)
 	menu := row.Components[0].(discordgo.SelectMenu)
 	if len(menu.Options) != 2 || !strings.Contains(menu.CustomID, "case:message_template:v1:") {
 		t.Fatalf("unexpected active-template selector: %+v", menu)

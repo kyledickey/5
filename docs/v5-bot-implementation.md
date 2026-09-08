@@ -653,3 +653,15 @@ means further work is required, not completion.
   snapshots, import/export, invalid windows and native enable/disable. Focused
   tests and the full backend suite pass. Live Discord rehearsal and the broader
   remaining review findings are not yet verified.
+
+- Both native context-menu entry points now acknowledge privately before live
+  guild/permission/template lookups. Multiple templates produce a private picker;
+  a sole template still creates the case immediately and posts a public result
+  after completing the private acknowledgement. Initial lookup/authority failures
+  remain private. Successful public followups remove the private copy; publication
+  failure leaves the created case visible privately. Result refreshes now address
+  the actual public message ID rather than always editing the original response.
+  Tests cover deferred lookup timing, revoked authority, picker edits and sole-rule
+  public visibility. Focused and full backend suites pass. Selected-template
+  failure privacy, durable result refresh and live Discord verification remain
+  pending, along with the remaining review requirements.
