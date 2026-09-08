@@ -50,8 +50,9 @@ func TestHoneypotCounterRepairsOnlyMissingWarnings(t *testing.T) {
 			}
 			service := honeypot.NewService(registry, honeypot.NewStore(db), nil, nil, nil, nil)
 			session, _ := discordgo.New("Bot test")
-			posts := 0
+			posts, requests := 0, 0
 			session.Client = &http.Client{Transport: ticketRoundTripper(func(request *http.Request) (*http.Response, error) {
+				requests++
 				code, body := 200, `{"id":"trap","guild_id":"guild","type":0}`
 				if request.Method == http.MethodPatch {
 					code = status
@@ -74,7 +75,10 @@ func TestHoneypotCounterRepairsOnlyMissingWarnings(t *testing.T) {
 				return &http.Response{StatusCode: code, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
 			})}
 			counter := honeypotCounter{session: session, service: service, resolver: guildResolver{db: db}}
-			err = counter.IncidentCreated(ctx, "internal")
+			if err := counter.WarningDeleted(ctx, "internal", "trap", []string{"unrelated"}); err != nil || requests != 0 {
+				t.Fatalf("unrelated deletion triggered delivery: %v", err)
+			}
+			err = counter.WarningDeleted(ctx, "internal", "trap", []string{"another", "old"})
 			if (err == nil) != (status != 500) || posts != map[int]int{200: 0, 404: 1, 500: 0}[status] {
 				t.Fatalf("unexpected repair: posts=%d err=%v", posts, err)
 			}
@@ -82,6 +86,12 @@ func TestHoneypotCounterRepairsOnlyMissingWarnings(t *testing.T) {
 			want := "old"
 			if status == 404 {
 				want = "replacement"
+			}
+			if status == 404 {
+				before := requests
+				if err := counter.WarningDeleted(ctx, "internal", "trap", []string{"old"}); err != nil || requests != before {
+					t.Fatalf("stale deletion repeated repair: %v", err)
+				}
 			}
 			if err != nil || saved.WarningMessageID != want || saved.WarningText != "Custom warning" {
 				t.Fatalf("receipt: %+v %v", saved, err)

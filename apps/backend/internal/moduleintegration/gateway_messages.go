@@ -116,6 +116,7 @@ func (r *Runtime) onMessageDelete(_ *discordgo.Session, event *discordgo.Message
 	guildID, ok := r.internalGuildID(event.GuildID)
 	if ok {
 		r.submit(messageEvent(guildID, generallogging.MessageDelete, event.Message, "", ""))
+		r.repairDeletedHoneypotWarning(guildID, event.ChannelID, []string{event.ID})
 	}
 }
 
@@ -127,6 +128,7 @@ func (r *Runtime) onMessageDeleteBulk(_ *discordgo.Session, event *discordgo.Mes
 	guildID, ok := r.internalGuildID(event.GuildID)
 	if ok {
 		r.submitBulkDelete(bulkDeleteEvent{guildID: guildID, channelID: event.ChannelID, messageIDs: append([]string(nil), event.Messages...)})
+		r.repairDeletedHoneypotWarning(guildID, event.ChannelID, event.Messages)
 	}
 }
 

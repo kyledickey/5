@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -26,6 +27,21 @@ type honeypotCounter struct {
 // IncidentCreated refreshes the current configured warning after case persistence.
 // Delivery is presentation only and never writes another staff audit event.
 func (c *honeypotCounter) IncidentCreated(ctx context.Context, guildID string) error {
+	return c.refresh(ctx, guildID, "", nil)
+}
+
+// WarningDeleted refreshes only the currently configured warning, including bulk
+// deletions. Stale duplicate events cannot create another replacement.
+func (c *honeypotCounter) WarningDeleted(ctx context.Context, guildID, channelID string, messageIDs []string) error {
+	if channelID == "" || len(messageIDs) == 0 {
+		return nil
+	}
+	return c.refresh(ctx, guildID, channelID, messageIDs)
+}
+
+// refresh reloads current settings under the shared presentation lock before
+// validating the destination and updating or repairing its warning.
+func (c *honeypotCounter) refresh(ctx context.Context, guildID, deletedChannel string, deletedIDs []string) error {
 	locks := c.sharedLocks
 	if locks == nil {
 		locks = &c.guildLocks
@@ -38,6 +54,9 @@ func (c *honeypotCounter) IncidentCreated(ctx context.Context, guildID string) e
 	settings, status, err := c.service.Settings(ctx, honeypot.Actor{GuildID: guildID, CanManage: true})
 	if err != nil {
 		return err
+	}
+	if deletedChannel != "" && (settings.ChannelDiscordID != deletedChannel || !slices.Contains(deletedIDs, settings.WarningMessageID)) {
+		return nil
 	}
 	if !status.Enabled || settings.ChannelDiscordID == "" {
 		return nil

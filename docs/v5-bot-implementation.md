@@ -583,3 +583,12 @@ means further work is required, not completion.
   with the counter observer; serialization/cancellation tests and the module race
   suite pass, as does the full backend suite. Live simultaneous setup/incident
   rehearsal, immediate deletion handling and remaining feature work are pending.
+
+- Single and bulk gateway message deletions now restore a deleted configured
+  honeypot warning without waiting for another incident. Recovery shares setup/
+  counter coordination, reloads current settings, and ignores unrelated IDs and
+  stale events for already-replaced messages. Work has a bounded deadline and runs
+  independently of general logging configuration. Transport tests verify matching
+  bulk IDs, unrelated deletion suppression and stale-event suppression; focused and
+  full backend suites pass. Live gateway deletion/recovery and remaining feature
+  acceptance checks are still pending.

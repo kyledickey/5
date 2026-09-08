@@ -35,6 +35,7 @@ const (
 // Runtime owns the optional-module services and their process-scoped workers.
 type Runtime struct {
 	honeypotWarningLocks sync.Map
+	honeypotCounter      *honeypotCounter
 	Tickets              *tickets.Service
 	TicketDiscord        *tickets.DiscordAdapter
 	Logging              *generallogging.Service
@@ -138,7 +139,8 @@ func New(ctx context.Context, repositories *store.Store, session *discordgo.Sess
 		bulk:             make(chan bulkDeleteEvent, loggingQueueCapacity),
 		closeDone:        make(chan struct{}),
 	}
-	runtime.HoneypotRuntime = honeypot.NewRuntime(workerCtx, honeypotDiscord, honeypotQueueCapacity, honeypotQueueWorkers, &honeypotCounter{session: session, service: honeypotService, resolver: resolver, sharedLocks: &runtime.honeypotWarningLocks})
+	runtime.honeypotCounter = &honeypotCounter{session: session, service: honeypotService, resolver: resolver, sharedLocks: &runtime.honeypotWarningLocks}
+	runtime.HoneypotRuntime = honeypot.NewRuntime(workerCtx, honeypotDiscord, honeypotQueueCapacity, honeypotQueueWorkers, runtime.honeypotCounter)
 	for range loggingQueueWorkers {
 		runtime.bulkWG.Add(1)
 		go runtime.runBulkDeletes(workerCtx)
