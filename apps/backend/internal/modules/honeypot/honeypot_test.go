@@ -340,7 +340,9 @@ func TestRuntimeIntentsQueueAndIndependentShutdown(t *testing.T) {
 	}
 	runtime := honeypot.NewRuntime(context.Background(), honeypot.NewDiscordAdapter(fixture.service), 128, 4)
 	for index := range 100 {
-		if err := runtime.Submit(message(fmt.Sprintf("queued-%d", index))); err != nil {
+		event := message(fmt.Sprintf("queued-%d", index))
+		event.AuthorDiscordUserID = fmt.Sprintf("member-%d", index)
+		if err := runtime.Submit(event); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -404,5 +406,52 @@ func TestContextCancellationDoesNotInventRetry(t *testing.T) {
 	time.Sleep(time.Millisecond)
 	if fixture.applier.count() != 0 {
 		t.Fatalf("cancelled application calls=%d", fixture.applier.count())
+	}
+}
+
+// TestMemberBurstCreatesOneIncident covers distinct messages arriving concurrently
+// and allows a new incident after the debounce window has elapsed.
+func TestMemberBurstCreatesOneIncident(t *testing.T) {
+	fixture := setup(t)
+	enable(t, fixture, "guild-a")
+	var wg sync.WaitGroup
+	for i := range 20 {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, err := fixture.service.HandleMessage(context.Background(), message(fmt.Sprintf("burst-%d", i)))
+			if err != nil && !errors.Is(err, honeypot.ErrDuplicate) {
+				t.Errorf("burst: %v", err)
+			}
+		}(i)
+	}
+	wg.Wait()
+	if fixture.applier.count() != 1 {
+		t.Fatalf("burst created %d cases", fixture.applier.count())
+	}
+	if err := fixture.db.Model(&honeypot.Trigger{}).Where("guild_id = ?", "guild-a").Update("created_at", time.Now().UTC().Add(-time.Minute)).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.service.HandleMessage(context.Background(), message("later")); err != nil {
+		t.Fatal(err)
+	}
+	if fixture.applier.count() != 2 {
+		t.Fatal("later incident suppressed")
+	}
+}
+
+func TestFailedHoneypotIncidentDoesNotSuppressNextMessage(t *testing.T) {
+	fixture := setup(t)
+	enable(t, fixture, "guild-a")
+	fixture.applier.err = errors.New("case unavailable")
+	if _, err := fixture.service.HandleMessage(context.Background(), message("failed")); err == nil {
+		t.Fatal("expected case failure")
+	}
+	fixture.applier.err = nil
+	if _, err := fixture.service.HandleMessage(context.Background(), message("retry")); err != nil {
+		t.Fatal(err)
+	}
+	if fixture.applier.count() != 2 {
+		t.Fatal("failed incident prevented recovery")
 	}
 }

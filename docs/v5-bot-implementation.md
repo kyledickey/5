@@ -273,3 +273,13 @@ means further work is required, not completion.
   repeated pages, ordering and attachment context. Focused and full backend suites
   pass. Durable attachment capture and any desired deleted/edited-message history
   still require separate work; live transcript rehearsal remains pending.
+
+- Honeypot claims now group distinct messages from the same member/channel within
+  30 seconds into one incident. A configuration-row lock serializes claims across
+  workers; external case application occurs after the transaction. Pending and
+  created incidents suppress bursts, while failed case creation permits a later
+  message to try again. Expected exemptions, duplicates and disabled/non-trigger
+  events no longer become worker error logs. Tests cover concurrent distinct-message
+  bursts, window expiry, failure recovery and draining independent members. The
+  full backend suite passes. MySQL concurrency/live Discord verification, trap
+  setup/counter, evidence deletion ordering and broader honeypot repair remain pending.

@@ -128,7 +128,7 @@ func (r *Runtime) process(ctx context.Context, event Message) {
 				"panic_type", fmt.Sprintf("%T", recovered), "stack", string(debug.Stack()))
 		}
 	}()
-	if _, err := r.adapter.HandleMessage(ctx, event); err != nil {
+	if _, err := r.adapter.HandleMessage(ctx, event); err != nil && !errors.Is(err, ErrDuplicate) && !errors.Is(err, ErrExempt) && !errors.Is(err, ErrNotTrigger) && !errors.Is(err, ErrDisabled) {
 		slog.ErrorContext(ctx, "Honeypot event failed", "guild_id", event.GuildID, "error_type", fmt.Sprintf("%T", err))
 	}
 }

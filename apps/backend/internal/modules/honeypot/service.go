@@ -101,7 +101,7 @@ func (s *Service) HandleMessage(ctx context.Context, message Message) (ApplyResu
 		}
 		return ApplyResult{}, ErrExempt
 	}
-	trigger, created, err := s.store.Claim(ctx, message, settings.TemplateID, OutcomePending)
+	trigger, created, err := s.store.ClaimIncident(ctx, message, settings.TemplateID)
 	if err != nil {
 		return ApplyResult{}, err
 	}

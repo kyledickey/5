@@ -96,3 +96,30 @@ func (s *Store) Statistics(ctx context.Context, guildID string) (Statistics, err
 	}
 	return stats, nil
 }
+
+// ClaimIncident groups a member's burst into one moderation incident. The guild
+// configuration row serializes claims across workers; no Discord work holds the
+// lock. Failed case creation does not suppress a later message's retry.
+func (s *Store) ClaimIncident(ctx context.Context, message Message, templateID string) (*Trigger, bool, error) {
+	var trigger *Trigger
+	var claimed bool
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var config modules.Configuration
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("guild_id = ? AND module_id = ?", message.GuildID, modules.Honeypots).First(&config).Error; err != nil {
+			return err
+		}
+		var recent Trigger
+		result := tx.Where("guild_id = ? AND target_discord_user_id = ? AND channel_discord_id = ? AND created_at > ? AND outcome IN ?", message.GuildID, message.AuthorDiscordUserID, message.ChannelDiscordID, time.Now().UTC().Add(-30*time.Second), []Outcome{OutcomePending, OutcomeCreated}).Order("created_at DESC").Limit(1).Find(&recent)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected > 0 {
+			trigger = &recent
+			return nil
+		}
+		var err error
+		trigger, claimed, err = NewStore(tx).Claim(ctx, message, templateID, OutcomePending)
+		return err
+	})
+	return trigger, claimed, err
+}
