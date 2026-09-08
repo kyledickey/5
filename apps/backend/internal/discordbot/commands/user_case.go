@@ -48,15 +48,23 @@ func handleUserTemplateComponent(ctx ui.Context) ui.HandlerResult {
 	if err != nil || parsed.Payload == "" || len(data.Values) != 1 {
 		return ui.Immediate(ui.Error("That case selection is unavailable."))
 	}
-	guild, err := resolveInteractionGuildContext(ctx.Context, ctx.Services, ctx.Interaction)
-	if err != nil {
-		return ui.Immediate(ui.Error(caseCommandErrorMessage(err)))
-	}
-	_, template, err := resolveTemplate(ctx.Context, ctx.Services, guild, data.Values[0])
-	if err != nil || template == nil {
-		return ui.Immediate(ui.Error("That case template is not available."))
-	}
-	return createUserContextCase(ctx, guild, parsed.Payload, template)
+	return ui.Async(ui.DeferPublic(), func(taskCtx context.Context, responder ui.Responder) error {
+		guild, err := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
+		if err != nil {
+			_, err = responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(err)))
+			return err
+		}
+		if err := ctx.Services.Guilds.Authorize(taskCtx, guild, model.PermissionActionCaseCreate, model.AuditSourceDiscord); err != nil {
+			_, err = responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(err)))
+			return err
+		}
+		_, template, err := resolveTemplate(taskCtx, ctx.Services, guild, data.Values[0])
+		if err != nil || template == nil {
+			_, err = responder.EditOriginal(ui.ErrorEdit("That case template is not available."))
+			return err
+		}
+		return createUserContextCase(ctx, guild, parsed.Payload, template).Task(taskCtx, responder)
+	})
 }
 
 // createUserContextCase applies the selected policy immediately through the normal

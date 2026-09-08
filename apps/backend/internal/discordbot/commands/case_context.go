@@ -21,20 +21,27 @@ func handleMessageTemplateComponent(ctx ui.Context) ui.HandlerResult {
 	if err != nil || len(parts) != 3 || len(data.Values) != 1 {
 		return ui.Immediate(ui.Error("That message case flow is invalid."))
 	}
-	guildContext, resolveErr := resolveInteractionGuildContext(ctx.Context, ctx.Services, ctx.Interaction)
-	if resolveErr != nil {
-		return ui.Immediate(ui.Error(caseCommandErrorMessage(resolveErr)))
-	}
-	_, template, templateErr := resolveTemplate(ctx.Context, ctx.Services, guildContext, data.Values[0])
-	if templateErr != nil || template == nil {
-		return ui.Immediate(ui.Error("That case template is not available."))
-	}
-	link := fmt.Sprintf("https://discord.com/channels/%s/%s/%s", ctx.Interaction.GuildID, parts[1], parts[2])
-	values := messageLinkContext(template, link)
 	return ui.Async(ui.DeferPublic(), func(taskCtx context.Context, responder ui.Responder) error {
+		guildContext, resolveErr := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
+		if resolveErr != nil {
+			_, err := responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(resolveErr)))
+			return err
+		}
+		if err := ctx.Services.Guilds.Authorize(taskCtx, guildContext, model.PermissionActionCaseCreate, model.AuditSourceDiscord); err != nil {
+			_, err = responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(err)))
+			return err
+		}
+		_, template, templateErr := resolveTemplate(taskCtx, ctx.Services, guildContext, data.Values[0])
+		if templateErr != nil || template == nil {
+			_, err := responder.EditOriginal(ui.ErrorEdit("That case template is not available."))
+			return err
+		}
+		link := fmt.Sprintf("https://discord.com/channels/%s/%s/%s", ctx.Interaction.GuildID, parts[1], parts[2])
+		values := messageLinkContext(template, link)
 		created, createErr := ctx.Services.Cases.Create(taskCtx, guildContext, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: parts[0], Source: model.CaseSourceDiscord, ContextChannelDiscordID: parts[1], ContextMessageDiscordID: parts[2], ContextValues: values, EvidenceLinks: []string{link}, IdempotencyKey: ctx.Interaction.ID})
 		if createErr != nil {
-			return createErr
+			_, err := responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(createErr)))
+			return err
 		}
 		message, followErr := ui.Publish(responder, views.CaseCreatedMessage(views.CaseCreated{Case: created, Template: template}))
 		if followErr == nil && message != nil {

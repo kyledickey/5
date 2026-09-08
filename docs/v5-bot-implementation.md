@@ -445,3 +445,11 @@ means further work is required, not completion.
   message targets, empty lists and registered handlers. Focused and full backend
   suites pass. Initial context-command acknowledgement timing and live Discord
   rehearsal remain pending alongside the other tracked requirements.
+
+- Selecting a template from either context-menu picker now acknowledges before
+  live permission and policy lookups. The deferred task explicitly authorizes case
+  creation, so revoked moderators receive a permission error before policy access.
+  Message-case creation errors use the normal readable case error presentation.
+  Tests prove the initial callback needs no services and both deferred paths reject
+  revoked authority. Focused and full backend suites pass. Initial context-command
+  lookup timing, private failure presentation and live rehearsal remain pending.
