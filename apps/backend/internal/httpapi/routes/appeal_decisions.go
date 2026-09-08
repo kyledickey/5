@@ -10,47 +10,7 @@ import (
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
-// requestAppealInformation asks the member for more appeal context.
-// @Summary Request more appeal information
-// @Tags Appeals
-// @Accept json
-// @Produce json
-// @Param discordGuildID path string true "Discord guild ID"
-// @Param appealID path string true "Appeal ID"
-// @Param Idempotency-Key header string true "Retry-safe request key"
-// @Param decision body quack.AppealDecisionInput true "Decision reason"
-// @Security CookieAuth
-// @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} apierror.Response
-// @Failure 403 {object} apierror.Response
-// @Failure 404 {object} apierror.Response
-// @Failure 409 {object} apierror.Response
-// @Router /guilds/{discordGuildID}/appeals/{appealID}/request-information [post]
-func requestAppealInformation(c *gin.Context, appeals *quack.AppealService) {
-	transitionAppeal(c, appeals, "request-information")
-}
-
-// reopenAppeal returns an appeal to staff review.
-// @Summary Reopen an appeal
-// @Tags Appeals
-// @Accept json
-// @Produce json
-// @Param discordGuildID path string true "Discord guild ID"
-// @Param appealID path string true "Appeal ID"
-// @Param Idempotency-Key header string true "Retry-safe request key"
-// @Param decision body quack.AppealDecisionInput true "Decision reason"
-// @Security CookieAuth
-// @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} apierror.Response
-// @Failure 403 {object} apierror.Response
-// @Failure 404 {object} apierror.Response
-// @Failure 409 {object} apierror.Response
-// @Router /guilds/{discordGuildID}/appeals/{appealID}/reopen [post]
-func reopenAppeal(c *gin.Context, appeals *quack.AppealService) {
-	transitionAppeal(c, appeals, "reopen")
-}
-
-// acceptAppeal accepts an appeal for separate reversal review.
+// acceptAppeal accepts an appeal and queues punishment removal.
 // @Summary Accept an appeal
 // @Tags Appeals
 // @Accept json
@@ -121,10 +81,6 @@ func transitionAppeal(c *gin.Context, appeals *quack.AppealService, transition s
 	var result *quack.AppealResponse
 	var err error
 	switch transition {
-	case "request-information":
-		result, err = appeals.RequestInformation(c.Request.Context(), ctx, c.Param("appealID"), input.Reason)
-	case "reopen":
-		result, err = appeals.Reopen(c.Request.Context(), ctx, c.Param("appealID"), input.Reason)
 	case "accept":
 		result, err = appeals.Accept(c.Request.Context(), ctx, c.Param("appealID"), input.Reason)
 	case "reject":

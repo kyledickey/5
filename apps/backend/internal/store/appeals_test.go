@@ -169,25 +169,20 @@ func TestAppealServiceOwnershipSnapshotTimelineAndAtomicAcceptance(t *testing.T)
 	if err != nil || !settings.Default || len(settings.Questions) == 0 {
 		t.Fatalf("default settings: %+v err=%v", settings, err)
 	}
-	manager := &quack.GuildStaffContext{Guild: guild, Staff: &model.StaffMember{GuildID: guild.ID, DiscordUserID: "manager"}, Permissions: map[model.PermissionAction]bool{model.PermissionActionGuildSettingsWrite: true}}
-	configuredQuestions := []model.AppealQuestion{{ID: "explanation", Prompt: "Explain your appeal", Type: model.AppealQuestionLongText, Required: true, Position: 0}, {ID: "contact", Prompt: "May staff contact you?", Type: model.AppealQuestionBoolean, Position: 1}}
-	configured, err := service.UpdateSettings(ctx, manager, configuredQuestions)
-	if err != nil || configured.Default || len(configured.Questions) != 2 {
-		t.Fatalf("configure appeal form: %+v err=%v", configured, err)
+	// Pre-release custom forms must not change the shared single-statement form.
+	if _, err := repository.UpdateGuildAppealSettings(ctx, model.UpdateGuildAppealSettingsParams{Settings: model.GuildAppealSettings{GuildID: guild.ID, QuestionsJSON: `[{"id":"old","prompt":"Old custom form","type":"long_text","required":true,"position":0}]`}}); err != nil {
+		t.Fatal(err)
 	}
-	answers := []model.AppealAnswer{{QuestionID: "explanation", Value: "The decision should be reconsidered."}, {QuestionID: "contact", Value: true}}
+	answers := []model.AppealAnswer{{QuestionID: "reason", Value: "The decision should be reconsidered."}}
 	appeal, err := service.Submit(ctx, caseModel.ID, "target", quack.AppealSubmissionInput{Answers: answers})
 	if err != nil {
 		t.Fatalf("submit appeal: %v", err)
 	}
-	if appeal.Status != model.AppealStatusPending || len(appeal.Questions) != len(configuredQuestions) || len(appeal.Events) != 1 {
+	if appeal.Status != model.AppealStatusPending || len(appeal.Questions) != 1 || len(appeal.Events) != 1 {
 		t.Fatalf("unexpected submitted appeal: %+v", appeal)
 	}
-	if _, err := service.UpdateSettings(ctx, manager, []model.AppealQuestion{{ID: "replacement", Prompt: "Replacement future question", Type: model.AppealQuestionShortText, Required: true, Position: 0}}); err != nil {
-		t.Fatalf("replace future appeal form: %v", err)
-	}
 	snapshotted, err := service.GetMember(ctx, appeal.ID, "target")
-	if err != nil || len(snapshotted.Questions) != 2 || snapshotted.Questions[0].ID != "explanation" {
+	if err != nil || len(snapshotted.Questions) != 1 || snapshotted.Questions[0].ID != "reason" {
 		t.Fatalf("appeal form was not snapshotted: %+v err=%v", snapshotted, err)
 	}
 	if _, err := service.Submit(ctx, caseModel.ID, "target", quack.AppealSubmissionInput{Answers: answers}); !errors.Is(err, quack.ErrAppealConflict) {
@@ -198,10 +193,6 @@ func TestAppealServiceOwnershipSnapshotTimelineAndAtomicAcceptance(t *testing.T)
 	}
 
 	moderator := &quack.GuildStaffContext{Guild: guild, Staff: &model.StaffMember{GuildID: guild.ID, DiscordUserID: "moderator"}, ActorDiscordUserID: "moderator", Permissions: map[model.PermissionAction]bool{model.PermissionActionAppealReview: true}}
-	requested, err := service.RequestInformation(ctx, moderator, appeal.ID, "Please clarify the timeline.")
-	if err != nil || requested.Status != model.AppealStatusNeedsInformation {
-		t.Fatalf("request information: %+v err=%v", requested, err)
-	}
 	memberView, err := service.GetMember(ctx, appeal.ID, "target")
 	if err != nil {
 		t.Fatalf("member read: %v", err)
@@ -211,10 +202,7 @@ func TestAppealServiceOwnershipSnapshotTimelineAndAtomicAcceptance(t *testing.T)
 			t.Fatalf("member timeline leaked staff identity: %+v", event)
 		}
 	}
-	if _, err := service.SubmitInformation(ctx, appeal.ID, "target", quack.AppealInformationInput{Body: "Additional timeline context."}); err != nil {
-		t.Fatalf("submit information: %v", err)
-	}
-	accepted, err := service.Accept(ctx, moderator, appeal.ID, "The added context changes the decision.")
+	accepted, err := service.Accept(ctx, moderator, appeal.ID, "The statement changes the decision.")
 	if err != nil || accepted.Status != model.AppealStatusAccepted || len(accepted.ReversalOffers) != 0 {
 		t.Fatalf("accept appeal: %+v err=%v", accepted, err)
 	}
@@ -358,32 +346,43 @@ func TestAppealNotificationClaimRecoversExpiredLeaseAndRejectsStaleCompletion(t 
 	}
 }
 
-func TestAppealRejectedReopenedAndClosedTimeline(t *testing.T) {
-	ctx := context.Background()
-	repository, guild := newAppealTestStore(t)
-	service := quack.NewAppealService(repository)
-	item := createAppealableCase(t, repository, guild.ID, "target", true)
-	appeal, err := service.Submit(ctx, item.ID, "target", quack.AppealSubmissionInput{Answers: []model.AppealAnswer{{QuestionID: "reason", Value: "Please reconsider."}}})
-	if err != nil {
-		t.Fatalf("submit: %v", err)
-	}
-	moderator := &quack.GuildStaffContext{Guild: guild, Staff: &model.StaffMember{GuildID: guild.ID, DiscordUserID: "moderator"}, Permissions: map[model.PermissionAction]bool{model.PermissionActionAppealReview: true}}
-	if rejected, err := service.Reject(ctx, moderator, appeal.ID, "Insufficient context."); err != nil || rejected.Status != model.AppealStatusRejected {
-		t.Fatalf("reject: %+v err=%v", rejected, err)
-	}
-	if reopened, err := service.Reopen(ctx, moderator, appeal.ID, "One final clarification is needed."); err != nil || reopened.Status != model.AppealStatusNeedsInformation {
-		t.Fatalf("reopen: %+v err=%v", reopened, err)
-	}
-	if _, err := service.SubmitInformation(ctx, appeal.ID, "target", quack.AppealInformationInput{Body: "Final clarification."}); err != nil {
-		t.Fatalf("submit reopened information: %v", err)
-	}
-	closed, err := service.Close(ctx, moderator, appeal.ID, "Review is complete.")
-	if err != nil || closed.Status != model.AppealStatusClosed || len(closed.Events) != 5 {
-		t.Fatalf("close timeline: %+v err=%v", closed, err)
-	}
-	persisted, err := repository.GetCaseByID(ctx, item.ID)
-	if err != nil || persisted.Validity != model.CaseValidityValid {
-		t.Fatalf("reject/reopen/close changed case validity: %+v err=%v", persisted, err)
+// TestAppealDecisionsAreTerminal verifies close is rejection and neither decision
+// permits a second submission, reopening, or a competing outcome.
+func TestAppealDecisionsAreTerminal(t *testing.T) {
+	for _, closeInstead := range []bool{false, true} {
+		t.Run(map[bool]string{false: "reject", true: "close"}[closeInstead], func(t *testing.T) {
+			ctx := context.Background()
+			repository, guild := newAppealTestStore(t)
+			service := quack.NewAppealService(repository)
+			item := createAppealableCase(t, repository, guild.ID, "target", true)
+			input := quack.AppealSubmissionInput{Answers: []model.AppealAnswer{{QuestionID: "reason", Value: "Please reconsider."}}}
+			appeal, err := service.Submit(ctx, item.ID, "target", input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			moderator := &quack.GuildStaffContext{Guild: guild, Staff: &model.StaffMember{GuildID: guild.ID, DiscordUserID: "moderator"}, Permissions: map[model.PermissionAction]bool{model.PermissionActionAppealReview: true}}
+			decide := service.Reject
+			if closeInstead {
+				decide = service.Close
+			}
+			rejected, err := decide(ctx, moderator, appeal.ID, "The case stands.")
+			if err != nil || rejected.Status != model.AppealStatusRejected || len(rejected.Events) != 2 {
+				t.Fatalf("decision: %+v %v", rejected, err)
+			}
+			if _, err := service.Accept(ctx, moderator, appeal.ID, "Changed mind"); !errors.Is(err, quack.ErrAppealConflict) {
+				t.Fatalf("terminal appeal accepted: %v", err)
+			}
+			if _, err := service.Submit(ctx, item.ID, "target", input); !errors.Is(err, quack.ErrAppealConflict) {
+				t.Fatalf("second appeal submitted: %v", err)
+			}
+			if _, err := repository.TransitionAppeal(ctx, model.TransitionAppealParams{GuildID: guild.ID, AppealID: appeal.ID, AllowedFrom: []model.AppealStatus{model.AppealStatusRejected}, To: model.AppealStatusPending}); !errors.Is(err, model.ErrAppealStateConflict) {
+				t.Fatalf("storage reopened rejected appeal: %v", err)
+			}
+			persisted, err := repository.GetCaseByID(ctx, item.ID)
+			if err != nil || persisted.Validity != model.CaseValidityValid {
+				t.Fatalf("rejection changed case: %+v %v", persisted, err)
+			}
+		})
 	}
 }
 

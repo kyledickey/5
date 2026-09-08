@@ -9,14 +9,6 @@ type CreateAppealParams struct {
 	Notification AppealNotification
 }
 
-// AppendAppealInformationParams carries a member response to an outstanding information request.
-type AppendAppealInformationParams struct {
-	AppealID, TargetDiscordUserID, Body string
-	Event                               AppealEvent
-	Audit                               AuditLogEntry
-	Notification                        AppealNotification
-}
-
 // TransitionAppealParams carries one staff state change and its atomic case/audit/notification effects.
 type TransitionAppealParams struct {
 	GuildID, AppealID, ActorDiscordUserID string

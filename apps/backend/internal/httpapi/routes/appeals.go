@@ -24,7 +24,6 @@ func RegisterAppealAndMemberRoutes(group *gin.RouterGroup, services *quack.Servi
 	member.GET("/cases/:caseID", func(c *gin.Context) { getMemberOwnedCase(c, services) })
 	member.POST("/cases/:caseID/appeal", memberWriteIdempotency(primitives, services, "appeal-submit"), func(c *gin.Context) { submitAppeal(c, appeals) })
 	member.GET("/appeals/:appealID", func(c *gin.Context) { getMemberAppeal(c, appeals) })
-	member.POST("/appeals/:appealID/information", memberWriteIdempotency(primitives, services, "appeal-information"), func(c *gin.Context) { submitAppealInformation(c, appeals) })
 	return nil
 }
 
@@ -37,11 +36,8 @@ func RegisterAppealStaffRoutes(group *gin.RouterGroup, services *quack.Services,
 	staff.Use(middleware.RequireGuildContext(services, ""))
 	staff.Use(primitives.RateLimits.Limit("appeal-staff", memberReadLimit(services), staffAppealSubject))
 	staff.GET("/appeal-settings", func(c *gin.Context) { getAppealSettings(c, appeals) })
-	staff.PUT("/appeal-settings", staffWriteIdempotency(primitives, services, "appeal-settings"), func(c *gin.Context) { updateAppealSettings(c, appeals) })
 	staff.GET("/appeals", func(c *gin.Context) { listStaffAppeals(c, appeals) })
 	staff.GET("/appeals/:appealID", func(c *gin.Context) { getStaffAppeal(c, appeals) })
-	staff.POST("/appeals/:appealID/request-information", staffWriteIdempotency(primitives, services, "appeal-request-information"), func(c *gin.Context) { requestAppealInformation(c, appeals) })
-	staff.POST("/appeals/:appealID/reopen", staffWriteIdempotency(primitives, services, "appeal-reopen"), func(c *gin.Context) { reopenAppeal(c, appeals) })
 	staff.POST("/appeals/:appealID/accept", staffWriteIdempotency(primitives, services, "appeal-accept"), func(c *gin.Context) { acceptAppeal(c, appeals) })
 	staff.POST("/appeals/:appealID/reject", staffWriteIdempotency(primitives, services, "appeal-reject"), func(c *gin.Context) { rejectAppeal(c, appeals) })
 	staff.POST("/appeals/:appealID/close", staffWriteIdempotency(primitives, services, "appeal-close"), func(c *gin.Context) { closeAppeal(c, appeals) })
@@ -65,37 +61,6 @@ func getAppealSettings(c *gin.Context, appeals *quack.AppealService) {
 		return
 	}
 	result, err := appeals.GetSettings(c.Request.Context(), guildContext.Guild.ID)
-	if err != nil {
-		writeAppealError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, result)
-}
-
-type appealSettingsRequest struct {
-	Questions []model.AppealQuestion `json:"questions"`
-}
-
-// updateAppealSettings replaces the form snapshotted by future appeals.
-// @Summary Update guild appeal settings
-// @Tags Appeals
-// @Accept json
-// @Produce json
-// @Param discordGuildID path string true "Discord guild ID"
-// @Param Idempotency-Key header string true "Retry-safe request key"
-// @Param settings body appealSettingsRequest true "Appeal questions"
-// @Security CookieAuth
-// @Success 200 {object} quack.AppealSettingsResponse
-// @Failure 400 {object} apierror.Response
-// @Failure 403 {object} apierror.Response
-// @Router /guilds/{discordGuildID}/appeal-settings [put]
-func updateAppealSettings(c *gin.Context, appeals *quack.AppealService) {
-	var input appealSettingsRequest
-	if err := decodeStrictJSON(c, &input); err != nil {
-		apierror.Write(c, http.StatusBadRequest, apierror.CodeValidation, "invalid appeal settings payload")
-		return
-	}
-	result, err := appeals.UpdateSettings(c.Request.Context(), middleware.GetGuildContext(c), input.Questions)
 	if err != nil {
 		writeAppealError(c, err)
 		return

@@ -134,10 +134,6 @@ func (r *appealRouteRepository) ListAppealEvents(context.Context, string) ([]mod
 	return append([]model.AppealEvent(nil), r.events...), nil
 }
 
-func (r *appealRouteRepository) AppendAppealInformation(context.Context, model.AppendAppealInformationParams) (*model.Appeal, error) {
-	return r.appeal, nil
-}
-
 func (r *appealRouteRepository) TransitionAppeal(context.Context, model.TransitionAppealParams) (*model.Appeal, error) {
 	return r.appeal, nil
 }
@@ -164,4 +160,33 @@ func (r *appealRouteRepository) ListCaseActionExecutions(context.Context, string
 
 func (r *appealRouteRepository) CreateAuditLogEntry(context.Context, *model.AuditLogEntry) error {
 	return nil
+}
+
+// TestAppealConversationRoutesAreRemoved rejects old clients that try to reopen
+// or extend an appeal, rather than silently retaining the former mod-mail flow.
+func TestAppealConversationRoutesAreRemoved(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repository := newAppealRouteRepository()
+	services := &quack.Services{Config: config.Default(), Cases: quack.NewCaseService(nil)}
+	appeals := quack.NewAppealService(repository)
+	router := gin.New()
+	primitives := httpplatform.Primitives{RateLimits: httpplatform.NewRateLimiter(nil, ""), Idempotency: httpplatform.NewIdempotencyStore(nil, "")}
+	if err := RegisterAppealAndMemberRoutes(router.Group("/members/me"), services, appeals, primitives); err != nil {
+		t.Fatal(err)
+	}
+	if err := RegisterAppealStaffRoutes(router.Group("/guilds"), services, appeals, primitives); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/members/me/appeals/appeal-1/information", "/guilds/guild-1/appeals/appeal-1/request-information", "/guilds/guild-1/appeals/appeal-1/reopen"} {
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, path, nil))
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("removed route %s returned %d", path, response.Code)
+		}
+	}
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodPut, "/guilds/guild-1/appeal-settings", nil))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("custom form editing still available: %d", response.Code)
+	}
 }

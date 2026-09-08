@@ -18,11 +18,6 @@ type AppealSubmissionInput struct {
 	Answers []model.AppealAnswer `json:"answers"`
 }
 
-// AppealInformationInput carries a member's immutable response to a staff request.
-type AppealInformationInput struct {
-	Body string `json:"body"`
-}
-
 // AppealDecisionInput carries the required public-safe reason for one staff transition.
 type AppealDecisionInput struct {
 	Reason string `json:"reason"`

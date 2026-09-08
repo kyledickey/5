@@ -25,14 +25,11 @@ var (
 
 // AppealRepository is the package-owned persistence boundary exposed by the store adapter.
 type AppealRepository interface {
-	GetGuildAppealSettings(context.Context, string) (*model.GuildAppealSettings, error)
-	UpdateGuildAppealSettings(context.Context, model.UpdateGuildAppealSettingsParams) (*model.GuildAppealSettings, error)
 	CreateAppeal(context.Context, model.CreateAppealParams) (*model.Appeal, error)
 	GetAppealByID(context.Context, string) (*model.Appeal, error)
 	GetAppealByCaseID(context.Context, string) (*model.Appeal, error)
 	ListAppeals(context.Context, model.AppealListParams) (*model.AppealListResult, error)
 	ListAppealEvents(context.Context, string) ([]model.AppealEvent, error)
-	AppendAppealInformation(context.Context, model.AppendAppealInformationParams) (*model.Appeal, error)
 	TransitionAppeal(context.Context, model.TransitionAppealParams) (*model.Appeal, error)
 	ClaimPendingAppealNotifications(context.Context, int) ([]model.AppealNotification, error)
 	CompleteAppealNotification(context.Context, model.CompleteAppealNotificationParams) error
@@ -124,34 +121,6 @@ func (s *AppealService) GetMember(ctx context.Context, appealID, memberDiscordUs
 	return s.response(ctx, item, true)
 }
 
-// SubmitInformation appends member information to the existing timeline and returns it to staff review.
-func (s *AppealService) SubmitInformation(ctx context.Context, appealID, memberDiscordUserID string, input AppealInformationInput) (*AppealResponse, error) {
-	body := strings.TrimSpace(input.Body)
-	if body == "" || len([]rune(body)) > 4000 {
-		return nil, appealValidation("information must be between 1 and 4000 characters")
-	}
-	item, err := s.store.GetAppealByID(ctx, strings.TrimSpace(appealID))
-	if err != nil {
-		return nil, err
-	}
-	if item == nil || item.TargetDiscordUserID != strings.TrimSpace(memberDiscordUserID) {
-		return nil, ErrAppealNotFound
-	}
-	updated, err := s.store.AppendAppealInformation(ctx, model.AppendAppealInformationParams{
-		AppealID: item.ID, TargetDiscordUserID: memberDiscordUserID, Body: body,
-		Event:        model.AppealEvent{EventType: string(model.AppealEventInformationAdded), ActorDiscordUserID: memberDiscordUserID, ActorType: "member", Body: body, MetadataJSON: "{}"},
-		Audit:        appealAudit(ctx, item.GuildID, memberDiscordUserID, 0, "appeal.information.submit", "appeal", item.ID, model.AuditResultSuccess),
-		Notification: model.AppealNotification{TargetDiscordUserID: memberDiscordUserID, Audience: model.AppealNotificationStaff, Status: model.AppealNotificationPending, Body: discordtext.Conversation("reply", fmt.Sprintf("<@%s> added information to their appeal.", memberDiscordUserID), "", "You can read their reply from the Quack dashboard.", "Appeal "+item.ID)},
-	})
-	if errors.Is(err, model.ErrAppealStateConflict) {
-		return nil, ErrAppealConflict
-	}
-	if err != nil {
-		return nil, err
-	}
-	return s.response(ctx, updated, true)
-}
-
 // GetStaff returns the exact staff projection after live Moderate Members authorization.
 func (s *AppealService) GetStaff(ctx context.Context, guildContext *GuildStaffContext, appealID string) (*AppealResponse, error) {
 	if err := requireAppealReview(guildContext); err != nil {
@@ -196,16 +165,6 @@ func (s *AppealService) ListStaff(ctx context.Context, guildContext *GuildStaffC
 	return &AppealListResponse{Appeals: responses, Total: result.Total, Limit: limit, Offset: offset}, nil
 }
 
-// RequestInformation asks the member for more information without exposing the staff actor.
-func (s *AppealService) RequestInformation(ctx context.Context, guildContext *GuildStaffContext, appealID, reason string) (*AppealResponse, error) {
-	return s.transition(ctx, guildContext, appealID, reason, []model.AppealStatus{model.AppealStatusPending}, model.AppealStatusNeedsInformation, model.AppealEventInformationAsked, false)
-}
-
-// Reopen reuses a rejected or closed appeal to request additional information rather than creating another record.
-func (s *AppealService) Reopen(ctx context.Context, guildContext *GuildStaffContext, appealID, reason string) (*AppealResponse, error) {
-	return s.transition(ctx, guildContext, appealID, reason, []model.AppealStatus{model.AppealStatusRejected, model.AppealStatusClosed}, model.AppealStatusNeedsInformation, model.AppealEventReopened, false)
-}
-
 // Accept atomically records the decision, voids the case, and queues punishment removal.
 func (s *AppealService) Accept(ctx context.Context, guildContext *GuildStaffContext, appealID, reason string) (*AppealResponse, error) {
 	return s.transition(ctx, guildContext, appealID, reason, []model.AppealStatus{model.AppealStatusPending}, model.AppealStatusAccepted, model.AppealEventAccepted, true)
@@ -216,9 +175,9 @@ func (s *AppealService) Reject(ctx context.Context, guildContext *GuildStaffCont
 	return s.transition(ctx, guildContext, appealID, reason, []model.AppealStatus{model.AppealStatusPending}, model.AppealStatusRejected, model.AppealEventRejected, false)
 }
 
-// Close ends an undecided or information-waiting appeal without changing case validity.
+// Close is a compatibility alias for rejecting an undecided appeal.
 func (s *AppealService) Close(ctx context.Context, guildContext *GuildStaffContext, appealID, reason string) (*AppealResponse, error) {
-	return s.transition(ctx, guildContext, appealID, reason, []model.AppealStatus{model.AppealStatusPending, model.AppealStatusNeedsInformation}, model.AppealStatusClosed, model.AppealEventClosed, false)
+	return s.Reject(ctx, guildContext, appealID, reason)
 }
 
 func (s *AppealService) transition(ctx context.Context, guildContext *GuildStaffContext, appealID, reason string, from []model.AppealStatus, to model.AppealStatus, eventType model.AppealEventType, voidCase bool) (*AppealResponse, error) {
@@ -264,7 +223,7 @@ func appealValidation(message string) error {
 
 func appealAudit(ctx context.Context, guildID, actorID string, permissionBits uint64, action, resourceType, resourceID string, result model.AuditResult) model.AuditLogEntry {
 	requestID, correlationID := TraceIDsFromContext(ctx)
-	return model.AuditLogEntry{GuildID: guildID, ActorDiscordUserID: actorID, ActorPermissionBits: permissionBits, Source: model.AuditSourceWeb, Action: action, ResourceType: resourceType, ResourceID: resourceID, Result: result, RequestID: requestID, CorrelationID: correlationID, MetadataJSON: "{}"}
+	return model.AuditLogEntry{GuildID: guildID, ActorDiscordUserID: actorID, ActorPermissionBits: permissionBits, Source: AuditSourceFromContext(ctx), Action: action, ResourceType: resourceType, ResourceID: resourceID, Result: result, RequestID: requestID, CorrelationID: correlationID, MetadataJSON: "{}"}
 }
 
 func pointerAudit(entry model.AuditLogEntry) *model.AuditLogEntry { return &entry }

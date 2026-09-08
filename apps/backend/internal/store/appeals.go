@@ -211,61 +211,6 @@ func (s *Store) ListAppealEvents(ctx context.Context, appealID string) ([]model.
 	return items, nil
 }
 
-// AppendAppealInformation appends a member response and reopens the same appeal for staff review.
-func (s *Store) AppendAppealInformation(ctx context.Context, params model.AppendAppealInformationParams) (*model.Appeal, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
-	now := time.Now().UTC()
-	var updated appealV5Record
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", params.AppealID).First(&updated)
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) || updated.TargetDiscordUserID != params.TargetDiscordUserID {
-			return model.ErrAppealStateConflict
-		}
-		if result.Error != nil {
-			return result.Error
-		}
-		if updated.Status != model.AppealStatusNeedsInformation {
-			return model.ErrAppealStateConflict
-		}
-		updated.Status = model.AppealStatusPending
-		updated.Version++
-		updated.UpdatedAt = now
-		result = tx.Model(&appealV5Record{}).Where("id = ? AND version = ?", updated.ID, updated.Version-1).Updates(map[string]any{"status": updated.Status, "version": updated.Version, "updated_at": now})
-		if result.Error != nil || result.RowsAffected != 1 {
-			return model.ErrAppealStateConflict
-		}
-		event := params.Event
-		event.AppealID = updated.ID
-		event.GuildID = updated.GuildID
-		event.Body = params.Body
-		if err := prepareULIDModel(&event.ULIDModel, now); err != nil {
-			return err
-		}
-		if err := tx.Create(appealEventRecord(event)).Error; err != nil {
-			return err
-		}
-		notification := params.Notification
-		notification.AppealID = updated.ID
-		notification.EventID = event.ID
-		notification.GuildID = updated.GuildID
-		if err := prepareULIDModel(&notification.ULIDModel, now); err != nil {
-			return err
-		}
-		if err := tx.Create(appealNotificationRecord(notification)).Error; err != nil {
-			return err
-		}
-		audit := params.Audit
-		audit.ResourceID = updated.ID
-		return createAuditLogEntry(tx, &audit, now)
-	})
-	if err != nil {
-		return nil, err
-	}
-	return appealModel(updated), nil
-}
-
 // TransitionAppeal applies one staff timeline transition and optionally voids the case in the same transaction.
 func (s *Store) TransitionAppeal(ctx context.Context, params model.TransitionAppealParams) (*model.Appeal, error) {
 	if s == nil || s.db == nil {
@@ -281,7 +226,7 @@ func (s *Store) TransitionAppeal(ctx context.Context, params model.TransitionApp
 		if result.Error != nil {
 			return result.Error
 		}
-		if !appealStatusIn(updated.Status, params.AllowedFrom) {
+		if updated.Status != model.AppealStatusPending || !appealStatusIn(updated.Status, params.AllowedFrom) || (params.To != model.AppealStatusAccepted && params.To != model.AppealStatusRejected) || params.VoidCase != (params.To == model.AppealStatusAccepted) {
 			return model.ErrAppealStateConflict
 		}
 		if params.VoidCase {

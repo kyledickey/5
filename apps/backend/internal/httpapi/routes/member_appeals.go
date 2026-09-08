@@ -66,37 +66,3 @@ func getMemberAppeal(c *gin.Context, appeals *quack.AppealService) {
 	}
 	c.JSON(http.StatusOK, gin.H{"appeal": result})
 }
-
-// submitAppealInformation appends a member response requested by staff.
-// @Summary Add requested appeal information
-// @Tags Appeals
-// @Accept json
-// @Produce json
-// @Param appealID path string true "Appeal ID"
-// @Param Idempotency-Key header string true "Retry-safe request key"
-// @Param information body quack.AppealInformationInput true "Additional information"
-// @Security CookieAuth
-// @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} apierror.Response
-// @Failure 401 {object} apierror.Response
-// @Failure 404 {object} apierror.Response
-// @Failure 409 {object} apierror.Response
-// @Router /members/me/appeals/{appealID}/information [post]
-func submitAppealInformation(c *gin.Context, appeals *quack.AppealService) {
-	session := middleware.GetAuthSession(c)
-	if session == nil {
-		apierror.Write(c, http.StatusUnauthorized, apierror.CodeAuthentication, "authentication required")
-		return
-	}
-	var input quack.AppealInformationInput
-	if err := decodeStrictJSON(c, &input); err != nil {
-		apierror.Write(c, http.StatusBadRequest, apierror.CodeValidation, "invalid appeal information payload")
-		return
-	}
-	result, err := appeals.SubmitInformation(c.Request.Context(), c.Param("appealID"), session.DiscordUserID, input)
-	if err != nil {
-		writeAppealError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"appeal": result})
-}

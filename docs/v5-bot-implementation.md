@@ -132,3 +132,12 @@ means further work is required, not completion.
   rollback on inverse storage failure, appeal linking, and permission failure then
   successful unban recovery. Live Discord rehearsal and enriched audit controls
   remain pending; existing Discord action retries are available on case detail.
+
+- Appeals now collect one general statement. Old custom forms no longer affect
+  new submissions, while historical form snapshots remain readable. Member reply,
+  request-information, reopen, and custom-form editing routes/services were
+  removed. Accept/reject are terminal at the storage boundary; close aliases
+  rejection. Tests verify removed HTTP routes, one submission after rejection,
+  terminal decisions, shared form behavior and existing acceptance/reversal.
+  Focused tests and the full backend suite pass. Discord DM form and staff queue
+  publishing/decision controls remain the next appeal integration work.

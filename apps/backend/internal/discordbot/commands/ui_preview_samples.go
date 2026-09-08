@@ -44,7 +44,7 @@ func uiPreviewSamples(user *discordgo.User, now time.Time) []previewSample {
 	add("Error · missing access", "activity", "lock", "You need one more permission", "You need **Moderate Members** to add a case.", "Ask a server admin to grant it, then try again.", "", "Nothing was changed.")
 	add("Error · Discord unavailable", "activity", "error", "Discord didn’t respond", "I couldn’t confirm that request with Discord.", "Check the case before trying again so you don’t submit it twice.", "", "")
 	add("Error · missing case", "activity", "search", "Case not found", "I couldn’t find **case #12** in this server.", "Check the case number and try again.", "", "")
-	add("Staff appeal review", "appeals", "review", "A decision to revisit", member+" appealed **case #12 · Repeated spam**.", "The original action was a **1-hour timeout**. Review the context before deciding.", "I understand the rule. Could you review the timeout?", "Submitted "+ago, "View case", "Reply", "Accept", "Decline")
+	add("Staff appeal review", "appeals", "review", "A decision to revisit", member+" appealed **case #12 · Repeated spam**.", "The original action was a **1-hour timeout**. Review the context before deciding.", "I understand the rule. Could you review the timeout?", "Submitted "+ago, "View case", "Accept", "Decline")
 	add("Appeal entry", "appeals", "appeal", "Want a second look?", "If you think this decision was a mistake, you can ask the team to review it.", "Explain what happened and what you’d like staff to reconsider.", "", "Case #12 · Quack’s Pond", "Appeal decision")
 	for _, dm := range []struct{ name, icon, title, lead, detail string }{
 		{"Warning", "warn", "A warning from Quack’s Pond", "You received a warning in **Quack’s Pond** for **Repeated spam**.", "Please give others room to talk and avoid repeating messages."},
@@ -65,8 +65,7 @@ func uiPreviewSamples(user *discordgo.User, now time.Time) []previewSample {
 		add("Punishment DM · "+dm.name, "dms", dm.icon, dm.title, dm.lead, dm.detail, quote, "Case #12 · "+ago, buttons...)
 	}
 	add("Custom DM", "dms", "message", "A note from the team", "The **Quack’s Pond** team sent you a note.", "Contact the server’s staff if you have a question.", "Please take a moment to review the server rules.", "")
-	add("Appeal DM · received", "appeals", "appeal", "Your appeal is with the team", "Staff received your appeal for **case #12** in **Quack’s Pond**.", "We’ll let you know here when they reply.", "", "Submitted "+ago)
-	add("Appeal DM · reply", "appeals", "reply", "The team replied", "You have a reply about **case #12** from **Quack’s Pond**.", "Reply from your Quack dashboard to continue the conversation.", "Could you tell us a little more about what happened?", ago)
+	add("Appeal DM · received", "appeals", "appeal", "Your appeal is with the team", "Staff received your appeal for **case #12** in **Quack’s Pond**.", "We’ll let you know here when they decide.", "", "Submitted "+ago)
 	add("Appeal DM · accepted", "appeals", "accept", "Your appeal was accepted", "The **Quack’s Pond** team accepted your appeal for **case #12**.", "Staff will review any punishment that needs to be removed. Check your case for removal updates.", "Thanks for explaining what happened.", ago)
 	add("Appeal DM · declined", "appeals", "decline", "Your appeal was declined", "The **Quack’s Pond** team reviewed your appeal for **case #12** and kept the original decision.", "The case remains on your record.", "The messages continued after the first warning.", ago)
 	add("Appeal staff alert", "appeals", "review", "An appeal is waiting", member+" asked for another look at **case #12 · Repeated spam**.", "", "I understand the rule. Could you review the timeout?", ago, "Review appeal")
