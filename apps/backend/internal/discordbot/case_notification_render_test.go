@@ -83,6 +83,41 @@ func TestCaseNotificationReturnsRenderedFailureReceipt(t *testing.T) {
 	}
 }
 
+// TestCaseNotificationBlockedDMReturnsUndeliveredReceipt exercises Discord's
+// explicit 403/50007 rejection through the real adapter, retaining the attempted
+// message without reporting delivery or treating rejection as an uncertain send.
+func TestCaseNotificationBlockedDMReturnsUndeliveredReceipt(t *testing.T) {
+	session, err := discordgo.New("Bot test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sends := 0
+	session.Client = &http.Client{Transport: requestTransport(func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodPost || !strings.HasSuffix(request.URL.Path, "/channels/dm/messages") {
+			t.Fatalf("unexpected blocked-DM request: %s %s", request.Method, request.URL.Path)
+		}
+		sends++
+		return &http.Response{
+			StatusCode: http.StatusForbidden,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"code":50007,"message":"Cannot send messages to this user"}`)),
+			Request:    request,
+		}, nil
+	})}
+	request := quack.CaseNotificationRequest{TargetDiscordUserID: "member", PreparedChannelDiscordID: "dm", Reason: "saved reason", CaseNumber: 3}
+	receipt, err := (&Bot{Session: session}).SendCaseNotification(context.Background(), request)
+	var classified actionmods.DiscordError
+	if !errors.As(err, &classified) || classified.Code != "dm_send_permission_or_hierarchy_denied" || classified.Retryable || classified.OutcomeUncertain {
+		t.Fatalf("blocked DM was not a definitive terminal rejection: %v", err)
+	}
+	if strings.Contains(err.Error(), "50007") || strings.Contains(err.Error(), "Cannot send messages to this user") {
+		t.Fatalf("raw Discord rejection escaped the adapter: %v", err)
+	}
+	if receipt.RenderedMessage != renderCaseNotification(request) || receipt.ChannelID != "dm" || receipt.MessageID != "" || sends != 1 {
+		t.Fatalf("blocked DM lost its undelivered receipt or was retried: receipt=%+v sends=%d", receipt, sends)
+	}
+}
+
 // TestCaseNotificationPreparationFailureHasNoSendAmbiguity distinguishes opening
 // a channel from creating a message; only the latter risks duplicate delivery.
 func TestCaseNotificationPreparationFailureHasNoSendAmbiguity(t *testing.T) {
