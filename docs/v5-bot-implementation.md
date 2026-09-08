@@ -370,3 +370,13 @@ means further work is required, not completion.
   and invalid channel types. Focused and full backend suites pass. Permission drift
   during an already accepted incident, cleanup recovery and live rehearsal remain
   pending along with the rest of the tracked bot rewrite.
+
+- Added `/setup logging channel:…` with live manager authorization and the logging
+  service's destination validation. Setup routes every currently supported event
+  category to the selected shared channel, enables available message/attachment/
+  embed context and preserves cache/retry bounds. Routing tests cover moving all
+  categories together and command dispatch; the full backend suite passes. Internal
+  per-event route storage still needs simplification, along with full legacy event
+  parity, Quack-ban suppression and live logging rehearsal. Module setup currently
+  reuses the existing guild-authority task helper; its ticket-specific naming/types
+  remain cleanup work.

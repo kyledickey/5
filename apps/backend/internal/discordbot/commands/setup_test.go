@@ -54,3 +54,12 @@ func TestSetupRoutesHoneypotToModule(t *testing.T) {
 		t.Fatal("honeypot setup handler not called")
 	}
 }
+
+func TestSetupRoutesLoggingToModule(t *testing.T) {
+	called := false
+	spec := SetupCommandSpec(SetupHandlers{Logging: func(ui.Context) ui.HandlerResult { called = true; return ui.Immediate(ui.Error("test")) }})
+	spec.Handler(ui.Context{Interaction: &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{Type: discordgo.InteractionApplicationCommand, GuildID: "guild", Data: discordgo.ApplicationCommandInteractionData{Options: []*discordgo.ApplicationCommandInteractionDataOption{{Name: "logging", Type: discordgo.ApplicationCommandOptionSubCommand}}}}}})
+	if !called {
+		t.Fatal("logging setup handler not called")
+	}
+}

@@ -9,7 +9,7 @@ import (
 )
 
 // SetupHandlers supplies optional-module configuration without coupling commands to their runtime.
-type SetupHandlers struct{ Tickets, Honeypot ui.Handler }
+type SetupHandlers struct{ Tickets, Honeypot, Logging ui.Handler }
 
 // SetupCommandSpec exposes the bot's server configuration without a dashboard.
 func SetupCommandSpec(moduleSetup ...SetupHandlers) CommandSpec {
@@ -24,16 +24,19 @@ func SetupCommandSpec(moduleSetup ...SetupHandlers) CommandSpec {
 		},
 	})
 	spec.Definition.Options = append(spec.Definition.Options, &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "honeypot", Description: "Create or update the honeypot trap", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionString, Name: "warning", Description: "Warning shown in the trap channel", MaxLength: 1500}}})
+	spec.Definition.Options = append(spec.Definition.Options, &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "logging", Description: "Send Discord event logs to one private channel", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionChannel, Name: "channel", Description: "Private staff channel for Discord event logs", Required: true, ChannelTypes: []discordgo.ChannelType{discordgo.ChannelTypeGuildText}}}})
 	spec.Handler = func(ctx ui.Context) ui.HandlerResult {
 		if ctx.Interaction != nil && ctx.Interaction.Interaction != nil {
 			options := ctx.Interaction.ApplicationCommandData().Options
-			if len(options) == 1 && (options[0].Name == "tickets" || options[0].Name == "honeypot") {
+			if len(options) == 1 && (options[0].Name == "tickets" || options[0].Name == "honeypot" || options[0].Name == "logging") {
 				var handler ui.Handler
 				if len(moduleSetup) > 0 {
 					if options[0].Name == "tickets" {
 						handler = moduleSetup[0].Tickets
-					} else {
+					} else if options[0].Name == "honeypot" {
 						handler = moduleSetup[0].Honeypot
+					} else {
+						handler = moduleSetup[0].Logging
 					}
 				}
 				if handler != nil {
