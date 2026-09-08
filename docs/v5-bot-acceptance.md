@@ -6,29 +6,32 @@ This matrix maps all 76 answers in [the product interview](v5-product-interview.
 
 ## Work in progress and acceptance gates
 
-- Both `quack` panes are currently at their shells. The beta was stopped with
-  Ctrl-C and exited cleanly; the dashboard process is also stopped. The last
-  verified running beta was `/tmp/quack-v5-audit-queue-review` at `25fd8bc`.
-  Native evidence navigation now fetches one snapshot at a time. Audit polling
-  uses indexed due receipts; the unchanged 85,000-event local assessment improved
-  median idle polling from 342 ms to 3.04 ms. Live startup preserved all 50
-  audit events and 50 completed receipts and set the queue readiness marker.
-  Full backend/MySQL tests and readiness passed. Evidence repair now preserves
-  concurrent settings and retries on later uploads; accepted appeals have an
-  optional Rejoin Server button; general logs retain available attachment URLs
-  without treating signed-URL rotation as a message edit. Live default appeal
-  setup created its channel and saved the return invite. The proposed synthetic
-  ban rule was blocked by automatic approval review; its submission and the
-  ban/evidence/appeal/rejoin journey await specific permission.
-  Runtime references below describe earlier rehearsals, not the latest build.
+- With explicit September 8 approval, the beta is running
+  `/tmp/quack-v5-evidence-copy-review` at `ec41e48`; the dashboard remains
+  stopped. The temporary appealable `Ban evidence rehearsal` template was
+  created separately from the unchanged honeypot policy. Case #10 preserved a
+  directly uploaded synthetic PNG before its first successful ban attempt.
+  The tester received the native DM while banned, submitted an appeal, and
+  administrator acceptance produced a successful first-attempt unban linked to
+  the original execution. The accepted DM's Rejoin Server button opened the
+  native invite; accepting as monkey returned the tester to the guild with a
+  visible message composer. See the latest [implementation ledger](v5-bot-implementation.md)
+  entry for IDs and SQL timestamps. Source-message deletion and restricted-role
+  saved-copy access remain unverified.
+- Native evidence navigation fetches one snapshot at a time. Audit polling uses
+  indexed due receipts; the unchanged 85,000-event local assessment improved
+  median idle polling from 342 ms to 3.04 ms. Its earlier live startup preserved
+  all 50 audit events and 50 completed receipts and set the queue readiness
+  marker. Evidence repair preserves concurrent settings and retries on later
+  uploads; general logs retain available attachment URLs without treating
+  signed-URL rotation as a message edit.
 - `ec41e48` clarifies evidence headings and the case-view command description;
-  the full backend/MySQL suite passed and `/tmp/quack-v5-evidence-copy-review`
-  built successfully, but it has not been started. Before that copy change,
-  the new native evidence page displayed case #2's saved file and `Evidence 1 of
-  1` privately. Its durable message link reopened the original synthetic text
-  after intervening restarts. Audit history remained at 50 events and 50
-  completed receipts after these reads. This verifies administrator access to
-  an existing copy, not restricted-role access or the ban-preservation journey.
+  the full backend/MySQL suite passed before this rehearsal. Before that copy
+  change, the new native evidence page displayed case #2's saved file and
+  `Evidence 1 of 1` privately. Its durable message link reopened the original
+  synthetic text after intervening restarts. Audit history remained at 50 events
+  and 50 completed receipts after those reads. This verifies administrator access
+  to that existing copy, not restricted-role access or long-term retention.
 
 - Live ticket acceptance passed for member open, duplicate-open protection, staff join/reply, member close, new ticket after closure, and admin queue close. Both closed tickets retained queue transcripts and released the member slot. See the [implementation ledger](v5-bot-implementation.md). Original-message journaling is committed in `c6e21ed`; deleted-message/restart live acceptance passed: the published queue transcript retained the tester text deleted before a clean beta restart.
 - Native history totals/import labels and bounded Unicode pages are committed in `b8be3c8`; command/view regression packages pass. Live profile acceptance remains open.
@@ -37,13 +40,13 @@ This matrix maps all 76 answers in [the product interview](v5-product-interview.
 - Explicit application URL configuration is committed in `4827cae`; focused tests pass. Live configuration validation remains open. See the configuration contract below.
 - Core appeal/audit delivery and case/appeal registration are independent of optional modules in `f1e1eb7`; worker lifecycle and route regressions pass.
 - Bot-message caching, cached author identity and per-message bulk-delete attribution are restored in `d90a771`. Live default setup and member message edit/delete logging passed, including author, channel, message ID and before/after or deleted text. The honeypot warning update also showed correct bot attribution and both versions. Attachments and bulk deletion remain unverified live.
-- Case #3's notification opened the tester appeal form; submission appeared in the private native staff queue. Administrator rejection updated that receipt, sent the tester a decline DM and prevented another appeal from the original button. Earlier case #1 acceptance/voiding also passed live; action reversal remains a separate gate.
+- Case #3's notification opened the tester appeal form; submission appeared in the private native staff queue. Administrator rejection updated that receipt, sent the tester a decline DM and prevented another appeal from the original button. Earlier case #1 acceptance/voiding also passed live; case #10 now verifies accepted-appeal ban reversal and rejoin.
 - Actual v4 SQL export and all six historical types are supported in `8e3a64b`; deterministic bounded pages are supported in `11ad055`. Disposable MySQL extraction/import passed; an authorized real-backup rehearsal remains open.
-- Administrator direct upload/copy/view passed live with a synthetic text attachment and warning-only case #2. This does not establish restricted-role access, original deletion, ban-plus-screenshot preservation, or long-term access. The ledger records the notification as sent.
+- Administrator direct upload/copy/view passed live with a synthetic text attachment and warning-only case #2. Case #10 additionally verifies synthetic PNG preservation before a ban. Restricted-role access, original-message deletion, and long-term access remain open. The ledger records the notification as sent.
 - `/tmp/quack-v5-retention-review` was loaded into the authorized beta pane with the existing database; live readiness passed. Startup readiness does not close feature-level gates.
-- Latest beta is `/tmp/quack-v5-receipt-review` at `9933511`. Full MySQL-enabled backend tests and readiness pass. Case #2's original public receipt updated to voided after a restart and hours beyond its interaction token lifetime; SQL confirmed its new revision reconciled and became idle. Member evidence access remained denied, now with clear private permission copy.
+- Earlier beta `/tmp/quack-v5-receipt-review` was loaded at `9933511`. Full MySQL-enabled backend tests and readiness pass. Case #2's original public receipt updated to voided after a restart and hours beyond its interaction token lifetime; SQL confirmed its new revision reconciled and became idle. Member evidence access remained denied, now with clear private permission copy.
 - Case #4's active timeout was removed by reasoned void about four seconds before its recorded expiry. Default `/setup audit` created `moderation-log` and delivered a semantic settings-change entry. The grouped rehearsal audit table contains semantic lifecycle/settings events without reads or worker bookkeeping. Reversal ownership protection and clearer mirror footers are being integrated separately.
-- Latest beta is `/tmp/quack-v5-ownership-review` at `ac4b5f7`, including the case notification adapter boundary and guarded reversals. Full MySQL-enabled tests and readiness passed. Case #5 delivered the native DM and semantic case/action mirror; void after expiry produced a verified already-absent outcome and explicit no-op mirror. Changed-punishment/ban ownership and failure/retry remain live gates.
+- Earlier beta `/tmp/quack-v5-ownership-review` was loaded at `ac4b5f7`, including the case notification adapter boundary and guarded reversals. Full MySQL-enabled tests and readiness passed. Case #5 delivered the native DM and semantic case/action mirror; void after expiry produced a verified already-absent outcome and explicit no-op mirror. Changed-punishment/ban ownership and failure/retry remain live gates.
 
 Before release, record live results for template creation → case creation → evidence inspection, denied/failed action → audit retry, void/reversal, appeal acceptance/rejection, ticket open/close/transcript, honeypot and logging. Also rehearse an actual v4 export/import and assess realistic guild/member load. Passing unit tests does not close these gates.
 
@@ -83,16 +86,16 @@ All paths below are backend paths; the production runtime registers native comma
 | 23 | Context/evidence updates without new punishment; audit actor | P: E/U; context link capture and visible failure tests added. |
 | 24 | Recover forms only if simple; blank reopening acceptable | D/P: no durable draft system required. Immediate creation plus independent context form removes old mandatory draft dependency. |
 | 25 | Staff resolve their own semantic duplicate incidents | P: independent cases remain possible; request replay protection is distinct, C. |
-| 26–29, 31–32 | Optional uploads or selected message; no witness context; preserve available data and flag failures | P/U: E. Live ban plus screenshot preservation still needs rehearsal. |
+| 26–29, 31–32 | Optional uploads or selected message; no witness context; preserve available data and flag failures | P/U: E. Case #10 directly uploaded a synthetic PNG and SQL verified preservation before the successful ban. Source-message deletion and restricted-role access remain unverified. |
 | 30 | Preferred preservation receipt | D: no concrete preference supplied; current warnings and detail views provide observable outcomes. |
 | 33 | Members see template reason, not staff context/evidence | P: N/E; private staff evidence navigation rechecks authorization. |
 | 34–36 | Discord evidence storage, retained admin edits, reopenable copies | P/U: E. Existing channel ACLs are preserved; newly created channels grant ordinary staff read access. Existing live ACLs and long-term saved-copy access still require acceptance. |
 | 37–40 | Permission block; failure queue/retry; automatic reversal on void | P/U: A. Member evidence denial, early timeout removal, and preservation of a newer manual timeout passed live. Retrying that failed reversal after manual cleanup preserved its failed attempt and succeeded with confirmed absence; public audit source remained intact and feedback was private. Ban ownership and permission-loss rehearsals remain open. |
-| 41–42 | Notifications default on; concise outcome/reason; hidden staff identity; failed DM recorded | P/U: T/N. Actual blocked-DM/ban behavior needs rehearsal. |
+| 41–42 | Notifications default on; concise outcome/reason; hidden staff identity; failed DM recorded | P/U: T/N. Case #10 delivered the native DM after a successful ban. Actual blocked-DM behavior remains unverified. |
 | 43 | No member self-history Discord command | D/P: staff history is gated; dashboard self-history deferred. |
 | 44 | Pagination and web-equivalent link | P/U: native paging and configured case/history/evidence web links are implemented (`1c3fa74`); command regression tests pass. Live configured-link acceptance remains open. Dashboard UI remains D. |
 | 45–47 | DM appeal form; one case, one statement, once; no conversation/deadline | P/D: P evidence. Lost-DM website journey is deferred dashboard work. |
-| 48–52 | Actionable appeal queue; terminal accept/reject; void/reversal; hidden identity and optional rejoin link | P/U: P/A. Native acceptance and rejection, member DMs, one-appeal enforcement and acceptance voiding passed live. Ban reversal/rejoin remains unverified. |
+| 48–52 | Actionable appeal queue; terminal accept/reject; void/reversal; hidden identity and optional rejoin link | P/U: P/A. Native acceptance and rejection, member DMs, one-appeal enforcement and acceptance voiding passed live. Case #10 additionally passed first-attempt ban reversal, accepted DM Rejoin Server navigation, and native invite acceptance back into the guild. |
 | 53–59 | Private thread, natural chat, only open/close, owner/staff close, transcript before deletion, one open ticket | P/U: K. Member/staff close and retained transcript passed live. Original received text now survives edits/deletions through a persisted journal merged with final history; deleted-message/restart live acceptance passed: the published queue transcript retained the tester text deleted before a clean beta restart. See the bounded retention guarantee below. |
 | 60–63 | Trap setup/warning/counter; editable template; staff exemption; one incident and cleanup/recovery | P/U: H. Live default setup, editable timeout, staff exemption, enforcement/evidence/counter passed. Durable warning refresh and startup reconciliation are implemented; deleting the beta's configured warning recreated it with the same four-incident count and no new case. Burst/interrupted enforcement recovery remains open. |
 | 64–65 | Single general-log channel, near-v4 detail, omit Quack's own bans | P/U: L. Bot-message caching and per-message author/text/file attribution are restored; live member edit/delete and bot counter-edit attribution passed; bulk/attachment events remain open. |

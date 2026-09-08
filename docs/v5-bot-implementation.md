@@ -1383,7 +1383,7 @@ means further work is required, not completion.
   The temporary ban-rule form remains unsubmitted pending the specific approval
   requested after automatic review rejection; no ban/rejoin outcome is claimed.
 
-### Evidence readback, copy cleanup, and stopped runtime
+### Evidence readback, copy cleanup, and earlier stopped runtime
 
 - In a fresh Helium admin tab, `/case view case:2` and View evidence displayed
   the private bounded evidence page with its saved attachment and `Evidence 1
@@ -1404,7 +1404,42 @@ means further work is required, not completion.
   no permission changes, new target fetches, or mention-policy relaxation were made.
 - After the interruption, both tmux panes were at `fish`. The beta log showed
   Ctrl-C followed by a clean shutdown at 16:56; its new copy build was not started.
-  Previously prepared browser tabs/form were no longer present. The explicit
-  permission request for creating the temporary ban rule remains unanswered.
-  A restart and the blocked ban/evidence/appeal/rejoin rehearsal need user input;
-  no live ban or successful rejoin is claimed.
+  Previously prepared browser tabs/form were no longer present. At that point
+  the explicit permission request for creating the temporary ban rule was unanswered; no live
+  ban or successful rejoin had been established. The following rehearsal
+  supersedes that stopped-state and permission status.
+
+### September 8 live ban, direct evidence, appeal, and rejoin
+
+- At approximately 17:12–17:14 local time, following explicit user approval for
+  the beta restart, temporary ban rule, and monkey evidence/ban/appeal/unban/rejoin
+  journey, `/tmp/quack-v5-evidence-copy-review` at `ec41e48` was running. The
+  dashboard remained stopped. The appealable `Ban evidence rehearsal` template
+  `01M21MAXSZ4Z4DJ6D3SB5XB9EQ` was created separately from the unchanged honeypot
+  configuration.
+- Administrator `/case add file:` created case #10
+  (`01M21MPN3PGS1CQF3B7G8YXXZA`) for tester `498380784323919893`, directly
+  uploading the 1,052-byte synthetic PNG `quack-ban-evidence-rehearsal.png`.
+  SQL recorded the uploaded snapshot and preserved attachment at 17:12:27.254,
+  before the ban started at 17:12:27.276 and succeeded at 17:12:27.784 on attempt
+  1. This establishes direct-upload preservation before destructive enforcement;
+  it does not establish preservation after separate source-message deletion.
+- The native tester observed the ban DM; SQL recorded it sent at 17:12:28.521.
+  While banned, the tester submitted an appeal and the administrator accepted it
+  from the native staff queue. SQL recorded successful unban attempt 1 from
+  17:13:28.358 to 17:13:29.839, with `reversal_of_execution_id`
+  `01M21MPN3XPZ546WMD5RNN2BCR`, linking reversal to the original ban execution.
+- The tester observed the accepted-appeal DM and its Rejoin Server button.
+  Clicking opened the native invite with Accept as monkey; accepting returned
+  the tester to the guild with a message composer. This closes the ordinary live
+  accepted-appeal ban reversal and configured rejoin journey. Ban ownership
+  conflicts, blocked DMs, restricted-role saved-copy access, source-message
+  deletion, and the other release gates remain separate checks. No backend code
+  changed and no Go tests were rerun for this evidence-only ledger update.
+- After rejoin, the administrator opened preserved message
+  `1547021831783981067` in evidence channel `1546756720037073008` and visually
+  verified the expected gold/navy checkerboard in Discord's media viewer.
+  The public case receipt showed the completed unban and voided status. The
+  moderation log showed case creation, ban, appeal submission, acceptance,
+  case voiding, and unban events. Old mentions now displayed monkey in that
+  browser session; this is an observation, not proof of a mention-rendering fix.
