@@ -33,19 +33,7 @@ func HandleMessageCaseInteraction(ctx ui.Context) ui.HandlerResult {
 		return ui.Immediate(ui.Error("No active case template is available."))
 	}
 	if len(templates) > 1 {
-		options := make([]discordgo.SelectMenuOption, 0, len(templates))
-		for _, template := range templates {
-			options = append(options, discordgo.SelectMenuOption{Label: templateAutocompleteLabel(template), Value: template.ID})
-			if len(options) == 25 {
-				break
-			}
-		}
-		customID, encodeErr := ui.EncodeCustomID(ui.CustomID{Namespace: "case", Action: "message_template", Version: "v1", Payload: strings.Join([]string{message.Author.ID, message.ChannelID, message.ID}, "|")})
-		if encodeErr != nil {
-			return ui.Immediate(ui.Error("Use `/case add` to select a template for this message."))
-		}
-		selectMenu := discordgo.SelectMenu{CustomID: customID, Placeholder: "Choose an active case template", MinValues: intPointer(1), MaxValues: 1, Options: options}
-		return ui.Immediate(ui.Ephemeral(ui.Message{Content: "{{quack:case}} Choose the template that matches this message.", Components: []discordgo.MessageComponent{ui.Row(selectMenu)}, Ephemeral: true}))
+		return ui.Immediate(ui.Ephemeral(caseTemplatePicker(templates, "m", strings.Join([]string{message.Author.ID, message.ChannelID, message.ID}, "|"), 0)))
 	}
 	template := templates[0]
 	link := fmt.Sprintf("https://discord.com/channels/%s/%s/%s", interaction.GuildID, message.ChannelID, message.ID)

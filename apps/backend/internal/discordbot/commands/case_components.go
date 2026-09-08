@@ -8,7 +8,8 @@ import (
 // RegisterCaseComponents installs case browsing, context editing and recovery controls.
 func RegisterCaseComponents(registry *interactions.ComponentRegistry) error {
 	components := map[string]ui.Handler{
-		"list_prev": pageCases(-1, false), "list_next": pageCases(1, false),
+		"template_page": handleTemplatePickerPage,
+		"list_prev":     pageCases(-1, false), "list_next": pageCases(1, false),
 		"user_prev": pageCases(-1, true), "user_next": pageCases(1, true),
 		"failures_prev": pageFailures(-1), "failures_next": pageFailures(1),
 		"retry": handleRetryComponent, "dismiss": handleDismissComponent,

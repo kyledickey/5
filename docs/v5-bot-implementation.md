@@ -436,3 +436,12 @@ means further work is required, not completion.
   creation for the intended member; the full backend suite passes. Picker paging
   beyond 25 templates, acknowledgement timing and live context-menu rehearsal still
   require work alongside the remaining tracked requirements.
+
+- Both member and message context menus now share a paginated template picker,
+  making every active template reachable beyond Discord's 25-option limit. Page
+  navigation acknowledges immediately, refreshes live staff authority and reloads
+  current templates; stale page positions clamp when templates are removed.
+  Regression tests cover 51 templates, navigation boundaries, preserved member and
+  message targets, empty lists and registered handlers. Focused and full backend
+  suites pass. Initial context-command acknowledgement timing and live Discord
+  rehearsal remain pending alongside the other tracked requirements.

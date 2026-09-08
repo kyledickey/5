@@ -18,7 +18,7 @@ func TestCaseComponentRegistrarInstallsRealRecoveryAndPaginationHandlers(t *test
 	if err := RegisterCaseComponents(registry); err != nil {
 		t.Fatal(err)
 	}
-	for _, action := range []string{"list_prev", "list_next", "user_prev", "user_next", "failures_prev", "failures_next", "retry", "dismiss", "void", "reverse", "message_template"} {
+	for _, action := range []string{"list_prev", "list_next", "user_prev", "user_next", "failures_prev", "failures_next", "retry", "dismiss", "void", "reverse", "message_template", "user_template", "template_page"} {
 		if _, ok, err := registry.LookupComponent(ui.MustCustomID(ui.CustomID{Namespace: "case", Action: action, Version: "v1", Payload: "payload"})); err != nil || !ok {
 			t.Fatalf("component %s not registered: ok=%v err=%v", action, ok, err)
 		}

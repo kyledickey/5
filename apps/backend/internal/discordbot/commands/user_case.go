@@ -38,15 +38,7 @@ func HandleUserCaseInteraction(ctx ui.Context) ui.HandlerResult {
 	if len(templates) == 1 {
 		return createUserContextCase(ctx, guild, data.TargetID, &templates[0])
 	}
-	options := make([]discordgo.SelectMenuOption, 0, 25)
-	for _, template := range templates {
-		options = append(options, discordgo.SelectMenuOption{Label: templateAutocompleteLabel(template), Value: template.ID})
-		if len(options) == 25 {
-			break
-		}
-	}
-	menu := discordgo.SelectMenu{CustomID: ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "user_template", Version: "v1", Payload: data.TargetID}), Placeholder: "Choose a case template", MinValues: intPointer(1), MaxValues: 1, Options: options}
-	return ui.Immediate(ui.Ephemeral(ui.Message{Content: "{{quack:case}} Choose the template for this member.", Components: []discordgo.MessageComponent{ui.Row(menu)}}))
+	return ui.Immediate(ui.Ephemeral(caseTemplatePicker(templates, "u", data.TargetID, 0)))
 }
 
 // handleUserTemplateComponent refreshes moderator authority when a policy is selected.
