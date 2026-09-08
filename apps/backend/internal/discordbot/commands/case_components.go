@@ -18,6 +18,8 @@ func RegisterCaseComponents(registry *interactions.ComponentRegistry) error {
 		"user_template":    handleUserTemplateComponent,
 		"edit_context":     handleEditContextComponent,
 		"evidence":         handleCaseEvidenceComponent,
+		"evidence_prev":    pageEvidence(-1),
+		"evidence_next":    pageEvidence(1),
 		"user_detail":      handleCaseUserComponent,
 	}
 	for action, handler := range components {

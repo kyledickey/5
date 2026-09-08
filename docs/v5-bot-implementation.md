@@ -743,3 +743,17 @@ means further work is required, not completion.
   are committed source changes; the running beta still uses the earlier logging
   fix binary until the next deliberate reload. Remaining bot acceptance work is
   still open.
+
+- Replaced the evidence button's unbounded response with native text pages, bounded
+  after resolving application-specific icons. Each page retains upload instructions
+  and Previous/Next controls; navigation reloads the case through live staff
+  authorization rather than trusting the original interaction's permission bits.
+  Text splitting preserves every character, handles Discord's UTF-16 budget, and
+  keeps ordinary Markdown evidence links together. Tests cover long Unicode
+  captures without message.txt fallback, terminal navigation controls, lossless
+  splitting, clickable links at page boundaries, and revoked moderator access.
+  Remaining long-record work includes case detail and appeal statement pagination,
+  configured web-equivalent buttons, and a presentation for individual URLs longer
+  than a whole page (those currently retain their text but may span pages). The
+  updated evidence UI still needs a live rehearsal after a deliberate beta reload.
+  Focused tests and the final full MySQL-enabled backend suite pass.

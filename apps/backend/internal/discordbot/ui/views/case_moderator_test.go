@@ -3,6 +3,7 @@ package views
 import (
 	"strings"
 	"testing"
+	"unicode/utf16"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/quack"
@@ -23,6 +24,31 @@ func TestCaseDetailSeparatesStateContextEvidenceAndRecovery(t *testing.T) {
 	row := message.Components[0].(discordgo.ActionsRow)
 	if len(row.Components) != 4 {
 		t.Fatalf("expected context, evidence, user, and void controls: %+v", row)
+	}
+}
+
+// TestEvidencePagesStayNative verifies a long capture remains navigable without
+// the generic message.txt fallback, including the bot's expanded custom icons.
+func TestEvidencePagesStayNative(t *testing.T) {
+	detail := &quack.CaseDetailResponse{CaseResponse: quack.CaseResponse{ID: "case-1", CaseNumber: 7}, Evidence: []quack.CaseEvidenceResponse{{Content: strings.Repeat("🦆 evidence text\n", 450), MessageURL: "https://discord.com/channels/1/2/3"}}}
+	for page := 1; ; page++ {
+		message := CaseEvidencePage(detail, page, "819019613371236432").ForApplication("819019613371236432")
+		if !message.Ephemeral || len(message.Files) != 0 || len(utf16.Encode([]rune(message.Content))) > 2000 || !strings.Contains(message.Content, "/case evidence case:7 file:") {
+			t.Fatalf("page %d is not a complete native evidence page: %+v", page, message)
+		}
+		row := message.Components[0].(discordgo.ActionsRow)
+		if row.Components[0].(discordgo.Button).Disabled != (page == 1) {
+			t.Fatal("previous-page state is incorrect")
+		}
+		if row.Components[1].(discordgo.Button).Disabled {
+			if page < 2 {
+				t.Fatal("long evidence did not paginate")
+			}
+			break
+		}
+		if page > 100 {
+			t.Fatal("evidence pagination has no terminal page")
+		}
 	}
 }
 

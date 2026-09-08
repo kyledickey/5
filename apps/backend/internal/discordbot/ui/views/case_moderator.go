@@ -7,6 +7,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
+	"github.com/quackdiscord/bot/internal/discordtext"
 	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
@@ -275,8 +276,9 @@ func safeFailure(code string) string {
 	return ui.PlainText(strings.ReplaceAll(ui.TruncateRunes(strings.TrimSpace(code), 160), "_", " "))
 }
 
-// CaseEvidenceMessage shows the preserved staff record with an explicit upload entry point.
-func CaseEvidenceMessage(detail *quack.CaseDetailResponse) ui.Message {
+// CaseEvidencePage keeps preserved evidence in native staff-only pages. Icons are
+// resolved before measuring so custom emoji do not unexpectedly force a file.
+func CaseEvidencePage(detail *quack.CaseDetailResponse, page int, applicationID string) ui.Message {
 	if detail == nil {
 		return ui.Signal("error", "That case could not be found.", true)
 	}
@@ -284,6 +286,17 @@ func CaseEvidenceMessage(detail *quack.CaseDetailResponse) ui.Message {
 	if body == "" {
 		body = "No evidence has been added yet."
 	}
-	body += fmt.Sprintf("\n\nAdd a screenshot with `/case evidence case:%d file:` or use its `message_link` option.", detail.CaseNumber)
-	return ui.Conversation("evidence", fmt.Sprintf("Evidence for case #%d", detail.CaseNumber), "", body, "", true)
+	pages := ui.TextPages(discordtext.Resolve(body, applicationID), 1600)
+	if page < 1 {
+		page = 1
+	}
+	if page > len(pages) {
+		page = len(pages)
+	}
+	body = pages[page-1] + fmt.Sprintf("\n\nAdd a screenshot with `/case evidence case:%d file:` or use its `message_link` option.", detail.CaseNumber)
+	message := ui.Conversation("evidence", fmt.Sprintf("Evidence for case #%d", detail.CaseNumber), "", body, fmt.Sprintf("Page %d/%d", page, len(pages)), true)
+	if len(pages) > 1 {
+		message.Components, _ = ui.Pagination("case", "evidence", fmt.Sprintf("%d|%s", page, detail.ID), page, len(pages))
+	}
+	return message
 }
