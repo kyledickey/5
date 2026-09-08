@@ -16,19 +16,25 @@ import (
 // Per-guild serialization prevents a slower update from overwriting a newer count.
 // Other guilds remain independent; deleted warnings are recreated from saved text.
 type honeypotCounter struct {
-	session    *discordgo.Session
-	service    *honeypot.Service
-	resolver   guildResolver
-	guildLocks sync.Map
+	session     *discordgo.Session
+	service     *honeypot.Service
+	resolver    guildResolver
+	guildLocks  sync.Map
+	sharedLocks *sync.Map
 }
 
 // IncidentCreated refreshes the current configured warning after case persistence.
 // Delivery is presentation only and never writes another staff audit event.
 func (c *honeypotCounter) IncidentCreated(ctx context.Context, guildID string) error {
-	value, _ := c.guildLocks.LoadOrStore(guildID, &sync.Mutex{})
-	lock := value.(*sync.Mutex)
-	lock.Lock()
-	defer lock.Unlock()
+	locks := c.sharedLocks
+	if locks == nil {
+		locks = &c.guildLocks
+	}
+	release, err := lockHoneypotWarning(ctx, locks, guildID)
+	if err != nil {
+		return err
+	}
+	defer release()
 	settings, status, err := c.service.Settings(ctx, honeypot.Actor{GuildID: guildID, CanManage: true})
 	if err != nil {
 		return err

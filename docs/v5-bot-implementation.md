@@ -575,3 +575,11 @@ means further work is required, not completion.
   audit event. Setup and recovery share the default warning text. Transport and
   stale-configuration tests plus the full backend suite pass. Immediate deletion
   event handling, setup/counter concurrency and live warning recovery remain pending.
+
+- Honeypot Discord setup and incident-counter delivery now share a per-guild gate
+  before loading settings, preventing stale counter edits from racing setup or
+  concurrent setup requests from duplicating warning/channel work. Waiting honors
+  cancellation and other guilds remain independent. Runtime wiring shares the gate
+  with the counter observer; serialization/cancellation tests and the module race
+  suite pass, as does the full backend suite. Live simultaneous setup/incident
+  rehearsal, immediate deletion handling and remaining feature work are pending.

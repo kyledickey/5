@@ -34,16 +34,17 @@ const (
 
 // Runtime owns the optional-module services and their process-scoped workers.
 type Runtime struct {
-	Tickets          *tickets.Service
-	TicketDiscord    *tickets.DiscordAdapter
-	Logging          *generallogging.Service
-	LoggingQueue     *generallogging.DeliveryQueue
-	Honeypot         *honeypot.Service
-	HoneypotDiscord  *honeypot.DiscordAdapter
-	HoneypotRuntime  *honeypot.Runtime
-	AuditMirror      *quack.AuditMirrorWorker
-	Appeals          *quack.AppealService
-	AppealDispatcher *quack.AppealNotificationDispatcher
+	honeypotWarningLocks sync.Map
+	Tickets              *tickets.Service
+	TicketDiscord        *tickets.DiscordAdapter
+	Logging              *generallogging.Service
+	LoggingQueue         *generallogging.DeliveryQueue
+	Honeypot             *honeypot.Service
+	HoneypotDiscord      *honeypot.DiscordAdapter
+	HoneypotRuntime      *honeypot.Runtime
+	AuditMirror          *quack.AuditMirrorWorker
+	Appeals              *quack.AppealService
+	AppealDispatcher     *quack.AppealNotificationDispatcher
 
 	db                  *gorm.DB
 	registry            *modules.Registry
@@ -124,7 +125,6 @@ func New(ctx context.Context, repositories *store.Store, session *discordgo.Sess
 		LoggingQueue:     generallogging.NewDeliveryQueue(workerCtx, loggingService, loggingQueueCapacity, loggingQueueWorkers),
 		Honeypot:         honeypotService,
 		HoneypotDiscord:  honeypotDiscord,
-		HoneypotRuntime:  honeypot.NewRuntime(workerCtx, honeypotDiscord, honeypotQueueCapacity, honeypotQueueWorkers, &honeypotCounter{session: session, service: honeypotService, resolver: resolver}),
 		AuditMirror:      auditMirror,
 		Appeals:          appeals,
 		AppealDispatcher: appealDispatcher,
@@ -138,6 +138,7 @@ func New(ctx context.Context, repositories *store.Store, session *discordgo.Sess
 		bulk:             make(chan bulkDeleteEvent, loggingQueueCapacity),
 		closeDone:        make(chan struct{}),
 	}
+	runtime.HoneypotRuntime = honeypot.NewRuntime(workerCtx, honeypotDiscord, honeypotQueueCapacity, honeypotQueueWorkers, &honeypotCounter{session: session, service: honeypotService, resolver: resolver, sharedLocks: &runtime.honeypotWarningLocks})
 	for range loggingQueueWorkers {
 		runtime.bulkWG.Add(1)
 		go runtime.runBulkDeletes(workerCtx)
