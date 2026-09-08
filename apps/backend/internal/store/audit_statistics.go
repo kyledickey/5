@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	gormmysql "gorm.io/driver/mysql"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/quackdiscord/bot/internal/quack/model"
@@ -20,73 +22,113 @@ func (s *Store) DeriveStaffStatistics(ctx context.Context, params model.StaffSta
 		return nil, errors.New("invalid staff statistics range")
 	}
 
-	var cases []model.Case
-	if err := timeRange(s.db.WithContext(ctx).Where("guild_id = ?", params.GuildID), params).Find(&cases).Error; err != nil {
-		return nil, fmt.Errorf("derive case statistics: %w", err)
+	daySQL, dayArgs := statisticsDayExpression(s.db, params)
+	result := &model.StaffStatistics{From: params.From.UTC(), To: params.To.UTC()}
+	groups := []struct {
+		table      any
+		scope      string
+		args       []any
+		dimensions []string
+		total      *int64
+		buckets    []*[]model.StatisticBucket
+		name       string
+	}{
+		{&model.Case{}, "guild_id = ?", []any{params.GuildID}, []string{"CASE WHEN template_id IS NULL OR LENGTH(template_id) = 0 THEN 'historical_or_deleted' ELSE template_id END", "status", "source"}, &result.CaseTotal, []*[]model.StatisticBucket{&result.CasesByDay, &result.CasesByTemplate, &result.CasesByValidity, &result.CasesBySource}, "case"},
+		{&model.CaseActionExecution{}, "case_id IN (SELECT id FROM cases WHERE guild_id = ?)", []any{params.GuildID}, []string{"action_type", "status"}, &result.ActionTotal, []*[]model.StatisticBucket{&result.ActionsByDay, &result.ActionsByType, &result.ActionsByResult}, "action"},
+		{&model.Appeal{}, "guild_id = ?", []any{params.GuildID}, []string{"status"}, &result.AppealTotal, []*[]model.StatisticBucket{&result.AppealsByDay, &result.AppealsByStatus}, "appeal"},
+		{&model.AuditLogEntry{}, "guild_id = ? AND action IN ?", []any{params.GuildID, model.ImportantAuditActions()}, []string{"action", "result", "source"}, &result.AuditTotal, []*[]model.StatisticBucket{&result.AuditsByDay, &result.AuditsByAction, &result.AuditsByResult, &result.AuditsBySource}, "audit"},
 	}
-	var actions []model.CaseActionExecution
-	if err := timeRange(s.db.WithContext(ctx).Where("case_id IN (SELECT id FROM cases WHERE guild_id = ?)", params.GuildID), params).Find(&actions).Error; err != nil {
-		return nil, fmt.Errorf("derive action statistics: %w", err)
-	}
-	var appeals []model.Appeal
-	if err := timeRange(s.db.WithContext(ctx).Where("guild_id = ?", params.GuildID), params).Find(&appeals).Error; err != nil {
-		return nil, fmt.Errorf("derive appeal statistics: %w", err)
-	}
-	var audits []model.AuditLogEntry
-	if err := timeRange(s.db.WithContext(ctx).Where("guild_id = ?", params.GuildID).Where("action IN ?", model.ImportantAuditActions()), params).Find(&audits).Error; err != nil {
-		return nil, fmt.Errorf("derive audit statistics: %w", err)
-	}
-
-	result := &model.StaffStatistics{From: params.From.UTC(), To: params.To.UTC(), CaseTotal: int64(len(cases)), ActionTotal: int64(len(actions)), AppealTotal: int64(len(appeals)), AuditTotal: int64(len(audits))}
-	caseDays, caseTemplates, caseValidity, caseSources := map[string]int64{}, map[string]int64{}, map[string]int64{}, map[string]int64{}
-	for _, item := range cases {
-		caseDays[item.CreatedAt.UTC().Format(time.DateOnly)]++
-		template := "historical_or_deleted"
-		if item.TemplateID != nil && *item.TemplateID != "" {
-			template = *item.TemplateID
+	for _, group := range groups {
+		query := timeRange(s.db.WithContext(ctx).Model(group.table).Where(group.scope, group.args...), params)
+		rows, err := aggregateStatistics(query, daySQL, dayArgs, group.dimensions)
+		if err != nil {
+			return nil, fmt.Errorf("derive %s statistics: %w", group.name, err)
 		}
-		caseTemplates[template]++
-		caseValidity[string(item.Validity)]++
-		caseSources[string(item.Source)]++
+		counts := make([]map[string]int64, len(group.buckets))
+		for i := range counts {
+			counts[i] = make(map[string]int64)
+		}
+		for _, row := range rows {
+			*group.total += row.Count
+			keys := []string{row.Day, row.Dimension0, row.Dimension1, row.Dimension2}
+			for i := range counts {
+				counts[i][keys[i]] += row.Count
+			}
+		}
+		for i, destination := range group.buckets {
+			*destination = statisticBuckets(counts[i])
+		}
 	}
-	actionDays, actionTypes, actionResults := map[string]int64{}, map[string]int64{}, map[string]int64{}
-	for _, item := range actions {
-		actionDays[item.CreatedAt.UTC().Format(time.DateOnly)]++
-		actionTypes[string(item.ActionType)]++
-		actionResults[string(item.Status)]++
-	}
-	appealDays, appealStatuses := map[string]int64{}, map[string]int64{}
-	for _, item := range appeals {
-		appealDays[item.CreatedAt.UTC().Format(time.DateOnly)]++
-		appealStatuses[string(item.Status)]++
-	}
-	auditDays, auditActions, auditResults, auditSources := map[string]int64{}, map[string]int64{}, map[string]int64{}, map[string]int64{}
-	for _, item := range audits {
-		auditDays[item.CreatedAt.UTC().Format(time.DateOnly)]++
-		auditActions[item.Action]++
-		auditResults[string(item.Result)]++
-		auditSources[string(item.Source)]++
-	}
-	result.CasesByDay = statisticBuckets(caseDays)
-	result.CasesByTemplate = statisticBuckets(caseTemplates)
-	result.CasesByValidity = statisticBuckets(caseValidity)
-	result.CasesBySource = statisticBuckets(caseSources)
-	result.ActionsByDay = statisticBuckets(actionDays)
-	result.ActionsByType = statisticBuckets(actionTypes)
-	result.ActionsByResult = statisticBuckets(actionResults)
-	result.AppealsByDay = statisticBuckets(appealDays)
-	result.AppealsByStatus = statisticBuckets(appealStatuses)
-	result.AuditsByDay = statisticBuckets(auditDays)
-	result.AuditsByAction = statisticBuckets(auditActions)
-	result.AuditsByResult = statisticBuckets(auditResults)
-	result.AuditsBySource = statisticBuckets(auditSources)
 	return result, nil
 }
 
+// statisticsAggregate contains counts only; large source JSON, evidence, reasons,
+// notification bodies and execution details never enter the statistics process.
+type statisticsAggregate struct {
+	Day        string
+	Dimension0 string
+	Dimension1 string
+	Dimension2 string
+	Count      int64
+}
+
+// aggregateStatistics scans one grouped projection per source so each source's
+// totals and breakdowns share a query snapshot. Memory grows with distinct day
+// and dimension combinations rather than the number or size of source records.
+func aggregateStatistics(query *gorm.DB, daySQL string, dayArgs []any, dimensions []string) ([]statisticsAggregate, error) {
+	selects := []string{daySQL + " AS day"}
+	groups := []string{"day"}
+	for i, expression := range dimensions {
+		expression = "COALESCE(" + expression + ", '')"
+		// Go previously grouped exact strings. MySQL's default case/accent-insensitive
+		// collation must not merge distinct template identifiers or stored labels.
+		if query.Dialector.Name() == "mysql" {
+			expression = "CAST(" + expression + " AS BINARY)"
+		}
+		alias := fmt.Sprintf("dimension%d", i)
+		selects = append(selects, expression+" AS "+alias)
+		groups = append(groups, alias)
+	}
+	selects = append(selects, "COUNT(*) AS count")
+	var rows []statisticsAggregate
+	err := query.Select(strings.Join(selects, ", "), dayArgs...).Group(strings.Join(groups, ", ")).Scan(&rows).Error
+	return rows, err
+}
+
+// statisticsDayExpression preserves UTC day labels from the former Go scan.
+// SQLite normalizes encoded offsets. MySQL DATE fields are decoded in the DSN
+// location; non-UTC locations therefore use driver-converted UTC day boundaries
+// without relying on MySQL named timezone tables being installed. Public callers
+// already constrain ranges to 366 days; the usual UTC DSN uses a simple SQL date.
+func statisticsDayExpression(db *gorm.DB, params model.StaffStatisticsParams) (string, []any) {
+	if db.Dialector.Name() != "mysql" {
+		return "strftime('%Y-%m-%d', created_at)", nil
+	}
+	dialector, ok := db.Dialector.(*gormmysql.Dialector)
+	if !ok || dialector.DSNConfig == nil || dialector.DSNConfig.Loc == nil || dialector.DSNConfig.Loc == time.UTC {
+		return "DATE_FORMAT(created_at, '%Y-%m-%d')", nil
+	}
+	start := params.From.UTC()
+	day := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, time.UTC)
+	var expression strings.Builder
+	expression.WriteString("CASE")
+	var args []any
+	for day.Before(params.To.UTC()) {
+		next := day.AddDate(0, 0, 1)
+		expression.WriteString(" WHEN created_at < ? THEN ?")
+		args = append(args, next, day.Format(time.DateOnly))
+		day = next
+	}
+	expression.WriteString(" END")
+	return expression.String(), args
+}
+
+// timeRange keeps the existing inclusive lower and exclusive upper boundary.
 func timeRange(query *gorm.DB, params model.StaffStatisticsParams) *gorm.DB {
 	return query.Where("created_at >= ? AND created_at < ?", params.From.UTC(), params.To.UTC())
 }
 
+// statisticBuckets preserves exact lexical ordering and non-nil empty arrays.
 func statisticBuckets(counts map[string]int64) []model.StatisticBucket {
 	keys := make([]string, 0, len(counts))
 	for key := range counts {
