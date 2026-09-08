@@ -342,3 +342,13 @@ means further work is required, not completion.
   wired yet. Command routing and the full backend suite pass. Full setup transport
   tests, permission preflight, concurrent/ambiguous setup recovery, live counter
   updates and live rehearsal remain pending.
+
+- Successful honeypot incidents now refresh the configured warning's count through
+  a presentation observer after durable case/trigger completion. The updater reads
+  current settings and stored counts, serializes updates per guild, validates the
+  destination guild and suppresses mentions. It reports incidents rather than bans
+  because the policy is editable. Counter failures remain developer warnings and
+  cannot repeat or undo moderation. A regression test proves a failed update plus
+  replay still creates only one case. Focused and full backend suites pass. Counter
+  transport/live verification, automatic missing-warning repair and setup/update
+  concurrency still need coverage; broader honeypot live rehearsal remains pending.

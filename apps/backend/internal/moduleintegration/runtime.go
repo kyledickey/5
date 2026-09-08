@@ -124,7 +124,7 @@ func New(ctx context.Context, repositories *store.Store, session *discordgo.Sess
 		LoggingQueue:     generallogging.NewDeliveryQueue(workerCtx, loggingService, loggingQueueCapacity, loggingQueueWorkers),
 		Honeypot:         honeypotService,
 		HoneypotDiscord:  honeypotDiscord,
-		HoneypotRuntime:  honeypot.NewRuntime(workerCtx, honeypotDiscord, honeypotQueueCapacity, honeypotQueueWorkers),
+		HoneypotRuntime:  honeypot.NewRuntime(workerCtx, honeypotDiscord, honeypotQueueCapacity, honeypotQueueWorkers, &honeypotCounter{session: session, service: honeypotService, resolver: resolver}),
 		AuditMirror:      auditMirror,
 		Appeals:          appeals,
 		AppealDispatcher: appealDispatcher,

@@ -76,7 +76,7 @@ func (r *Runtime) SetupHoneypot(ctx ui.Context) ui.HandlerResult {
 		if settings.WarningText == "" {
 			settings.WarningText = "# Warning!\nThis channel catches spam and scam accounts. Do not post here. Posting here triggers this server's honeypot moderation rule."
 		}
-		content := fmt.Sprintf("%s\n\n-# %d incidents caught.", settings.WarningText, status.Statistics.Created)
+		content := honeypotWarningContent(settings.WarningText, status.Statistics.Created)
 		var sent *discordgo.Message
 		if settings.WarningMessageID != "" {
 			sent, err = r.session.ChannelMessageEditComplex(&discordgo.MessageEdit{ID: settings.WarningMessageID, Channel: channel.ID, Content: &content, AllowedMentions: &discordgo.MessageAllowedMentions{}}, discordgo.WithContext(taskCtx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))

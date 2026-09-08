@@ -527,3 +527,34 @@ func TestObsoleteRoleExemptionsDoNotBypassTrap(t *testing.T) {
 		t.Fatal("obsolete configuration bypassed moderation")
 	}
 }
+
+// failingCounter models unavailable Discord presentation after successful moderation.
+type failingCounter struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (c *failingCounter) IncidentCreated(context.Context, string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.calls++
+	return errors.New("warning message unavailable")
+}
+
+// TestCounterFailureDoesNotRepeatCase refreshes only successful incidents; a
+// duplicate message and a failed counter send cannot create another case.
+func TestCounterFailureDoesNotRepeatCase(t *testing.T) {
+	fixture := setup(t)
+	enable(t, fixture, "guild-a")
+	counter := &failingCounter{}
+	runtime := honeypot.NewRuntime(context.Background(), honeypot.NewDiscordAdapter(fixture.service), 8, 1, counter)
+	for range 2 {
+		if err := runtime.Submit(message("same")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runtime.Close()
+	if fixture.applier.count() != 1 || counter.calls != 1 {
+		t.Fatalf("case calls=%d counter calls=%d", fixture.applier.count(), counter.calls)
+	}
+}

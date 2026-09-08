@@ -57,17 +57,24 @@ func (a *DiscordAdapter) HandleTemplateUnavailable(ctx context.Context, guildID,
 	return a.service.HandleTemplateUnavailable(ctx, guildID, templateID)
 }
 
+// IncidentObserver refreshes derived Discord presentation after a case is saved.
+// Its failure must never undo or repeat the moderation operation.
+type IncidentObserver interface {
+	IncidentCreated(context.Context, string) error
+}
+
 // Runtime is a bounded, independently drainable honeypot gateway worker pool.
 type Runtime struct {
-	adapter *DiscordAdapter
-	events  chan Message
-	mu      sync.RWMutex
-	closed  bool
-	wg      sync.WaitGroup
+	observer IncidentObserver
+	adapter  *DiscordAdapter
+	events   chan Message
+	mu       sync.RWMutex
+	closed   bool
+	wg       sync.WaitGroup
 }
 
 // NewRuntime starts isolated workers so gateway handling never runs on a moderation action queue.
-func NewRuntime(ctx context.Context, adapter *DiscordAdapter, capacity, workers int) *Runtime {
+func NewRuntime(ctx context.Context, adapter *DiscordAdapter, capacity, workers int, observers ...IncidentObserver) *Runtime {
 	if capacity < 1 {
 		capacity = 256
 	}
@@ -75,6 +82,9 @@ func NewRuntime(ctx context.Context, adapter *DiscordAdapter, capacity, workers 
 		workers = 1
 	}
 	runtime := &Runtime{adapter: adapter, events: make(chan Message, capacity)}
+	if len(observers) > 0 {
+		runtime.observer = observers[0]
+	}
 	for range workers {
 		runtime.wg.Add(1)
 		go func() {
@@ -128,7 +138,15 @@ func (r *Runtime) process(ctx context.Context, event Message) {
 				"panic_type", fmt.Sprintf("%T", recovered), "stack", string(debug.Stack()))
 		}
 	}()
-	if _, err := r.adapter.HandleMessage(ctx, event); err != nil && !errors.Is(err, ErrDuplicate) && !errors.Is(err, ErrExempt) && !errors.Is(err, ErrNotTrigger) && !errors.Is(err, ErrDisabled) {
-		slog.ErrorContext(ctx, "Honeypot event failed", "guild_id", event.GuildID, "error_type", fmt.Sprintf("%T", err))
+	if _, err := r.adapter.HandleMessage(ctx, event); err != nil {
+		if !errors.Is(err, ErrDuplicate) && !errors.Is(err, ErrExempt) && !errors.Is(err, ErrNotTrigger) && !errors.Is(err, ErrDisabled) {
+			slog.ErrorContext(ctx, "Honeypot event failed", "guild_id", event.GuildID, "error_type", fmt.Sprintf("%T", err))
+		}
+		return
+	}
+	if r.observer != nil {
+		if err := r.observer.IncidentCreated(ctx, event.GuildID); err != nil {
+			slog.WarnContext(ctx, "Honeypot counter update failed", "guild_id", event.GuildID, "error_type", fmt.Sprintf("%T", err))
+		}
 	}
 }
