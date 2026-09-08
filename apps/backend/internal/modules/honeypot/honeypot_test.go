@@ -110,7 +110,7 @@ func setup(t *testing.T) *fixture {
 func enable(t *testing.T, fixture *fixture, guildID string) honeypot.Actor {
 	t.Helper()
 	actor := honeypot.Actor{GuildID: guildID, DiscordUserID: "admin", CanManage: true}
-	settings := honeypot.Settings{ChannelDiscordID: "trap", TemplateID: "01J500000000000000TEMPLATE", ExemptRoleDiscordIDs: []string{"trusted"}}
+	settings := honeypot.Settings{ChannelDiscordID: "trap", TemplateID: "01J500000000000000TEMPLATE"}
 	if _, status, err := fixture.service.UpdateSettings(context.Background(), actor, true, settings); err != nil || !status.Enabled {
 		t.Fatalf("enable: status=%+v err=%v", status, err)
 	}
@@ -166,7 +166,6 @@ func TestTriggerExemptionsAndLoopPrevention(t *testing.T) {
 		{"bot", func(message *honeypot.Message) { message.IsBot = true }},
 		{"webhook", func(message *honeypot.Message) { message.IsWebhook = true }},
 		{"staff", func(message *honeypot.Message) { message.AuthorCanModerate = true }},
-		{"role", func(message *honeypot.Message) { message.AuthorRoleDiscordIDs = []string{"trusted"} }},
 	}
 	for index, testCase := range cases {
 		event := message(fmt.Sprintf("exempt-%d", index))
@@ -468,7 +467,6 @@ func TestIncidentClaimRechecksChangedConfiguration(t *testing.T) {
 		{"disabled", false, honeypot.Settings{ChannelDiscordID: "trap", TemplateID: "template"}, honeypot.ErrDisabled},
 		{"new template", true, honeypot.Settings{ChannelDiscordID: "trap", TemplateID: "replacement"}, honeypot.ErrNotTrigger},
 		{"new channel", true, honeypot.Settings{ChannelDiscordID: "replacement", TemplateID: "template"}, honeypot.ErrNotTrigger},
-		{"new exemption", true, honeypot.Settings{ChannelDiscordID: "trap", TemplateID: "template", ExemptRoleDiscordIDs: []string{"exempt"}}, honeypot.ErrExempt},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := setup(t)
@@ -478,7 +476,6 @@ func TestIncidentClaimRechecksChangedConfiguration(t *testing.T) {
 				t.Fatal(err)
 			}
 			event := message("stale-job")
-			event.AuthorRoleDiscordIDs = []string{"exempt"}
 			_, claimed, err := honeypot.NewStore(fixture.db).ClaimIncident(context.Background(), event, "template")
 			if claimed || !errors.Is(err, test.want) {
 				t.Fatalf("stale claim=%v err=%v", claimed, err)
@@ -513,5 +510,20 @@ func TestTemporaryTemplateFailureKeepsHoneypotEnabled(t *testing.T) {
 	}
 	if fixture.applier.count() != 1 {
 		t.Fatal("trap did not recover automatically")
+	}
+}
+
+// TestObsoleteRoleExemptionsDoNotBypassTrap covers stored pre-rewrite settings;
+// old role lists no longer exempt ordinary members from the selected template.
+func TestObsoleteRoleExemptionsDoNotBypassTrap(t *testing.T) {
+	fixture := setup(t)
+	if _, err := fixture.registry.SetConfiguration(context.Background(), modules.Configuration{GuildID: "guild-a", ModuleID: modules.Honeypots, Enabled: true, ConfigJSON: `{"channel_discord_id":"trap","template_id":"template","exempt_role_discord_ids":["trusted"]}`}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.service.HandleMessage(context.Background(), message("ordinary-member")); err != nil {
+		t.Fatal(err)
+	}
+	if fixture.applier.count() != 1 {
+		t.Fatal("obsolete configuration bypassed moderation")
 	}
 }

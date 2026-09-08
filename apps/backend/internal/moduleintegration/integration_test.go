@@ -167,7 +167,7 @@ func TestHoneypotProjectionUsesCurrentMemberRolesAndPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if projection.GuildID != "internal-guild" || projection.IsBot || !projection.AuthorCanModerate || len(projection.AuthorRoleDiscordIDs) != 2 || projection.AuthorRoleDiscordIDs[1] != "exempt" || projection.MessageURL != "https://discord.com/channels/guild/channel/message" {
+	if projection.GuildID != "internal-guild" || projection.IsBot || !projection.AuthorCanModerate || projection.MessageURL != "https://discord.com/channels/guild/channel/message" {
 		t.Fatalf("projection trusted event claims or lost live facts: %+v", projection)
 	}
 	member.User.Bot = true

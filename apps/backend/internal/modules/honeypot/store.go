@@ -122,7 +122,7 @@ func (s *Store) ClaimIncident(ctx context.Context, message Message, templateID s
 		if settings.ChannelDiscordID != message.ChannelDiscordID || settings.TemplateID != templateID {
 			return ErrNotTrigger
 		}
-		if isExempt(message, settings) {
+		if isExempt(message) {
 			return ErrExempt
 		}
 		var recent Trigger

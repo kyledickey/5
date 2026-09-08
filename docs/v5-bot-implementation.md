@@ -314,3 +314,11 @@ means further work is required, not completion.
   cases; focused and full backend suites pass. Existing custom role-exemption
   configuration and trap setup/counter still need reconciliation with the final
   simple workflow, followed by live verification.
+
+- Removed honeypot custom role exemptions from configuration, message projections
+  and validation. Trap bypass now depends on live moderator authority or bot/
+  webhook identity. Old stored exemption lists are ignored rather than continuing
+  to grant ordinary members a hidden bypass. Regression coverage checks old JSON
+  settings alongside the existing moderator/bot exemption tests. Focused and full
+  backend suites pass. Trap creation/default template/counter and live journeys
+  remain pending.

@@ -91,7 +91,7 @@ func (s *Service) HandleMessage(ctx context.Context, message Message) (ApplyResu
 	if message.GuildID == "" || message.ChannelDiscordID != settings.ChannelDiscordID || message.MessageDiscordID == "" || message.AuthorDiscordUserID == "" {
 		return ApplyResult{}, ErrNotTrigger
 	}
-	if isExempt(message, settings) {
+	if isExempt(message) {
 		_, created, claimErr := s.store.Claim(ctx, message, settings.TemplateID, OutcomeExempt)
 		if claimErr != nil {
 			return ApplyResult{}, claimErr
@@ -244,9 +244,6 @@ func normalizeSettings(settings Settings) Settings {
 	settings.ChannelDiscordID = strings.TrimSpace(settings.ChannelDiscordID)
 	settings.TemplateID = strings.TrimSpace(settings.TemplateID)
 	settings.DisabledReason = strings.TrimSpace(settings.DisabledReason)
-	for i := range settings.ExemptRoleDiscordIDs {
-		settings.ExemptRoleDiscordIDs[i] = strings.TrimSpace(settings.ExemptRoleDiscordIDs[i])
-	}
 	return settings
 }
 
@@ -258,18 +255,7 @@ func normalizeMessage(message Message) Message {
 	return message
 }
 
-func isExempt(message Message, settings Settings) bool {
-	if message.IsBot || message.IsQuack || message.IsWebhook || message.AuthorCanModerate {
-		return true
-	}
-	exempt := make(map[string]struct{}, len(settings.ExemptRoleDiscordIDs))
-	for _, roleID := range settings.ExemptRoleDiscordIDs {
-		exempt[roleID] = struct{}{}
-	}
-	for _, roleID := range message.AuthorRoleDiscordIDs {
-		if _, ok := exempt[roleID]; ok {
-			return true
-		}
-	}
-	return false
+// isExempt keeps trap bypasses aligned with live moderation authority.
+func isExempt(message Message) bool {
+	return message.IsBot || message.IsQuack || message.IsWebhook || message.AuthorCanModerate
 }

@@ -36,10 +36,9 @@ const (
 
 // Settings is one guild's complete honeypot configuration.
 type Settings struct {
-	ChannelDiscordID     string   `json:"channel_discord_id"`
-	TemplateID           string   `json:"template_id"`
-	ExemptRoleDiscordIDs []string `json:"exempt_role_discord_ids,omitempty"`
-	DisabledReason       string   `json:"disabled_reason,omitempty"`
+	ChannelDiscordID string `json:"channel_discord_id"`
+	TemplateID       string `json:"template_id"`
+	DisabledReason   string `json:"disabled_reason,omitempty"`
 }
 
 // Actor identifies a current guild manager for configuration and status operations.
@@ -52,7 +51,6 @@ type Actor struct {
 type Message struct {
 	GuildID, ChannelDiscordID, MessageDiscordID, AuthorDiscordUserID string
 	MessageURL                                                       string
-	AuthorRoleDiscordIDs                                             []string
 	IsBot, IsQuack, IsWebhook, AuthorCanModerate                     bool
 }
 
@@ -131,17 +129,6 @@ func validateSettings(settings Settings, enabled bool) error {
 	settings.TemplateID = strings.TrimSpace(settings.TemplateID)
 	if enabled && (settings.ChannelDiscordID == "" || settings.TemplateID == "") {
 		return errors.New("enabled honeypots require a channel and active template")
-	}
-	seen := make(map[string]struct{}, len(settings.ExemptRoleDiscordIDs))
-	for _, roleID := range settings.ExemptRoleDiscordIDs {
-		roleID = strings.TrimSpace(roleID)
-		if roleID == "" {
-			return errors.New("exempt role ids cannot be empty")
-		}
-		if _, ok := seen[roleID]; ok {
-			return errors.New("exempt role ids must be unique")
-		}
-		seen[roleID] = struct{}{}
 	}
 	return nil
 }

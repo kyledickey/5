@@ -172,9 +172,8 @@ func projectHoneypotMessage(internalGuildID string, event *discordgo.MessageCrea
 	return honeypot.Message{
 		GuildID: strings.TrimSpace(internalGuildID), ChannelDiscordID: channel.ID,
 		MessageDiscordID: event.ID, AuthorDiscordUserID: member.User.ID,
-		MessageURL:           fmt.Sprintf("https://discord.com/channels/%s/%s/%s", event.GuildID, channel.ID, event.ID),
-		AuthorRoleDiscordIDs: append([]string(nil), member.Roles...),
-		IsBot:                member.User.Bot, IsQuack: member.User.ID == botID,
+		MessageURL: fmt.Sprintf("https://discord.com/channels/%s/%s/%s", event.GuildID, channel.ID, event.ID),
+		IsBot:      member.User.Bot, IsQuack: member.User.ID == botID,
 		IsWebhook:         event.WebhookID != "",
 		AuthorCanModerate: permissions&staffPermissions != 0,
 	}, nil
