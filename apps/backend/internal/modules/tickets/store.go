@@ -318,7 +318,7 @@ func ticketFromRecord(r ticketRecord) Ticket {
 	return Ticket{LogMessageDiscordID: r.LogMessageDiscordID, LogChannelDiscordID: r.LogChannelDiscordID, TranscriptURL: r.TranscriptURL, ID: r.ID, GuildID: r.GuildID, OwnerDiscordUserID: r.OwnerDiscordUserID, ThreadDiscordChannelID: r.ThreadDiscordChannelID, Status: r.Status, ResolvedByDiscordUserID: r.ResolvedByDiscordUserID, ResolvedAt: r.ResolvedAt, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
 }
 
-// saveQueueReceipt records the Discord destination only after successful delivery.
+// saveQueueReceipt replaces initial-send admission with the confirmed Discord receipt.
 // A saved transcript URL is the durable fence before deleting the source thread.
 func (s *Store) saveQueueReceipt(ctx context.Context, ticket *Ticket, channelID, messageID, transcriptURL string) error {
 	result := s.db.WithContext(ctx).Model(&ticketRecord{}).Where("id = ? AND guild_id = ?", ticket.ID, ticket.GuildID).Updates(map[string]any{"log_channel_discord_id": channelID, "log_message_discord_id": messageID, "transcript_url": transcriptURL})

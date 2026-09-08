@@ -2,6 +2,8 @@ package moduleintegration
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -49,6 +51,20 @@ func TestTicketTranscriptRecreatesDeletedQueueMessage(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer r.MultipartForm.RemoveAll()
+			var payload struct {
+				Components []struct {
+					Components []struct {
+						CustomID string `json:"custom_id"`
+						Label    string `json:"label"`
+					} `json:"components"`
+				} `json:"components"`
+			}
+			if err := json.Unmarshal([]byte(r.FormValue("payload_json")), &payload); err != nil {
+				t.Fatal(err)
+			}
+			if len(payload.Components) != 1 || len(payload.Components[0].Components) != 1 || payload.Components[0].Components[0].Label != "View ticket" || !strings.Contains(payload.Components[0].Components[0].CustomID, "view") {
+				t.Fatalf("transcript lost recovery control: %+v", payload)
+			}
 			files := r.MultipartForm.File["files[0]"]
 			if len(files) != 1 {
 				t.Fatalf("missing transcript: %+v", r.MultipartForm.File)
@@ -88,5 +104,19 @@ func TestTicketTranscriptRecreatesDeletedQueueMessage(t *testing.T) {
 	}
 	if writes != 2 || receipt.URL != "https://discord.com/channels/guild/queue/replacement" {
 		t.Fatalf("incorrect receipt: %+v writes=%d", receipt, writes)
+	}
+}
+
+// TestTicketQueueFailureClassification prevents network/server uncertainty from
+// being mistaken for a safe initial-send retry.
+func TestTicketQueueFailureClassification(t *testing.T) {
+	for _, status := range []int{400, 401, 403, 404, 429, 500, 502} {
+		err := ticketQueueSendError(&discordgo.RESTError{Response: &http.Response{StatusCode: status}})
+		if errors.Is(err, tickets.ErrQueueNotSent) != (status < 500) {
+			t.Fatal(status, err)
+		}
+	}
+	if errors.Is(ticketQueueSendError(errors.New("connection lost")), tickets.ErrQueueNotSent) {
+		t.Fatal("uncertain send marked safe")
 	}
 }

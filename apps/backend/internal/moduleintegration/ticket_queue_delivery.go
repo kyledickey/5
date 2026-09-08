@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -17,10 +18,10 @@ import (
 func (c ticketDiscordClient) PublishTicketQueue(ctx context.Context, ticket *tickets.Ticket, settings tickets.Settings, transcript *tickets.Transcript) (*tickets.QueueReceipt, error) {
 	guildID, err := c.resolver.discordID(ctx, ticket.GuildID)
 	if err != nil {
-		return nil, err
+		return nil, errors.Join(tickets.ErrQueueNotSent, err)
 	}
 	if err := (&discordadapter.Bot{Session: c.session}).ValidateStaffChannel(ctx, guildID, settings.QueueChannelDiscordID); err != nil {
-		return nil, err
+		return nil, errors.Join(tickets.ErrQueueNotSent, err)
 	}
 	content := fmt.Sprintf("<@%s> opened a ticket: <#%s>.", ticket.OwnerDiscordUserID, ticket.ThreadDiscordChannelID)
 	message := ui.Signal("ticket", content, false)
@@ -30,7 +31,7 @@ func (c ticketDiscordClient) PublishTicketQueue(ctx context.Context, ticket *tic
 	)}
 	if transcript != nil {
 		message.Content = fmt.Sprintf("{{quack:ticket}} The ticket for <@%s> was closed. The transcript is attached.", ticket.OwnerDiscordUserID)
-		message.Components = []discordgo.MessageComponent{}
+		message.Components = []discordgo.MessageComponent{ui.Row(ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "ticket", Action: "view", Version: "v1", Payload: ticket.ID}), "View ticket", discordgo.SecondaryButton, false))}
 		message.Files = []*discordgo.File{{Name: "ticket-" + ticket.ID + ".txt", ContentType: "text/plain; charset=utf-8", Reader: strings.NewReader(transcript.Content)}}
 	}
 	payload := message.SendParams(ui.SessionApplicationID(c.session))
@@ -49,7 +50,7 @@ func (c ticketDiscordClient) PublishTicketQueue(ctx context.Context, ticket *tic
 		sent, err = c.session.ChannelMessageSendComplex(settings.QueueChannelDiscordID, payload, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 	}
 	if err != nil {
-		return nil, err
+		return nil, ticketQueueSendError(err)
 	}
 	if sent == nil || sent.ID == "" {
 		return nil, errors.New("ticket queue message was not returned")
@@ -58,4 +59,22 @@ func (c ticketDiscordClient) PublishTicketQueue(ctx context.Context, ticket *tic
 		return nil, errors.New("ticket transcript attachment was not returned")
 	}
 	return &tickets.QueueReceipt{MessageID: sent.ID, URL: fmt.Sprintf("https://discord.com/channels/%s/%s/%s", guildID, settings.QueueChannelDiscordID, sent.ID)}, nil
+}
+
+// ticketQueueSendError distinguishes definite Discord rejection from a send that
+// may have committed despite a missing response. Only definite rejection is safe
+// to retry when the ticket has no message receipt.
+func ticketQueueSendError(err error) error {
+	var limit *discordgo.RateLimitError
+	if errors.As(err, &limit) {
+		return errors.Join(tickets.ErrQueueNotSent, err)
+	}
+	var rest *discordgo.RESTError
+	if errors.As(err, &rest) && rest.Response != nil {
+		switch rest.Response.StatusCode {
+		case http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusTooManyRequests:
+			return errors.Join(tickets.ErrQueueNotSent, err)
+		}
+	}
+	return err
 }

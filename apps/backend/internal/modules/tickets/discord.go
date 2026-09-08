@@ -181,8 +181,19 @@ func (a *DiscordAdapter) publishQueue(ctx context.Context, ticket *Ticket, setti
 	if settings.QueueChannelDiscordID == "" {
 		return "", errors.New("ticket queue channel is not configured")
 	}
+	initialSend := ticket.LogMessageDiscordID == ""
+	if initialSend {
+		if err := a.service.store.reserveQueueSend(ctx, ticket, settings.QueueChannelDiscordID); err != nil {
+			return "", err
+		}
+	}
 	receipt, err := a.client.PublishTicketQueue(ctx, ticket, settings, transcript)
 	if err != nil {
+		if initialSend && errors.Is(err, ErrQueueNotSent) {
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer cancel()
+			err = errors.Join(err, a.service.store.releaseQueueSend(cleanupCtx, ticket, settings.QueueChannelDiscordID))
+		}
 		return "", err
 	}
 	if receipt == nil || receipt.MessageID == "" {
@@ -201,16 +212,25 @@ func (a *DiscordAdapter) publishQueue(ctx context.Context, ticket *Ticket, setti
 	return receipt.MessageID, nil
 }
 
-// RepairPermissions restores the exact member/staff-only ACL and records the repair.
+// RepairPermissions restores private access and any definitely missing initial
+// staff queue publication. Existing or uncertain receipts never cause a new send.
 func (a *DiscordAdapter) RepairPermissions(ctx context.Context, actor Actor, ticketID string) error {
 	if !actor.CanManage {
 		return ErrPermissionDenied
 	}
+	release, err := a.closes.acquire(ctx, actor.GuildID+":"+ticketID)
+	if err != nil {
+		return err
+	}
+	defer release()
 	ticket, err := a.service.authorizedTicket(ctx, actor, ticketID)
 	if err != nil {
 		return err
 	}
-	_, enabled, err := a.service.loadSettings(ctx, actor.GuildID)
+	if ticket.Status != StatusOpen {
+		return ErrInvalidTransition
+	}
+	settings, enabled, err := a.service.loadSettings(ctx, actor.GuildID)
 	if err != nil {
 		return err
 	}
@@ -219,6 +239,11 @@ func (a *DiscordAdapter) RepairPermissions(ctx context.Context, actor Actor, tic
 	}
 	if err := a.client.EnsureTicketPermissions(ctx, ticket.ThreadDiscordChannelID, ticket.OwnerDiscordUserID, actor.GuildID); err != nil {
 		return err
+	}
+	if ticket.LogMessageDiscordID == "" {
+		if _, err := a.publishQueue(ctx, ticket, settings, nil); err != nil {
+			return err
+		}
 	}
 	return a.service.RecordPermissionsRepaired(ctx, actor.GuildID, ticketID)
 }

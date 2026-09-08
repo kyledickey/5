@@ -56,7 +56,7 @@ func (r *Runtime) openTicketComponent(ctx ui.Context) ui.HandlerResult {
 		setupIncomplete := err != nil
 		message := ui.Signal("ticket", "Your ticket is ready: <#"+ticket.ThreadDiscordChannelID+">. Type there whenever you’re ready; a moderator will join you.", true)
 		if setupIncomplete {
-			message = ui.Signal("ticket", "Your ticket is saved: <#"+ticket.ThreadDiscordChannelID+">, but setup did not finish. If you cannot access it, ask a server administrator to use Repair permissions on this ticket. Opening again will return this same ticket.", true)
+			message = ui.Signal("ticket", "Your ticket is saved: <#"+ticket.ThreadDiscordChannelID+">, but setup did not finish. If access or the staff queue post is missing, ask a server administrator to use Repair ticket on this ticket. Opening again will return this same ticket.", true)
 		}
 		message.Components = ticketControls(ticket.ID, actor.CanManage)
 		_, err = responder.EditOriginal(ui.EditMessage(message))
@@ -145,7 +145,7 @@ func (r *Runtime) repairTicketComponent(ctx ui.Context) ui.HandlerResult {
 			_, _ = responder.EditOriginal(ui.ErrorEdit(ticketErrorMessage(err)))
 			return nil
 		}
-		_, err := responder.EditOriginal(ui.EditMessage(ui.Signal("lock", "Ticket permissions are repaired. Access is limited to the member and staff again.", true)))
+		_, err := responder.EditOriginal(ui.EditMessage(ui.Signal("lock", "Ticket access and staff queue delivery are repaired. Access is limited to the member and staff.", true)))
 		return err
 	})
 }
@@ -161,7 +161,7 @@ func ticketControls(ticketID string, includeRepair bool) []discordgo.MessageComp
 		return components
 	}
 	repairID := ui.MustCustomID(ui.CustomID{Namespace: "ticket", Action: "repair", Version: "v1", Payload: ticketID})
-	row.Components = append(row.Components, ui.Button(repairID, "Repair permissions", discordgo.SecondaryButton, false))
+	row.Components = append(row.Components, ui.Button(repairID, "Repair ticket", discordgo.SecondaryButton, false))
 	components[0] = row
 	return components
 }
@@ -250,6 +250,8 @@ func modalText(components []discordgo.MessageComponent, customID string) string 
 // ticketErrorMessage maps internal classifications to safe Discord copy.
 func ticketErrorMessage(err error) string {
 	switch {
+	case errors.Is(err, tickets.ErrQueueDeliveryUnknown):
+		return "The staff queue post could not be confirmed. Another post was not sent because it could create a duplicate. Ask an administrator to check the staff queue."
 	case errors.Is(err, tickets.ErrJournalIncomplete):
 		return "This ticket cannot close because some received messages could not be retained. Ask a server administrator to check transcript storage."
 	case errors.Is(err, tickets.ErrDisabled):
