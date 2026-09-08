@@ -976,3 +976,26 @@ means further work is required, not completion.
 - Ticket original-text retention remains uncommitted while thread-level
   concurrency and final-capture boundaries are reviewed. No newer binary has
   been loaded during this integration pass.
+
+### Ticket journal integration and direct evidence upload
+
+- `11ad055` adds bounded legacy export pages with deterministic ordering and
+  continuation offsets. Focused parser/export CLI tests pass. Paging assumes an
+  unchanged restored source snapshot; it removes the earlier manual splitting gap.
+- `c6e21ed` retains original received text for positively identified ticket
+  threads independently of logging. Per-thread gates flush admitted writes before
+  merging final history from the locked/archived thread. Failed persistence or
+  buffer overflow blocks deletion. Retention expires with the transcript, and
+  current-schema startup/recovery includes the journal. Focused tests, repeated
+  race tests and the root MySQL-enabled backend suite pass. Delayed deleted events
+  first delivered after the final snapshot and buffered writes lost during a
+  database outage plus hard crash remain outside this guarantee.
+- Real Discord direct-upload rehearsal succeeded using a synthetic plain-text
+  file and the warning-only Rehearsal rule. Case #2 showed a private preserved-file
+  link; opening it reached a Beta Bot attachment with the expected text. This
+  verifies administrator upload/copy/view, not restricted-role access or source
+  deletion. The case notification was recorded sent.
+- Loaded `/tmp/quack-v5-retention-review` into authorized tmux pane `%1` after
+  clean shutdown. Existing database retained; no reset or command pruning. Live
+  readiness passed database, Redis, Discord, queue, action capabilities and schema.
+  New journal deletion/restart acceptance remains to be exercised in Discord.
