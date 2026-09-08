@@ -91,8 +91,9 @@ func (s *Service) Open(ctx context.Context, actor Actor, threadDiscordChannelID 
 	return ticket, nil
 }
 
-// Resolve closes a ticket for its owner or current moderators and preserves the
-// captured transcript. Disabling new tickets does not prevent existing closure.
+// Resolve records the captured transcript for an authorized close. The member
+// reservation remains held until the adapter publishes it and deletes the thread.
+// Disabling new tickets does not prevent existing closure.
 func (s *Service) Resolve(ctx context.Context, actor Actor, ticketID, transcript string) (*Ticket, error) {
 	current, err := s.store.get(ctx, actor.GuildID, ticketID)
 	if err != nil {
@@ -108,41 +109,12 @@ func (s *Service) Resolve(ctx context.Context, actor Actor, ticketID, transcript
 	}
 	now := s.now()
 	transcriptRecord := &Transcript{TicketID: ticketID, GuildID: actor.GuildID, Content: transcript, CapturedAt: now, ExpiresAt: now.AddDate(0, 0, settings.TranscriptRetentionDays)}
-	ticket, err := s.store.transition(ctx, actor.GuildID, ticketID, []Status{StatusOpen}, StatusResolved, actor.DiscordUserID, EventResolved, "Ticket resolved", true, transcriptRecord, now)
+	ticket, err := s.store.captureClosure(ctx, actor.GuildID, ticketID, actor.DiscordUserID, transcriptRecord, now)
 	if err != nil {
 		s.audit(ctx, actor, "ticket.resolve", ticketID, "failure", err)
 		return nil, err
 	}
 	s.audit(ctx, actor, "ticket.resolve", ticket.ID, "success", nil)
-	return ticket, nil
-}
-
-// Cancel closes an open ticket at the owner's request or by current staff.
-func (s *Service) Cancel(ctx context.Context, actor Actor, ticketID string) (*Ticket, error) {
-	return s.cancel(ctx, actor, ticketID, nil)
-}
-
-func (s *Service) cancel(ctx context.Context, actor Actor, ticketID string, transcriptContent *string) (*Ticket, error) {
-	ticket, err := s.store.get(ctx, actor.GuildID, ticketID)
-	if err != nil {
-		return nil, err
-	}
-	if actor.DiscordUserID != ticket.OwnerDiscordUserID && !actor.CanModerate {
-		s.audit(ctx, actor, "ticket.cancel", ticketID, "denied", ErrPermissionDenied)
-		return nil, ErrPermissionDenied
-	}
-	settings, _, settingsErr := s.loadSettings(ctx, actor.GuildID)
-	now := s.now()
-	var transcript *Transcript
-	if settingsErr == nil && transcriptContent != nil {
-		transcript = &Transcript{TicketID: ticketID, GuildID: actor.GuildID, Content: *transcriptContent, CapturedAt: now, ExpiresAt: now.AddDate(0, 0, settings.TranscriptRetentionDays)}
-	}
-	ticket, err = s.store.transition(ctx, actor.GuildID, ticketID, []Status{StatusOpen}, StatusCancelled, actor.DiscordUserID, EventCancelled, "Ticket cancelled", false, transcript, now)
-	if err != nil {
-		s.audit(ctx, actor, "ticket.cancel", ticketID, "failure", err)
-		return nil, err
-	}
-	s.audit(ctx, actor, "ticket.cancel", ticket.ID, "success", nil)
 	return ticket, nil
 }
 

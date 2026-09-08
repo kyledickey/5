@@ -16,7 +16,7 @@ const (
 	StatusOpen Status = "open"
 	// StatusResolved is a completed ticket; closed tickets cannot be reopened.
 	StatusResolved Status = "resolved"
-	// StatusCancelled is an owner- or staff-cancelled ticket.
+	// StatusCancelled preserves imported historical tickets; new closes use resolved.
 	StatusCancelled Status = "cancelled"
 )
 

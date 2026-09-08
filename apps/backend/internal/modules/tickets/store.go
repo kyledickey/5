@@ -124,7 +124,12 @@ func (s *Store) get(ctx context.Context, guildID, ticketID string) (*Ticket, err
 	return &ticket, nil
 }
 
-func (s *Store) transition(ctx context.Context, guildID, ticketID string, from []Status, to Status, actorID string, eventType EventType, body string, resolved bool, transcript *Transcript, now time.Time) (*Ticket, error) {
+// captureClosure saves the single supported close transition and transcript
+// atomically, preserving the member reservation until external cleanup succeeds.
+func (s *Store) captureClosure(ctx context.Context, guildID, ticketID, actorID string, transcript *Transcript, now time.Time) (*Ticket, error) {
+	if transcript == nil {
+		return nil, errors.New("captured transcript is required")
+	}
 	var out Ticket
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var record ticketRecord
@@ -134,41 +139,15 @@ func (s *Store) transition(ctx context.Context, guildID, ticketID string, from [
 			}
 			return err
 		}
-		allowed := false
-		for _, status := range from {
-			if record.Status == status {
-				allowed = true
-			}
-		}
-		if !allowed {
+		if record.Status != StatusOpen {
 			return ErrInvalidTransition
 		}
-		record.Status, record.UpdatedAt = to, now
-		state, err := lockMemberState(tx, record.GuildID, record.OwnerDiscordUserID, now)
-		if err != nil {
-			return err
-		}
-		if to == StatusOpen {
-			if state.OpenTicketID != "" && state.OpenTicketID != record.ID {
-				return ErrDuplicateOpen
-			}
-			state.OpenTicketID = record.ID
-		} else if to != StatusResolved && state.OpenTicketID == record.ID {
-			state.OpenTicketID = ""
-		}
-		state.UpdatedAt = now
-		if resolved {
-			record.ResolvedByDiscordUserID, record.ResolvedAt = actorID, &now
-		} else {
-			record.ResolvedByDiscordUserID, record.ResolvedAt = "", nil
-		}
+		record.Status, record.UpdatedAt = StatusResolved, now
+		record.ResolvedByDiscordUserID, record.ResolvedAt = actorID, &now
 		if err := tx.Save(&record).Error; err != nil {
 			return err
 		}
-		if err := tx.Save(state).Error; err != nil {
-			return err
-		}
-		if err := appendEvent(tx, record, eventType, actorID, body, "{}", now); err != nil {
+		if err := appendEvent(tx, record, EventResolved, actorID, "Ticket closed", "{}", now); err != nil {
 			return err
 		}
 		if transcript != nil {

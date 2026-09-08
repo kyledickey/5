@@ -558,3 +558,11 @@ means further work is required, not completion.
   pre-persistence transport failures; missing or denied tickets expose no recovery
   controls. Focused presentation and closure tests plus the full backend suite pass.
   Live ticket recovery rehearsal and remaining legacy lifecycle cleanup are pending.
+
+- Removed the legacy service cancellation path that could close records without
+  captured transcripts, along with the redundant Discord cancellation method.
+  Ticket persistence now has one explicit capture/close transition requiring a
+  transcript, preserving the member reservation until adapter cleanup. Imported
+  cancelled history remains readable. Existing closure, retry, ownership and import
+  tests plus the full backend suite pass. Live ticket rehearsal and the remaining
+  cross-feature requirements are still pending.

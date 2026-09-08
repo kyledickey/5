@@ -147,11 +147,6 @@ func (a *DiscordAdapter) Close(ctx context.Context, actor Actor, ticketID string
 	return resolved, nil
 }
 
-// Cancel uses the same transcript-preserving closure as the Close control.
-func (a *DiscordAdapter) Cancel(ctx context.Context, actor Actor, ticketID string) (*Ticket, error) {
-	return a.Close(ctx, actor, ticketID)
-}
-
 // publishQueue persists a successful queue send/edit before source cleanup.
 func (a *DiscordAdapter) publishQueue(ctx context.Context, ticket *Ticket, settings Settings, transcript *Transcript) (string, error) {
 	if settings.QueueChannelDiscordID == "" {

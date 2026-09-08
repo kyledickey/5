@@ -105,7 +105,7 @@ func TestLifecyclePrivacyDuplicateRateAndIsolation(t *testing.T) {
 		if openErr != nil {
 			t.Fatalf("open %d: %v", index, openErr)
 		}
-		if _, cancelErr := service.Cancel(ctx, member, opened.ID); cancelErr != nil {
+		if _, cancelErr := tickets.NewDiscordAdapter(service, &discordFake{}).Close(ctx, member, opened.ID); cancelErr != nil {
 			t.Fatalf("cancel %d: %v", index, cancelErr)
 		}
 	}
@@ -245,7 +245,7 @@ func TestDiscordAdapterPrivateFlowAndRepair(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := adapter.Cancel(context.Background(), member, second.ID); err != nil {
+	if _, err := adapter.Close(context.Background(), member, second.ID); err != nil {
 		t.Fatal(err)
 	}
 	if client.permissionCalls != 3 || len(client.replies) != 1 || len(client.archived) != 2 || client.archiveAttempts != 3 {
