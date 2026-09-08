@@ -33,7 +33,7 @@ func SetupRoutesWithModules(r *gin.Engine, services *quack.Services, moduleRunti
 	if err := setupGuildRoutes(r, services, moduleRuntime); err != nil {
 		return err
 	}
-	return setupMemberRoutes(r, services, moduleRuntime)
+	return setupMemberRoutes(r, services)
 }
 
 // setupGuildRoutes explicitly wires setup guild routes so runtime behavior does not depend on init-time registration.
@@ -42,11 +42,11 @@ func setupGuildRoutes(r *gin.Engine, services *quack.Services, moduleRuntime *mo
 	guilds.Use(middleware.RequireAuth(services.Store, services.Config.Auth))
 	RegisterCoreModerationStaffRoutes(guilds, services)
 	RegisterAuditStatisticsStaffRoutes(guilds, services)
+	primitives := httpplatform.FromRepository(services.Store)
+	if err := RegisterAppealStaffRoutes(guilds, services, services.Appeals, primitives); err != nil {
+		return err
+	}
 	if moduleRuntime != nil {
-		primitives := httpplatform.FromRepository(services.Store)
-		if err := RegisterAppealStaffRoutes(guilds, services, moduleRuntime.Appeals, primitives); err != nil {
-			return err
-		}
 		if err := moduleRuntime.RegisterHTTP(guilds, services, primitives); err != nil {
 			return err
 		}
@@ -98,12 +98,8 @@ func setupGuildRoutes(r *gin.Engine, services *quack.Services, moduleRuntime *mo
 
 // setupMemberRoutes mounts target-owned reads behind caller authentication
 // without requiring the member to remain in the Discord guild.
-func setupMemberRoutes(r *gin.Engine, services *quack.Services, moduleRuntime *moduleintegration.Runtime) error {
+func setupMemberRoutes(r *gin.Engine, services *quack.Services) error {
 	members := r.Group("/members/me")
 	members.Use(middleware.RequireAuth(services.Store, services.Config.Auth))
-	if moduleRuntime != nil {
-		return RegisterAppealAndMemberRoutes(members, services, moduleRuntime.Appeals, httpplatform.FromRepository(services.Store))
-	}
-	RegisterCoreModerationMemberRoutes(members, services)
-	return nil
+	return RegisterAppealAndMemberRoutes(members, services, services.Appeals, httpplatform.FromRepository(services.Store))
 }

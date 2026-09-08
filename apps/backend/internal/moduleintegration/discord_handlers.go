@@ -4,13 +4,11 @@ import (
 	"errors"
 
 	"github.com/bwmarrin/discordgo"
-	discordadapter "github.com/quackdiscord/bot/internal/discordbot"
-	discordcommands "github.com/quackdiscord/bot/internal/discordbot/commands"
 	"github.com/quackdiscord/bot/internal/discordbot/interactions"
 	"github.com/quackdiscord/bot/internal/modules/tickets"
 )
 
-// RegisterComponents installs ticket buttons and the reply modal into the
+// RegisterComponents installs ticket lifecycle buttons into the
 // process's single interaction dispatcher.
 func (r *Runtime) RegisterComponents(registry *interactions.ComponentRegistry) error {
 	if r == nil || r.TicketDiscord == nil || r.Tickets == nil {
@@ -22,15 +20,6 @@ func (r *Runtime) RegisterComponents(registry *interactions.ComponentRegistry) e
 		Close: r.closeTicketComponent,
 	}
 	if err := tickets.RegisterComponents(registry, handlers); err != nil {
-		return err
-	}
-	if err := discordcommands.RegisterAppealQueueComponents(registry); err != nil {
-		return err
-	}
-	if err := discordcommands.RegisterCaseComponents(registry); err != nil {
-		return err
-	}
-	if err := discordadapter.RegisterAppealComponents(registry, r.services, r.Appeals); err != nil {
 		return err
 	}
 	if err := registry.RegisterComponent("ticket", "repair", r.repairTicketComponent); err != nil {

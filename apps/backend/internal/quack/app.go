@@ -5,7 +5,7 @@ import (
 )
 
 // Services is the application service boundary shared by API routes and
-// future Discord command adapters. Business use cases should be added here
+// Discord command adapters. Business use cases should be added here
 // instead of being implemented directly in handlers.
 type Services struct {
 	Config    config.Config
@@ -21,17 +21,18 @@ type Services struct {
 	Ops       *OpsService
 }
 
-// New constructs new with required dependencies explicit so callers control lifecycle and substitution.
+// New assembles storage-backed use cases without live Discord or worker adapters.
 func New(store Repository) *Services {
 	return NewWithConfigDependencies(config.Default(), store, nil, nil, nil)
 }
 
-// NewWithDiscordClient constructs with discord client with required dependencies explicit so callers control lifecycle and substitution.
+// NewWithDiscordClient adds live guild authorization to storage-backed use cases.
 func NewWithDiscordClient(store Repository, discord DiscordClient) *Services {
 	return NewWithConfigDependencies(config.Default(), store, discord, nil, nil)
 }
 
-// NewWithConfigDependencies constructs with config dependencies with required dependencies explicit so callers control lifecycle and substitution.
+// NewWithConfigDependencies assembles core use cases without starting workers.
+// Process composition owns delivery lifetimes; optional modules reuse these services.
 func NewWithConfigDependencies(cfg config.Config, store Repository, discord DiscordClient, actions DiscordActionClient, scheduler CaseWorkScheduler) *Services {
 	services := &Services{Config: cfg, Store: store}
 	services.Appeals = NewAppealService(store)

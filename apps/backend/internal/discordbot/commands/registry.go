@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	discordadapter "github.com/quackdiscord/bot/internal/discordbot"
 	"github.com/quackdiscord/bot/internal/discordbot/interactions"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/quack"
@@ -132,6 +133,16 @@ func Register(session *discordgo.Session, services *quack.Services, moduleSetup 
 	}
 	dispatcher := interactions.NewDispatcher(services, registry)
 	if err := RegisterTemplateComponents(dispatcher.Components); err != nil {
+		return err
+	}
+	// Core controls are registered even when no optional modules are composed.
+	if err := RegisterCaseComponents(dispatcher.Components); err != nil {
+		return err
+	}
+	if err := RegisterAppealQueueComponents(dispatcher.Components); err != nil {
+		return err
+	}
+	if err := discordadapter.RegisterAppealComponents(dispatcher.Components, services, services.Appeals); err != nil {
 		return err
 	}
 	if provider, ok := services.Store.(interface{ Redis() *redis.Client }); ok {

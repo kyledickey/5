@@ -3,7 +3,6 @@ package moduleintegration
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -108,33 +107,6 @@ func TestTicketThreadRepairPreservesCurrentStaffAndRemovesFormerStaff(t *testing
 	}
 }
 
-type appealDestinationStore struct{ quack.Repository }
-
-func (appealDestinationStore) GetGuildSettings(context.Context, string) (*model.GuildSettings, error) {
-	return &model.GuildSettings{AuditMirrorChannelDiscordID: "audit-channel", AppealQueueChannelDiscordID: "channel"}, nil
-}
-func (appealDestinationStore) GetGuildByID(context.Context, string) (*model.Guild, error) {
-	return &model.Guild{DiscordGuildID: "discord-guild"}, nil
-}
-
-type rejectingAppealDestination struct{ guildID, channelID string }
-
-func (v *rejectingAppealDestination) ValidateStaffChannel(_ context.Context, guildID, channelID string) error {
-	v.guildID, v.channelID = guildID, channelID
-	return errors.New("destination is public")
-}
-
-func TestAppealStaffDestinationRevalidatesPrivacy(t *testing.T) {
-	validator := &rejectingAppealDestination{}
-	resolver := appealStaffChannelResolver{repository: appealDestinationStore{}, validator: validator}
-	if channel, err := resolver.AppealStaffChannel(context.Background(), "internal-guild"); err == nil || channel != "" {
-		t.Fatalf("unsafe appeal destination accepted: %q, %v", channel, err)
-	}
-	if validator.guildID != "discord-guild" || validator.channelID != "channel" {
-		t.Fatalf("incorrect destination identity: %+v", validator)
-	}
-}
-
 func TestTicketCreationAlwaysUsesPrivateThread(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:ticket-thread-setting?mode=memory&cache=shared"), &gorm.Config{})
 	if err != nil {
@@ -175,39 +147,6 @@ func TestTicketCreationAlwaysUsesPrivateThread(t *testing.T) {
 		id, err := client.CreatePrivateTicketChannel(context.Background(), "internal-guild", "owner", tickets.Settings{EntryChannelDiscordID: "entry"})
 		if err != nil || id != "ticket" || !created {
 			t.Fatalf("ticket creation: %s %v", id, err)
-		}
-	}
-}
-
-// changingAppealDestination models configuration edits between worker deliveries.
-type changingAppealDestination struct {
-	quack.Repository
-	queue string
-}
-
-func (r *changingAppealDestination) GetGuildSettings(context.Context, string) (*model.GuildSettings, error) {
-	return &model.GuildSettings{AppealQueueChannelDiscordID: r.queue, AuditMirrorChannelDiscordID: "audit"}, nil
-}
-func (r *changingAppealDestination) GetGuildByID(context.Context, string) (*model.Guild, error) {
-	return &model.Guild{DiscordGuildID: "guild"}, nil
-}
-
-type acceptingAppealDestination struct{}
-
-func (acceptingAppealDestination) ValidateStaffChannel(context.Context, string, string) error {
-	return nil
-}
-
-// TestAppealQueueConfigurationTakesEffectWithoutRestart checks the live resolver
-// never falls back to the audit channel or caches a former queue destination.
-func TestAppealQueueConfigurationTakesEffectWithoutRestart(t *testing.T) {
-	repository := &changingAppealDestination{queue: "first"}
-	resolver := appealStaffChannelResolver{repository: repository, validator: acceptingAppealDestination{}}
-	for _, want := range []string{"first", "second", ""} {
-		repository.queue = want
-		got, err := resolver.AppealStaffChannel(context.Background(), "internal-guild")
-		if err != nil || got != want {
-			t.Fatalf("queue %q: got %q %v", want, got, err)
 		}
 	}
 }

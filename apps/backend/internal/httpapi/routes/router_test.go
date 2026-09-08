@@ -75,6 +75,9 @@ func TestSetupRoutesMountsCoreModerationRegistrarsInProductionRouter(t *testing.
 		{http.MethodPost, "/guilds/:discordGuildID/cases/:caseRef/reversals", "/guilds/guild/cases/1/reversals"},
 		{http.MethodGet, "/members/me/guilds/:guildID/cases", "/members/me/guilds/guild/cases"},
 		{http.MethodGet, "/members/me/cases/:caseID", "/members/me/cases/case"},
+		{http.MethodPost, "/members/me/cases/:caseID/appeal", "/members/me/cases/case/appeal"},
+		{http.MethodGet, "/guilds/:discordGuildID/appeals", "/guilds/guild/appeals"},
+		{http.MethodPost, "/guilds/:discordGuildID/appeals/:appealID/accept", "/guilds/guild/appeals/appeal/accept"},
 	}
 	for _, route := range want {
 		if !routes[route.method+" "+route.path] {

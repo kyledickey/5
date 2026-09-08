@@ -65,6 +65,7 @@ func Run(ctx context.Context) (runErr error) {
 	}
 	queue := workqueue.New(cfg.EventQueue.Size, cfg.EventQueue.Workers)
 	var moduleRuntime *moduleintegration.Runtime
+	var coreDelivery *coreWorkers
 	queueStarted := false
 	publicationCtx, stopPublications := context.WithCancel(ctx)
 	var publicationsDone chan struct{}
@@ -87,6 +88,7 @@ func Run(ctx context.Context) (runErr error) {
 		if moduleRuntime != nil {
 			shutdownErrors = append(shutdownErrors, moduleRuntime.CloseContext(shutdownCtx))
 		}
+		shutdownErrors = append(shutdownErrors, coreDelivery.CloseContext(shutdownCtx))
 		shutdownErrors = append(shutdownErrors, closeDiscord(shutdownCtx, bot))
 		runErr = errors.Join(runErr, errors.Join(shutdownErrors...))
 		if runErr == nil {
@@ -94,7 +96,7 @@ func Run(ctx context.Context) (runErr error) {
 		}
 	}()
 	services := quack.NewWithConfigDependencies(cfg, repositories, bot, bot, queue)
-	moduleRuntime, err = moduleintegration.New(ctx, repositories, bot.Session, services, bot)
+	moduleRuntime, err = moduleintegration.New(ctx, repositories, bot.Session, services)
 	if err != nil {
 		return fmt.Errorf("compose optional modules: %w", err)
 	}
@@ -116,6 +118,7 @@ func Run(ctx context.Context) (runErr error) {
 		return fmt.Errorf("connect Discord bot: %w", err)
 	}
 
+	coreDelivery = startCoreWorkers(ctx, repositories, bot)
 	publicationsDone = make(chan struct{})
 	go func() { defer close(publicationsDone); bot.RunCasePublications(publicationCtx, repositories) }()
 
