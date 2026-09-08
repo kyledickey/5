@@ -4,6 +4,9 @@ import (
 	"context"
 	"reflect"
 	"testing"
+	"time"
+
+	"github.com/quackdiscord/bot/internal/modules/honeypot"
 
 	"gorm.io/gorm"
 )
@@ -38,13 +41,15 @@ func TestAdoptCurrentSchemaPreservesHistory(t *testing.T) {
 			}
 			delete(before.Tables, "quack_schema_migrations")
 			delete(after.Tables, "quack_current_schema")
-			// Current startup creates the new delivery table; it contains no historical
-			// moderation records and must begin empty on adoption.
-			var publications int64
-			if err := db.Table("case_publications").Count(&publications).Error; err != nil || publications != 0 {
-				t.Fatalf("expected an empty publication table after adoption: count=%d err=%v", publications, err)
+			// Current startup creates delivery and message-cleanup tables; they
+			// contain no historical work and must begin empty on adoption.
+			for _, table := range []string{"case_publications", "honeypot_message_cleanups"} {
+				var count int64
+				if err := db.Table(table).Count(&count).Error; err != nil || count != 0 {
+					t.Fatalf("expected empty %s after adoption: count=%d err=%v", table, count, err)
+				}
+				delete(after.Tables, table)
 			}
-			delete(after.Tables, "case_publications")
 			if !reflect.DeepEqual(before.Tables, after.Tables) || !reflect.DeepEqual(before.GuildCaseHighWater, after.GuildCaseHighWater) {
 				t.Fatal("adoption changed preserved history or case numbering")
 			}
@@ -64,5 +69,44 @@ func TestAdoptionRejectsIncompleteHistory(t *testing.T) {
 	}
 	if err := New(db, nil).AdoptCurrentSchema(); err == nil || db.Migrator().HasTable(&currentSchema{}) {
 		t.Fatal("partial history was adopted")
+	}
+}
+
+// TestCurrentSchemaRecoveryPreservesHoneypotCleanup verifies direct initialization
+// includes durable cleanup and recovery detects a changed pending retry receipt.
+func TestCurrentSchemaRecoveryPreservesHoneypotCleanup(t *testing.T) {
+	for name, open := range map[string]func(*testing.T) *gorm.DB{"sqlite": openSQLiteMigrationDB, "mysql": openMySQLMigrationDB} {
+		t.Run(name, func(t *testing.T) {
+			db := open(t)
+			repository := New(db, nil)
+			if err := repository.InitializeSchema(); err != nil {
+				t.Fatal(err)
+			}
+			if !db.Migrator().HasTable(&honeypot.MessageCleanup{}) {
+				t.Fatal("direct schema omitted honeypot cleanup")
+			}
+			now := time.Now().UTC()
+			pending := honeypot.MessageCleanup{ID: "pending-cleanup", GuildID: "guild", MessageDiscordID: "message", ChannelDiscordID: "trap", TargetDiscordUserID: "member", TriggerID: "incident", AttemptCount: 2, NextAttemptAt: now.Add(time.Minute), CreatedAt: now}
+			if err := db.Create(&pending).Error; err != nil {
+				t.Fatal(err)
+			}
+			manifest, err := repository.BuildRecoveryManifest(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			receipt, present := manifest.Tables["honeypot_message_cleanups"]
+			if !present || receipt.Count != 1 {
+				t.Fatal("pending cleanup omitted from recovery manifest", receipt)
+			}
+			if err := repository.VerifyRecoveryManifest(context.Background(), *manifest); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Model(&pending).Update("attempt_count", 3).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := repository.VerifyRecoveryManifest(context.Background(), *manifest); err == nil {
+				t.Fatal("changed cleanup retry receipt passed recovery verification")
+			}
+		})
 	}
 }

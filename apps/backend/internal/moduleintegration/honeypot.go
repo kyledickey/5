@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -50,17 +49,22 @@ func (a honeypotCaseApplier) ApplyHoneypotCase(ctx context.Context, request hone
 	if created == nil || created.ID == "" {
 		return honeypot.ApplyResult{}, errors.New("honeypot case creation returned no saved case")
 	}
-	// The normal case path has finished optional evidence capture and persisted
-	// its outcome. Cleanup cannot turn a saved case into a retryable failure.
-	if a.session != nil {
-		err := a.session.ChannelMessageDelete(request.ContextChannelDiscordID, request.ContextMessageDiscordID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
-		var rest *discordgo.RESTError
-		missing := errors.As(err, &rest) && rest.Message != nil && rest.Message.Code == discordgo.ErrCodeUnknownMessage
-		if err != nil && !missing {
-			slog.WarnContext(ctx, "Honeypot trigger cleanup failed", "guild_id", request.GuildID, "case_id", created.ID, "message_id", request.ContextMessageDiscordID)
-		}
-	}
 	return honeypot.ApplyResult{CaseID: created.ID}, nil
+}
+
+// DeleteHoneypotMessage performs only the durable worker's cleanup operation.
+// Missing channels/messages already satisfy deletion, including after a restart
+// between the Discord delete and its local completion receipt.
+func (a honeypotCaseApplier) DeleteHoneypotMessage(ctx context.Context, channelID, messageID string) error {
+	if a.session == nil {
+		return errors.New("honeypot Discord cleanup is not configured")
+	}
+	err := a.session.ChannelMessageDelete(channelID, messageID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+	var rest *discordgo.RESTError
+	if errors.As(err, &rest) && rest.Message != nil && (rest.Message.Code == discordgo.ErrCodeUnknownMessage || rest.Message.Code == discordgo.ErrCodeUnknownChannel) {
+		return nil
+	}
+	return err
 }
 
 // honeypotTemplateValidator projects live core policy without duplicating it

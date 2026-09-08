@@ -38,7 +38,7 @@ func NewStore(db *gorm.DB) *Store { return &Store{db: db} }
 // Migration exposes logical migration 0300 for integration into the production ledger.
 func Migration() modules.Migration {
 	return modules.Migration{Version: 300, Name: "honeypot_triggers", Apply: func(db *gorm.DB) error {
-		return db.AutoMigrate(&Trigger{})
+		return db.AutoMigrate(&Trigger{}, &MessageCleanup{})
 	}}
 }
 
@@ -52,6 +52,12 @@ func (s *Store) Claim(ctx context.Context, message Message, templateID string, o
 	result := s.db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&record)
 	if result.Error != nil {
 		return nil, false, result.Error
+	}
+	if result.RowsAffected == 0 {
+		record = Trigger{}
+		if err := s.db.WithContext(ctx).Where("guild_id = ? AND message_discord_id = ?", message.GuildID, message.MessageDiscordID).First(&record).Error; err != nil {
+			return nil, false, err
+		}
 	}
 	return &record, result.RowsAffected == 1, nil
 }
@@ -125,6 +131,21 @@ func (s *Store) ClaimIncident(ctx context.Context, message Message, templateID s
 		if isExempt(message) {
 			return ErrExempt
 		}
+		// A burst message retains its original incident even after the debounce
+		// window; replaying cleanup must never create another moderation case.
+		var cleanup MessageCleanup
+		existing := tx.Where("guild_id = ? AND message_discord_id = ?", message.GuildID, message.MessageDiscordID).Limit(1).Find(&cleanup)
+		if existing.Error != nil {
+			return existing.Error
+		}
+		if existing.RowsAffected > 0 {
+			var prior Trigger
+			if err := tx.Where("id = ? AND guild_id = ?", cleanup.TriggerID, message.GuildID).First(&prior).Error; err != nil {
+				return err
+			}
+			trigger = &prior
+			return nil
+		}
 		var recent Trigger
 		result := tx.Where("guild_id = ? AND target_discord_user_id = ? AND channel_discord_id = ? AND created_at > ? AND outcome IN ?", message.GuildID, message.AuthorDiscordUserID, message.ChannelDiscordID, time.Now().UTC().Add(-30*time.Second), []Outcome{OutcomePending, OutcomeCreated}).Order("created_at DESC").Limit(1).Find(&recent)
 		if result.Error != nil {
@@ -132,11 +153,14 @@ func (s *Store) ClaimIncident(ctx context.Context, message Message, templateID s
 		}
 		if result.RowsAffected > 0 {
 			trigger = &recent
-			return nil
+			return NewStore(tx).scheduleCleanup(ctx, message, recent.ID)
 		}
 		var err error
 		trigger, claimed, err = NewStore(tx).Claim(ctx, message, templateID, OutcomePending)
-		return err
+		if err != nil {
+			return err
+		}
+		return NewStore(tx).scheduleCleanup(ctx, message, trigger.ID)
 	})
 	return trigger, claimed, err
 }

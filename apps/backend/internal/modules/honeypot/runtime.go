@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"runtime/debug"
 	"sync"
+	"time"
 )
 
 // ErrQueueFull reports deliberate gateway shedding before any trigger is claimed.
@@ -65,12 +66,15 @@ type IncidentObserver interface {
 
 // Runtime is a bounded, independently drainable honeypot gateway worker pool.
 type Runtime struct {
-	observer IncidentObserver
-	adapter  *DiscordAdapter
-	events   chan Message
-	mu       sync.RWMutex
-	closed   bool
-	wg       sync.WaitGroup
+	observer      IncidentObserver
+	adapter       *DiscordAdapter
+	events        chan Message
+	mu            sync.RWMutex
+	closed        bool
+	wg            sync.WaitGroup
+	cleanupWG     sync.WaitGroup
+	cleanupCtx    context.Context
+	cancelCleanup context.CancelFunc
 }
 
 // NewRuntime starts isolated workers so gateway handling never runs on a moderation action queue.
@@ -81,7 +85,8 @@ func NewRuntime(ctx context.Context, adapter *DiscordAdapter, capacity, workers 
 	if workers < 1 {
 		workers = 1
 	}
-	runtime := &Runtime{adapter: adapter, events: make(chan Message, capacity)}
+	cleanupCtx, cancelCleanup := context.WithCancel(ctx)
+	runtime := &Runtime{adapter: adapter, events: make(chan Message, capacity), cleanupCtx: cleanupCtx, cancelCleanup: cancelCleanup}
 	if len(observers) > 0 {
 		runtime.observer = observers[0]
 	}
@@ -94,6 +99,20 @@ func NewRuntime(ctx context.Context, adapter *DiscordAdapter, capacity, workers 
 			}
 		}()
 	}
+	runtime.cleanupWG.Add(1)
+	go func() {
+		defer runtime.cleanupWG.Done()
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			runtime.clean(cleanupCtx, 8)
+			select {
+			case <-cleanupCtx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
 	return runtime
 }
 
@@ -115,7 +134,8 @@ func (r *Runtime) Submit(message Message) error {
 	}
 }
 
-// Close drains accepted messages exactly once without stopping another module.
+// Close cancels cleanup promptly while draining accepted moderation messages.
+// Interrupted deletes retain their leases for restart recovery.
 func (r *Runtime) Close() {
 	if r == nil {
 		return
@@ -124,9 +144,11 @@ func (r *Runtime) Close() {
 	if !r.closed {
 		r.closed = true
 		close(r.events)
+		r.cancelCleanup()
 	}
 	r.mu.Unlock()
 	r.wg.Wait()
+	r.cleanupWG.Wait()
 }
 
 // process contains adapter failures within one job so a bad event cannot stop
@@ -138,6 +160,9 @@ func (r *Runtime) process(ctx context.Context, event Message) {
 				"panic_type", fmt.Sprintf("%T", recovered), "stack", string(debug.Stack()))
 		}
 	}()
+	// Cleanup is safe even after duplicate delivery: persistence only admits
+	// messages linked to a saved case, never exempt or failed incident messages.
+	defer r.clean(r.cleanupCtx, 1)
 	if _, err := r.adapter.HandleMessage(ctx, event); err != nil {
 		if !errors.Is(err, ErrDuplicate) && !errors.Is(err, ErrExempt) && !errors.Is(err, ErrNotTrigger) && !errors.Is(err, ErrDisabled) {
 			slog.ErrorContext(ctx, "Honeypot event failed", "guild_id", event.GuildID, "error_type", fmt.Sprintf("%T", err))
@@ -148,5 +173,21 @@ func (r *Runtime) process(ctx context.Context, event Message) {
 		if err := r.observer.IncidentCreated(ctx, event.GuildID); err != nil {
 			slog.WarnContext(ctx, "Honeypot counter update failed", "guild_id", event.GuildID, "error_type", fmt.Sprintf("%T", err))
 		}
+	}
+}
+
+// clean polls persisted cleanup separately from moderation and logs failures
+// without message content. Failed deletion remains due for a later worker/restart.
+func (r *Runtime) clean(ctx context.Context, limit int) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			slog.ErrorContext(ctx, "Honeypot cleanup worker panicked; lease will recover", "panic_type", fmt.Sprintf("%T", recovered), "stack", string(debug.Stack()))
+		}
+	}()
+	if r.adapter == nil || r.adapter.service == nil || ctx.Err() != nil {
+		return
+	}
+	if err := r.adapter.service.ProcessCleanups(ctx, limit); err != nil && ctx.Err() == nil {
+		slog.WarnContext(ctx, "Honeypot message cleanup will retry", "error_type", fmt.Sprintf("%T", err))
 	}
 }

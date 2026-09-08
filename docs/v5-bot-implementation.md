@@ -914,3 +914,14 @@ means further work is required, not completion.
   separate enforcement-result events still report actual success/failure, and
   transport events remain excluded. Root reviewed snapshot provenance and passed
   focused service/view audit tests.
+- Honeypot cleanup now persists one receipt per qualifying message linked to its
+  debounced incident. Bursts share one case, while each message is deleted only
+  after the incident has saved case/evidence. Leased cleanup retries independently
+  of moderation, resumes after restart, and treats missing messages/channels as
+  complete. Exempt messages are never scheduled. Cleanup cancellation interrupts
+  blocked deletion during shutdown without preventing accepted case work draining.
+  Recovery manifests include pending/completed cleanup state. SQLite/MySQL schema
+  checks, 30 repeated cleanup tests, full honeypot race tests, and the consolidated
+  MySQL-enabled backend suite pass. Primary incidents interrupted before being
+  marked created still require recovery; their messages deliberately remain rather
+  than deleting evidence or blindly repeating moderation.
