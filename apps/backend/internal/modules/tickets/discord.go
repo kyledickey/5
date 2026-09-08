@@ -140,6 +140,9 @@ func (a *DiscordAdapter) Close(ctx context.Context, actor Actor, ticketID string
 	if err := a.client.DeleteTicketChannel(ctx, ticket.ThreadDiscordChannelID); err != nil {
 		return resolved, err
 	}
+	if err := a.service.store.finishClosure(ctx, actor.GuildID, ticket.ID); err != nil {
+		return resolved, err
+	}
 
 	return resolved, nil
 }

@@ -94,6 +94,12 @@ func TestLifecyclePrivacyDuplicateRateAndIsolation(t *testing.T) {
 	if err != nil || transcript.Content != "private transcript" {
 		t.Fatalf("closed transcript changed: %+v %v", transcript, err)
 	}
+	if _, err := service.Open(ctx, member, "premature-thread"); !errors.Is(err, tickets.ErrDuplicateOpen) {
+		t.Fatalf("opened before transcript delivery and cleanup: %v", err)
+	}
+	if _, err := tickets.NewDiscordAdapter(service, &discordFake{}).Close(ctx, member, ticket.ID); err != nil {
+		t.Fatal(err)
+	}
 	for index := 2; index <= 3; index++ {
 		opened, openErr := service.Open(ctx, member, fmt.Sprintf("thread-%d", index))
 		if openErr != nil {
@@ -461,5 +467,46 @@ func TestConcurrentCloseReusesCapturedTranscript(t *testing.T) {
 	}
 	if client.transcriptPublishes != 1 {
 		t.Fatalf("published transcript %d times", client.transcriptPublishes)
+	}
+}
+
+// TestFailedTicketClosureKeepsMemberReservation prevents a second thread while
+// the first still awaits transcript upload or deletion, and fences old retries.
+func TestFailedTicketClosureKeepsMemberReservation(t *testing.T) {
+	_, service, _ := setup(t)
+	ctx := context.Background()
+	actor := tickets.Actor{GuildID: "guild-a", DiscordUserID: "member"}
+	client := &discordFake{}
+	adapter := tickets.NewDiscordAdapter(service, client)
+	ticket, err := adapter.Open(ctx, actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.failPublish = true
+	if _, err := adapter.Close(ctx, actor, ticket.ID); err == nil {
+		t.Fatal("expected upload failure")
+	}
+	if _, err := adapter.Open(ctx, actor); !errors.Is(err, tickets.ErrDuplicateOpen) {
+		t.Fatalf("opened during failed upload: %v", err)
+	}
+	client.failPublish = false
+	client.failArchive = 1
+	if _, err := adapter.Close(ctx, actor, ticket.ID); err == nil {
+		t.Fatal("expected deletion failure")
+	}
+	if _, err := adapter.Open(ctx, actor); !errors.Is(err, tickets.ErrDuplicateOpen) {
+		t.Fatalf("opened before deletion: %v", err)
+	}
+	if _, err := adapter.Close(ctx, actor, ticket.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.Open(ctx, actor); err != nil {
+		t.Fatalf("cleanup did not release member: %v", err)
+	}
+	if _, err := adapter.Close(ctx, actor, ticket.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.Open(ctx, actor); !errors.Is(err, tickets.ErrDuplicateOpen) {
+		t.Fatalf("old close released newer ticket: %v", err)
 	}
 }

@@ -534,3 +534,11 @@ means further work is required, not completion.
   backend suite also passes. This follows the required single-process runtime;
   multi-process coordination is not introduced. Live close/retry rehearsal and
   remaining ticket lifecycle simplification are still pending.
+
+- Resolving a ticket now retains its member reservation until the transcript has
+  a durable queue receipt and Discord thread deletion succeeds. Upload or deletion
+  failures cannot create a second active thread for that member. Final release is
+  conditional on the original ticket ID, so repeated closes cannot release a newer
+  reservation. Tests cover both failure stages, recovery and an old-close/new-ticket
+  race boundary; focused and full backend suites pass. Historical cancelled-state
+  simplification, owner-facing recovery feedback and live rehearsal remain pending.

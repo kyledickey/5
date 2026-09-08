@@ -153,7 +153,7 @@ func (s *Store) transition(ctx context.Context, guildID, ticketID string, from [
 				return ErrDuplicateOpen
 			}
 			state.OpenTicketID = record.ID
-		} else if state.OpenTicketID == record.ID {
+		} else if to != StatusResolved && state.OpenTicketID == record.ID {
 			state.OpenTicketID = ""
 		}
 		state.UpdatedAt = now
