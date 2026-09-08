@@ -38,6 +38,8 @@ type AuthorizationError struct {
 	Capability   model.PermissionAction
 	Reason       string
 	MetadataJSON string
+	// RequiredPermission identifies the specific Discord permission that failed; zero means no specific failing permission was recorded.
+	RequiredPermission uint64
 }
 
 // Error returns a safe denial description suitable for adapter mapping and audit evidence.
@@ -64,6 +66,9 @@ func (s *GuildService) Authorize(ctx context.Context, guildContext *GuildStaffCo
 	}
 	if capability != "" && !guildContext.Can(capability) {
 		err := &AuthorizationError{Capability: capability, Reason: authorizationReasonPermissionRequired}
+		if capability == model.PermissionActionCaseCreate {
+			err.RequiredPermission = permissionModerateMembers
+		}
 		_ = s.auditAuthorizationDenial(ctx, guildContext, capability, source, err.Reason)
 		return err
 	}
@@ -129,10 +134,10 @@ func (s *GuildService) PreflightCase(ctx context.Context, guildContext *GuildSta
 
 	required := actionPermission(actionType)
 	if required != 0 && !hasDiscordPermission(snapshot.Actor.PermissionBits, required) && snapshot.Actor.DiscordUserID != snapshot.Guild.OwnerID {
-		return caseDenial(actionType, authorizationReasonPermissionRequired)
+		return casePermissionDenial(actionType, authorizationReasonPermissionRequired, required)
 	}
 	if required != 0 && !hasDiscordPermission(snapshot.Bot.PermissionBits, required) {
-		return caseDenial(actionType, authorizationReasonBotPermission)
+		return casePermissionDenial(actionType, authorizationReasonBotPermission, required)
 	}
 	return nil
 }
@@ -181,7 +186,7 @@ func (s *GuildService) PreflightSystemCase(ctx context.Context, guildContext *Gu
 	}
 	required := actionPermission(actionType)
 	if required != 0 && !hasDiscordPermission(snapshot.Bot.PermissionBits, required) {
-		return caseDenial(actionType, authorizationReasonBotPermission)
+		return casePermissionDenial(actionType, authorizationReasonBotPermission, required)
 	}
 	return nil
 }
@@ -216,10 +221,10 @@ func (s *GuildService) PreflightReversal(ctx context.Context, guildContext *Guil
 	}
 	required := actionPermission(actionType)
 	if !hasDiscordPermission(snapshot.Actor.PermissionBits, required) && actorID != snapshot.Guild.OwnerID {
-		return caseDenial(actionType, authorizationReasonPermissionRequired)
+		return casePermissionDenial(actionType, authorizationReasonPermissionRequired, required)
 	}
 	if !hasDiscordPermission(snapshot.Bot.PermissionBits, required) {
-		return caseDenial(actionType, authorizationReasonBotPermission)
+		return casePermissionDenial(actionType, authorizationReasonBotPermission, required)
 	}
 	if actionType == model.ActionRemoveTimeout {
 		if snapshot.Target == nil || !snapshot.Target.Present {
@@ -241,10 +246,22 @@ func hasDiscordPermission(bits, required uint64) bool {
 }
 
 // caseDenial constructs the typed denial that CaseService audits only after its transaction rolls back.
-func caseDenial(actionType model.ActionType, reason string) error {
+func caseDenial(actionType model.ActionType, reason string) *AuthorizationError {
 	capability := model.PermissionActionCaseCreate
 	metadata, _ := json.Marshal(map[string]string{"selected_action": string(actionType)})
-	return &AuthorizationError{Capability: capability, Reason: reason, MetadataJSON: string(metadata)}
+	denial := &AuthorizationError{Capability: capability, Reason: reason, MetadataJSON: string(metadata)}
+	if reason == authorizationReasonPermissionRequired {
+		denial.RequiredPermission = permissionModerateMembers
+	}
+	return denial
+}
+
+// casePermissionDenial retains the permission that actually failed, distinguishing
+// basic case creation authority from the selected enforcement action's authority.
+func casePermissionDenial(actionType model.ActionType, reason string, required uint64) error {
+	denial := caseDenial(actionType, reason)
+	denial.RequiredPermission = required
+	return denial
 }
 
 // auditAuthorizationDenial appends immutable capability evidence with trace identifiers.

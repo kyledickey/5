@@ -1512,3 +1512,21 @@ means further work is required, not completion.
 - The temporary role was deleted, then the same old View evidence control
   returned a private permission denial. A fresh REST read confirmed monkey's
   roles were empty again and the original evidence overwrites were unchanged.
+
+### Case creation denial feedback
+
+- The live generic self-target error led to a creation-specific private error
+  mapper. Known reasons now explain self-target, target/bot role hierarchy,
+  membership, or the exact failed Moderate Members/Kick Members/Ban Members
+  requirement and give the appropriate next step. Core denial order and the
+  no-case-on-denial invariant are unchanged.
+- Typed permission metadata records the failed check rather than inferring it
+  from the selected action. Tests distinguish self-target-before-ban-permission
+  and revoked basic moderation authority from missing action permissions. Unknown
+  reasons and internal metadata are not exposed. Existing-case reads, edits, and
+  reversals retain context-neutral errors instead of claiming creation occurred.
+- Focused core/command tests and the full backend suite with MySQL passed. The
+  revoked-live-permission command test now checks the specific missing permission
+  while retaining its private-response and no-queued-task assertions.
+  The running beta still has the prior copy;
+  this new feedback requires a later runtime switch for live verification.

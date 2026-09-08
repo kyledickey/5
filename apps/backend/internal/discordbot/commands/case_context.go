@@ -25,11 +25,11 @@ func handleMessageTemplateComponent(ctx ui.Context) ui.HandlerResult {
 	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
 		guildContext, resolveErr := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
 		if resolveErr != nil {
-			_, err := responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(resolveErr)))
+			_, err := responder.EditOriginal(ui.ErrorEdit(caseCreateErrorMessage(resolveErr)))
 			return err
 		}
 		if err := ctx.Services.Guilds.Authorize(taskCtx, guildContext, model.PermissionActionCaseCreate, model.AuditSourceDiscord); err != nil {
-			_, err = responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(err)))
+			_, err = responder.EditOriginal(ui.ErrorEdit(caseCreateErrorMessage(err)))
 			return err
 		}
 		_, template, templateErr := resolveTemplate(taskCtx, ctx.Services, guildContext, data.Values[0])
@@ -41,7 +41,7 @@ func handleMessageTemplateComponent(ctx ui.Context) ui.HandlerResult {
 		values := messageLinkContext(template, link)
 		created, createErr := ctx.Services.Cases.Create(taskCtx, guildContext, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: parts[0], Source: model.CaseSourceDiscord, ContextChannelDiscordID: parts[1], ContextMessageDiscordID: parts[2], ContextValues: values, EvidenceLinks: []string{link}, IdempotencyKey: ctx.Interaction.ID})
 		if createErr != nil {
-			_, err := responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(createErr)))
+			_, err := responder.EditOriginal(ui.ErrorEdit(caseCreateErrorMessage(createErr)))
 			return err
 		}
 		return publishPrivateContextCase(taskCtx, responder, ctx.Services, created, template)

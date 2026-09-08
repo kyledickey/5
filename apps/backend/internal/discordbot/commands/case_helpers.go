@@ -149,11 +149,30 @@ func truncateDiscordChoiceName(value string) string {
 	return string(runes[:100])
 }
 
-// caseCommandErrorMessage maps expected moderation failures to concise private Discord replies.
+// caseCreateErrorMessage supplies creation-specific guidance only before a case is committed.
+func caseCreateErrorMessage(err error) string {
+	var denial *quack.AuthorizationError
+	if errors.As(err, &denial) {
+		return caseAuthorizationErrorMessage(denial)
+	}
+	switch {
+	case errors.Is(err, quack.ErrCasePermissionDenied):
+		return "No case was created. You need Moderate Members permission to create cases. Ask a staff member with that permission to handle this case."
+	case errors.Is(err, quack.ErrAuthorizationDenied):
+		return "No case was created. Your current authority does not allow this case. Ask a server administrator to review your permissions and the target's role."
+	case errors.Is(err, quack.ErrAuthorizationUnavailable):
+		return "No case was created. Quack could not verify current Discord permissions. Try again shortly."
+	default:
+		return caseCommandErrorMessage(err)
+	}
+}
+
+// caseCommandErrorMessage maps failures shared by reads and existing-case operations
+// without claiming that creation was attempted or that a case does not exist.
 func caseCommandErrorMessage(err error) string {
 	switch {
 	case errors.Is(err, quack.ErrCasePermissionDenied), errors.Is(err, quack.ErrAuthorizationDenied):
-		return "You do not have permission to create that case."
+		return "You do not have permission to perform that case operation."
 	case errors.Is(err, quack.ErrCaseTemplateNotAvailable):
 		return "That case template is not available."
 	case errors.Is(err, quack.ErrCaseValidation):
@@ -162,11 +181,52 @@ func caseCommandErrorMessage(err error) string {
 		return "Quack is not active in this server."
 	default:
 		slog.Error("case command failed", "error", err)
-		return "Quack could not create that case."
+		return "Quack could not complete that case operation."
 	}
 }
 
 // autocompleteResponse converts autocomplete response into its transport presentation without leaking transport types into the core.
 func autocompleteResponse(choices []*discordgo.ApplicationCommandOptionChoice) *discordgo.InteractionResponse {
 	return ui.Autocomplete(choices)
+}
+
+// caseAuthorizationErrorMessage translates only known denial codes and permission
+// bits into private recovery guidance; internal metadata never becomes reply text.
+func caseAuthorizationErrorMessage(denial *quack.AuthorizationError) string {
+	const prefix = "No case was created. "
+	switch denial.Reason {
+	case "permission_required", "bot_permission_required":
+		permission := ""
+		switch denial.RequiredPermission {
+		case uint64(discordgo.PermissionModerateMembers):
+			permission = "Moderate Members"
+		case uint64(discordgo.PermissionKickMembers):
+			permission = "Kick Members"
+		case uint64(discordgo.PermissionBanMembers):
+			permission = "Ban Members"
+		}
+		if permission != "" {
+			if denial.Reason == "bot_permission_required" {
+				return prefix + "Quack needs " + permission + " permission for the selected outcome. Ask a server administrator to update Quack's permissions, then try again."
+			}
+			return prefix + "You need " + permission + " for this outcome. Ask a staff member with that permission to handle it."
+		}
+	case "self_target":
+		return prefix + "You cannot create a case against yourself. Select another member, or ask another authorized staff member to review your case."
+	case "actor_hierarchy":
+		return prefix + "The target's highest role is equal to or above yours. Ask a staff member with a higher role and the required permissions to handle this case."
+	case "bot_hierarchy":
+		return prefix + "The target's highest role is equal to or above Quack's. Ask a server administrator to review Quack's role position before trying again."
+	case "bot_target":
+		return prefix + "Cases cannot target bot accounts. Select a member who is not a bot."
+	case "guild_owner_target":
+		return prefix + "Cases cannot target the server owner. Select another member."
+	case "target_not_in_guild":
+		return prefix + "The target is no longer in this server. Select a current member."
+	case "actor_not_in_guild":
+		return prefix + "You are no longer a member of this server. Ask a current authorized staff member to handle this case."
+	case "bot_not_in_guild":
+		return prefix + "Quack is not active in this server. Ask a server administrator to restore Quack before trying again."
+	}
+	return prefix + "Quack could not confirm authority for this case. Ask a server administrator to review your permissions and the target, then try again."
 }

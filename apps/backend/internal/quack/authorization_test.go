@@ -101,6 +101,7 @@ func TestCasePreflightMatrixAndNoPartialCommit(t *testing.T) {
 		mutate             func(*quack.DiscordGuildAuthorization)
 		mutateAfterResolve bool
 		wantReason         string
+		wantPermission     uint64
 		wantOK             bool
 	}{
 		{name: "valid warning", wantOK: true},
@@ -114,6 +115,8 @@ func TestCasePreflightMatrixAndNoPartialCommit(t *testing.T) {
 			s.Bot.PermissionBits = uint64(discordgo.PermissionAdministrator)
 		}, wantOK: true},
 		{name: "self", targetID: "mod", wantReason: "self_target"},
+		{name: "self before missing ban", targetID: "mod", action: model.ActionBanUser, mutate: func(s *quack.DiscordGuildAuthorization) { s.Actor.PermissionBits = moderate }, wantReason: "self_target"},
+		{name: "revoked moderate before ban", action: model.ActionBanUser, mutate: func(s *quack.DiscordGuildAuthorization) { s.Actor.PermissionBits = 0 }, mutateAfterResolve: true, wantReason: "permission_required", wantPermission: moderate},
 		{name: "bot account", mutate: func(s *quack.DiscordGuildAuthorization) { s.Target.Bot = true }, wantReason: "bot_target"},
 		{name: "quack bot", targetID: "quack", wantReason: "bot_target"},
 		{name: "guild owner", targetID: "owner", wantReason: "guild_owner_target"},
@@ -124,15 +127,15 @@ func TestCasePreflightMatrixAndNoPartialCommit(t *testing.T) {
 			s.Actor.TopRolePosition = 30
 			s.Target.TopRolePosition = s.Bot.TopRolePosition
 		}, wantReason: "bot_hierarchy"},
-		{name: "actor missing kick", action: model.ActionKickUser, mutate: func(s *quack.DiscordGuildAuthorization) { s.Actor.PermissionBits = moderate }, wantReason: "permission_required"},
-		{name: "actor missing ban", action: model.ActionBanUser, mutate: func(s *quack.DiscordGuildAuthorization) { s.Actor.PermissionBits = moderate }, wantReason: "permission_required"},
-		{name: "bot missing timeout", action: model.ActionTimeoutUser, mutate: func(s *quack.DiscordGuildAuthorization) { s.Bot.PermissionBits = allActions &^ moderate }, wantReason: "bot_permission_required"},
+		{name: "actor missing kick", action: model.ActionKickUser, mutate: func(s *quack.DiscordGuildAuthorization) { s.Actor.PermissionBits = moderate }, wantReason: "permission_required", wantPermission: uint64(discordgo.PermissionKickMembers)},
+		{name: "actor missing ban", action: model.ActionBanUser, mutate: func(s *quack.DiscordGuildAuthorization) { s.Actor.PermissionBits = moderate }, wantReason: "permission_required", wantPermission: uint64(discordgo.PermissionBanMembers)},
+		{name: "bot missing timeout", action: model.ActionTimeoutUser, mutate: func(s *quack.DiscordGuildAuthorization) { s.Bot.PermissionBits = allActions &^ moderate }, wantReason: "bot_permission_required", wantPermission: moderate},
 		{name: "bot missing kick", action: model.ActionKickUser, mutate: func(s *quack.DiscordGuildAuthorization) {
 			s.Bot.PermissionBits = allActions &^ uint64(discordgo.PermissionKickMembers)
-		}, wantReason: "bot_permission_required"},
+		}, wantReason: "bot_permission_required", wantPermission: uint64(discordgo.PermissionKickMembers)},
 		{name: "bot missing ban", action: model.ActionBanUser, mutate: func(s *quack.DiscordGuildAuthorization) {
 			s.Bot.PermissionBits = allActions &^ uint64(discordgo.PermissionBanMembers)
-		}, wantReason: "bot_permission_required"},
+		}, wantReason: "bot_permission_required", wantPermission: uint64(discordgo.PermissionBanMembers)},
 		{name: "bot departed", mutate: func(s *quack.DiscordGuildAuthorization) { s.Bot.Present = false }, wantReason: "bot_not_in_guild"},
 		{name: "cross guild", mutate: func(s *quack.DiscordGuildAuthorization) { s.Guild.ID = "guild-2" }, mutateAfterResolve: true, wantReason: "guild_mismatch"},
 		{name: "cross user target", mutate: func(s *quack.DiscordGuildAuthorization) { s.Target.DiscordUserID = "other-target" }, mutateAfterResolve: true, wantReason: "identity_mismatch"},
@@ -173,6 +176,10 @@ func TestCasePreflightMatrixAndNoPartialCommit(t *testing.T) {
 			}
 			if !errors.Is(err, quack.ErrAuthorizationDenied) || !strings.Contains(err.Error(), tt.wantReason) {
 				t.Fatalf("expected %q typed denial, got %v", tt.wantReason, err)
+			}
+			var denial *quack.AuthorizationError
+			if !errors.As(err, &denial) || denial.RequiredPermission != tt.wantPermission {
+				t.Fatalf("expected required permission %d, got %+v", tt.wantPermission, denial)
 			}
 			cases, listErr := repositories.ListCases(ctx, guildContext.Guild.ID)
 			if listErr != nil || len(cases) != 0 {

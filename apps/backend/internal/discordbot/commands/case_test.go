@@ -150,7 +150,7 @@ func TestHandleCaseInteractionDeniesRevokedLivePermissionDespiteInteractionSnaps
 		Interaction: caseAddInteraction(templateID, "target-1", ^uint64(0)),
 	})
 	response := result.Response
-	if response == nil || response.Data == nil || len(response.Data.Embeds) != 0 || !strings.Contains(response.Data.Content, "do not have permission") {
+	if response == nil || response.Data == nil || len(response.Data.Embeds) != 0 || !strings.Contains(response.Data.Content, "No case was created.") || !strings.Contains(response.Data.Content, "Moderate Members") {
 		t.Fatalf("unexpected live permission denial: %+v", response)
 	}
 	if result.Task != nil || response.Data.Flags&discordgo.MessageFlagsEphemeral == 0 {

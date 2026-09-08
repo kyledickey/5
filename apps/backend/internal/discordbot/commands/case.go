@@ -32,7 +32,7 @@ func HandleMessageCaseInteraction(ctx ui.Context) ui.HandlerResult {
 			err = ctx.Services.Guilds.Authorize(taskCtx, guildContext, model.PermissionActionCaseCreate, model.AuditSourceDiscord)
 		}
 		if err != nil {
-			_, err = responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(err)))
+			_, err = responder.EditOriginal(ui.ErrorEdit(caseCreateErrorMessage(err)))
 			return err
 		}
 		templates, err := ctx.Services.Templates.ListActive(taskCtx, guildContext)
@@ -48,7 +48,7 @@ func HandleMessageCaseInteraction(ctx ui.Context) ui.HandlerResult {
 		link := fmt.Sprintf("https://discord.com/channels/%s/%s/%s", interaction.GuildID, message.ChannelID, message.ID)
 		created, err := ctx.Services.Cases.Create(taskCtx, guildContext, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: message.Author.ID, Source: model.CaseSourceDiscord, ContextChannelDiscordID: message.ChannelID, ContextMessageDiscordID: message.ID, ContextValues: messageLinkContext(template, link), EvidenceLinks: []string{link}, IdempotencyKey: interaction.ID})
 		if err != nil {
-			_, err = responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(err)))
+			_, err = responder.EditOriginal(ui.ErrorEdit(caseCreateErrorMessage(err)))
 			return err
 		}
 		return publishPrivateContextCase(taskCtx, responder, ctx.Services, created, template)
@@ -72,13 +72,13 @@ func HandleCaseInteraction(ctx ui.Context) ui.HandlerResult {
 	}
 
 	if err := validateCaseInteraction(ctx.Context, ctx.Services, interaction, add); err != nil {
-		return ui.Immediate(ui.Error(caseCommandErrorMessage(err)))
+		return ui.Immediate(ui.Error(caseCreateErrorMessage(err)))
 	}
 
 	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
 		result, err := createCaseFromInteraction(taskCtx, ctx.Services, interaction, add)
 		if err != nil {
-			_, editErr := responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(err)))
+			_, editErr := responder.EditOriginal(ui.ErrorEdit(caseCreateErrorMessage(err)))
 			return editErr
 		}
 		return publishPrivateContextCase(taskCtx, responder, ctx.Services, result.Case, result.Template)

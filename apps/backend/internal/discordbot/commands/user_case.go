@@ -32,7 +32,7 @@ func HandleUserCaseInteraction(ctx ui.Context) ui.HandlerResult {
 			err = ctx.Services.Guilds.Authorize(taskCtx, guild, model.PermissionActionCaseCreate, model.AuditSourceDiscord)
 		}
 		if err != nil {
-			_, err = responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(err)))
+			_, err = responder.EditOriginal(ui.ErrorEdit(caseCreateErrorMessage(err)))
 			return err
 		}
 		templates, err := ctx.Services.Templates.ListActive(taskCtx, guild)
@@ -47,7 +47,7 @@ func HandleUserCaseInteraction(ctx ui.Context) ui.HandlerResult {
 		template := &templates[0]
 		created, err := ctx.Services.Cases.Create(taskCtx, guild, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: data.TargetID, Source: model.CaseSourceDiscord, IdempotencyKey: ctx.Interaction.ID})
 		if err != nil {
-			_, err = responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(err)))
+			_, err = responder.EditOriginal(ui.ErrorEdit(caseCreateErrorMessage(err)))
 			return err
 		}
 		return publishPrivateContextCase(taskCtx, responder, ctx.Services, created, template)
@@ -64,11 +64,11 @@ func handleUserTemplateComponent(ctx ui.Context) ui.HandlerResult {
 	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
 		guild, err := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
 		if err != nil {
-			_, err = responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(err)))
+			_, err = responder.EditOriginal(ui.ErrorEdit(caseCreateErrorMessage(err)))
 			return err
 		}
 		if err := ctx.Services.Guilds.Authorize(taskCtx, guild, model.PermissionActionCaseCreate, model.AuditSourceDiscord); err != nil {
-			_, err = responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(err)))
+			_, err = responder.EditOriginal(ui.ErrorEdit(caseCreateErrorMessage(err)))
 			return err
 		}
 		_, template, err := resolveTemplate(taskCtx, ctx.Services, guild, data.Values[0])
@@ -78,7 +78,7 @@ func handleUserTemplateComponent(ctx ui.Context) ui.HandlerResult {
 		}
 		created, err := ctx.Services.Cases.Create(taskCtx, guild, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: parsed.Payload, Source: model.CaseSourceDiscord, IdempotencyKey: ctx.Interaction.ID})
 		if err != nil {
-			_, err = responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(err)))
+			_, err = responder.EditOriginal(ui.ErrorEdit(caseCreateErrorMessage(err)))
 			return err
 		}
 		return publishPrivateContextCase(taskCtx, responder, ctx.Services, created, template)
