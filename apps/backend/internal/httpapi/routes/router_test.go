@@ -13,6 +13,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/gin-gonic/gin"
 	"github.com/quackdiscord/bot/internal/httpapi/middleware"
+	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/quackdiscord/bot/internal/quack/model"
 	storage "github.com/quackdiscord/bot/internal/store"
@@ -494,13 +495,19 @@ func TestTemplateRoutesRejectRetiredProductFields(t *testing.T) {
 
 func TestGuildSettingsRoutesReadWriteAcknowledgeAndAuditDenied(t *testing.T) {
 	managerRouter, managerSessionID, managerStore := newTemplateRouteHarnessWithStore(t, uint64(discordgo.PermissionManageGuild))
+	configuredGuild, _ := managerStore.GetGuildByDiscordID(context.Background(), "guild-1")
+	moduleStore := modules.NewSQLSettingsStore(managerStore.DB())
+	if _, err := moduleStore.PutModuleConfiguration(context.Background(), modules.Configuration{GuildID: configuredGuild.ID, ModuleID: modules.Tickets, Enabled: true, ConfigJSON: `{"entry_channel_discord_id":"entry","queue_channel_discord_id":"queue","transcript_retention_days":30}`}); err != nil {
+		t.Fatal(err)
+	}
+
 	patch := httptest.NewRequest(http.MethodPatch, "/guilds/guild-1/settings", bytes.NewBufferString(`{
 		"audit_mirror_channel_discord_id":"",
 		"notification_introduction":"Welcome",
 		"notification_footer":"Footer",
-		"tickets_enabled":true,
+		"tickets_enabled":false,
 		"general_logging_enabled":false,
-		"honeypot_enabled":true
+		"honeypot_enabled":false
 	}`))
 	patch.Header.Set("Authorization", "Bearer "+managerSessionID)
 	patch.Header.Set("Content-Type", "application/json")
@@ -508,6 +515,18 @@ func TestGuildSettingsRoutesReadWriteAcknowledgeAndAuditDenied(t *testing.T) {
 	managerRouter.ServeHTTP(patchResponse, patch)
 	if patchResponse.Code != http.StatusOK {
 		t.Fatalf("expected settings patch status %d, got %d body=%s", http.StatusOK, patchResponse.Code, patchResponse.Body.String())
+	}
+	configured, err := moduleStore.GetModuleConfiguration(context.Background(), configuredGuild.ID, modules.Tickets)
+	if err != nil || configured.Enabled || !strings.Contains(configured.ConfigJSON, "entry") {
+		t.Fatalf("HTTP disable failed canonical runtime state: %+v %v", configured, err)
+	}
+	enable := httptest.NewRequest(http.MethodPatch, "/guilds/guild-1/settings", bytes.NewBufferString(`{"honeypot_enabled":true,"notification_footer":"must not save"}`))
+	enable.Header.Set("Authorization", "Bearer "+managerSessionID)
+	enable.Header.Set("Content-Type", "application/json")
+	enableResponse := httptest.NewRecorder()
+	managerRouter.ServeHTTP(enableResponse, enable)
+	if enableResponse.Code != http.StatusBadRequest {
+		t.Fatalf("unconfigured enable accepted: %d %s", enableResponse.Code, enableResponse.Body.String())
 	}
 	malformed := httptest.NewRequest(http.MethodPatch, "/guilds/guild-1/settings", bytes.NewBufferString(`{"unknown_setting":true}`))
 	malformed.Header.Set("Authorization", "Bearer "+managerSessionID)
@@ -531,7 +550,7 @@ func TestGuildSettingsRoutesReadWriteAcknowledgeAndAuditDenied(t *testing.T) {
 	if err := json.Unmarshal(getResponse.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode settings response: %v", err)
 	}
-	if body.Settings.AuditMirrorChannelDiscordID != "" || !body.Settings.TicketsEnabled || !body.Settings.HoneypotEnabled || !body.Settings.StarterPolicyReviewRequired {
+	if body.Settings.AuditMirrorChannelDiscordID != "" || body.Settings.TicketsEnabled || body.Settings.HoneypotEnabled || body.Settings.NotificationFooter != "Footer" || !body.Settings.StarterPolicyReviewRequired {
 		t.Fatalf("unexpected settings response: %+v", body.Settings)
 	}
 

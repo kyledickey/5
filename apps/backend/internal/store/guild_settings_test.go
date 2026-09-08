@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/quack/model"
 	"github.com/quackdiscord/bot/internal/testutil"
 )
@@ -56,9 +57,11 @@ func TestGuildSettingsLifecyclePreservesHistoryAndRepairsChannels(t *testing.T) 
 	settings.ManagedEvidenceChannelDiscordID = "evidence-channel"
 	settings.NotificationIntroduction = "Welcome"
 	settings.NotificationFooter = "Footer"
-	settings.TicketsEnabled = true
-	settings.GeneralLoggingEnabled = true
-	settings.HoneypotEnabled = true
+	for _, id := range []modules.ID{modules.Tickets, modules.GeneralLogging, modules.Honeypots} {
+		if _, err := modules.NewSQLSettingsStore(repositories.DB()).PutModuleConfiguration(ctx, modules.Configuration{GuildID: bootstrap.Guild.ID, ModuleID: id, Enabled: true, ConfigJSON: "{}"}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	updated, err := repositories.UpdateGuildSettings(ctx, model.UpdateGuildSettingsParams{Settings: settings, Audit: &model.AuditLogEntry{
 		GuildID: bootstrap.Guild.ID, ActorDiscordUserID: "owner-1", Source: model.AuditSourceAPI,
 		Action: "guild_settings.update", ResourceType: "guild_settings", Result: model.AuditResultSuccess, MetadataJSON: "{}",
@@ -124,5 +127,62 @@ func assertExactStarterPolicy(t *testing.T, template model.ExpandedCaseTemplate)
 	}
 	if template.Levels[2].Level.TriggerCaseCount != 5 || !template.Levels[2].Level.NotifyUser || len(template.Levels[2].Actions) != 1 || template.Levels[2].Actions[0].ActionType != model.ActionBanUser || template.Levels[2].Actions[0].ConfigJSON != `{"delete_message_seconds":86400}` {
 		t.Fatalf("unexpected starter ban: %+v", template.Levels[2])
+	}
+}
+
+// TestGuildModuleTogglesUseCanonicalRowsAndRollbackOnDrift covers native setup
+// visibility, explicit partial updates, and all-or-nothing config conflict writes.
+func TestGuildModuleTogglesUseCanonicalRowsAndRollbackOnDrift(t *testing.T) {
+	ctx := context.Background()
+	repository := testutil.NewSQLiteStore(t)
+	migrateStore(t, repository)
+	bootstrap, err := repository.BootstrapGuild(ctx, model.BootstrapGuildParams{DiscordGuildID: "canonical", OwnerDiscordUserID: "owner"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	moduleStore := modules.NewSQLSettingsStore(repository.DB())
+	for _, id := range []modules.ID{modules.Tickets, modules.GeneralLogging} {
+		if _, err := moduleStore.PutModuleConfiguration(ctx, modules.Configuration{GuildID: bootstrap.Guild.ID, ModuleID: id, Enabled: true, ConfigJSON: `{"kept":"native setup"}`}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	settings, err := repository.GetGuildSettings(ctx, bootstrap.Guild.ID)
+	if err != nil || !settings.TicketsEnabled || !settings.GeneralLoggingEnabled || settings.HoneypotEnabled {
+		t.Fatalf("native setup not projected: %+v %v", settings, err)
+	}
+	// A normal core write never copies old shadow flags back over newer setup.
+	settings.GeneralLoggingEnabled = false
+	updated, err := repository.UpdateGuildSettings(ctx, model.UpdateGuildSettingsParams{Settings: *settings, ModuleToggles: []model.GuildModuleToggle{{ModuleID: "tickets", Enabled: false}}})
+	if err != nil || updated.TicketsEnabled || !updated.GeneralLoggingEnabled {
+		t.Fatalf("partial toggle changed another module: %+v %v", updated, err)
+	}
+	config, err := moduleStore.GetModuleConfiguration(ctx, bootstrap.Guild.ID, modules.Tickets)
+	if err != nil || config.Enabled || config.ConfigJSON != `{"kept":"native setup"}` {
+		t.Fatalf("canonical disable lost config: %+v %v", config, err)
+	}
+	// Re-enabling exactly the retained validated configuration controls runtime.
+	if _, err := repository.UpdateGuildSettings(ctx, model.UpdateGuildSettingsParams{Settings: *settings, ModuleToggles: []model.GuildModuleToggle{{ModuleID: "tickets", Enabled: true, ExpectedConfigJSON: config.ConfigJSON}}}); err != nil {
+		t.Fatal(err)
+	}
+	config, _ = moduleStore.GetModuleConfiguration(ctx, bootstrap.Guild.ID, modules.Tickets)
+	if !config.Enabled {
+		t.Fatal("core toggle did not reach canonical runtime state")
+	}
+	settings.NotificationFooter = "must rollback"
+	_, err = repository.UpdateGuildSettings(ctx, model.UpdateGuildSettingsParams{Settings: *settings, ModuleToggles: []model.GuildModuleToggle{{ModuleID: "tickets", Enabled: false}, {ModuleID: "general_logging", Enabled: true, ExpectedConfigJSON: `{"stale":true}`}}, Audit: &model.AuditLogEntry{GuildID: bootstrap.Guild.ID, ActorDiscordUserID: "owner", Action: "guild_settings.update", ResourceType: "guild_settings", Result: model.AuditResultSuccess}})
+	if err == nil {
+		t.Fatal("changed configuration accepted")
+	}
+	config, _ = moduleStore.GetModuleConfiguration(ctx, bootstrap.Guild.ID, modules.Tickets)
+	settings, _ = repository.GetGuildSettings(ctx, bootstrap.Guild.ID)
+	if !config.Enabled || settings.NotificationFooter != "" {
+		t.Fatal("failed toggle partially committed core/module state")
+	}
+	audits, err := repository.ListAuditLogEntriesFiltered(ctx, model.ListAuditLogEntriesParams{GuildID: bootstrap.Guild.ID, Action: "guild_settings.update"})
+	if err != nil || audits.Total != 0 {
+		t.Fatalf("failed toggle wrote success audit: %+v %v", audits, err)
+	}
+	if _, err := repository.UpdateGuildSettings(ctx, model.UpdateGuildSettingsParams{Settings: *settings, ModuleToggles: []model.GuildModuleToggle{{ModuleID: "honeypots", Enabled: false}}}); err != nil {
+		t.Fatal("unconfigured module could not be disabled:", err)
 	}
 }

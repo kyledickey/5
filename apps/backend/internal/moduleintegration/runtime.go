@@ -163,6 +163,9 @@ func New(ctx context.Context, repositories *store.Store, session *discordgo.Sess
 		defer runtime.appealWG.Done()
 		runtime.runAppealNotifications(workerCtx)
 	}()
+	if services.Settings != nil {
+		services.Settings.WithModuleEnablementValidator(runtime)
+	}
 	return runtime, nil
 }
 

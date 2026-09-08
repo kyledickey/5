@@ -26,6 +26,19 @@ var (
 type GuildSettingsService struct {
 	store    SettingsRepository
 	channels StaffChannelValidator
+	modules  GuildModuleEnablementValidator
+}
+
+// GuildModuleEnablementValidator checks retained module configuration and live
+// destinations without changing state, returning the configuration it validated.
+type GuildModuleEnablementValidator interface {
+	ValidateGuildModuleEnablement(context.Context, *GuildStaffContext, string) (string, error)
+}
+
+// WithModuleEnablementValidator wires the optional-module validation boundary.
+func (s *GuildSettingsService) WithModuleEnablementValidator(validator GuildModuleEnablementValidator) *GuildSettingsService {
+	s.modules = validator
+	return s
 }
 
 // StaffChannelValidator validates live Discord ownership and bot access to outbound destinations.
@@ -142,12 +155,40 @@ func (s *GuildSettingsService) Update(ctx context.Context, guildContext *GuildSt
 			return nil, fmt.Errorf("%w: audit channel must be private and belong to this guild", ErrGuildSettingsValidation)
 		}
 	}
+	var toggles []model.GuildModuleToggle
+	for _, requested := range []struct {
+		id    string
+		value *bool
+	}{{"tickets", input.TicketsEnabled}, {"general_logging", input.GeneralLoggingEnabled}, {"honeypots", input.HoneypotEnabled}} {
+		if requested.value == nil {
+			continue
+		}
+		toggle := model.GuildModuleToggle{ModuleID: requested.id, Enabled: *requested.value}
+		if toggle.Enabled {
+			if s.modules == nil {
+				err := fmt.Errorf("%w: module validation unavailable; configure this module with /setup first", ErrGuildSettingsValidation)
+				_ = s.audit(ctx, guildContext, "guild_settings.update", model.AuditResultFailure, err.Error())
+				return nil, err
+			}
+			toggle.ExpectedConfigJSON, err = s.modules.ValidateGuildModuleEnablement(ctx, guildContext, requested.id)
+			if err != nil {
+				_ = s.audit(ctx, guildContext, "guild_settings.update", model.AuditResultFailure, err.Error())
+				return nil, fmt.Errorf("%w: %s: %v", ErrGuildSettingsValidation, requested.id, err)
+			}
+		}
+		toggles = append(toggles, toggle)
+	}
 	updated, err := s.store.UpdateGuildSettings(ctx, model.UpdateGuildSettingsParams{
-		Settings: *settings,
-		Audit:    s.auditEntry(ctx, guildContext, "guild_settings.update", model.AuditResultSuccess, ""),
+		Settings:      *settings,
+		ModuleToggles: toggles,
+		Audit:         s.auditEntry(ctx, guildContext, "guild_settings.update", model.AuditResultSuccess, ""),
 	})
 	if err != nil {
 		_ = s.audit(ctx, guildContext, "guild_settings.update", model.AuditResultFailure, err.Error())
+		var configurationErr *model.GuildModuleConfigurationError
+		if errors.As(err, &configurationErr) {
+			return nil, fmt.Errorf("%w: %s", ErrGuildSettingsValidation, configurationErr.Error())
+		}
 		return nil, err
 	}
 	response := guildSettingsResponse(*updated)
@@ -250,15 +291,6 @@ func applyGuildSettingsInput(settings *model.GuildSettings, input GuildSettingsI
 			return fmt.Errorf("%w: notification footer exceeds %d characters", ErrGuildSettingsValidation, maxGuildNotificationBrandingLength)
 		}
 		settings.NotificationFooter = value
-	}
-	if input.TicketsEnabled != nil {
-		settings.TicketsEnabled = *input.TicketsEnabled
-	}
-	if input.GeneralLoggingEnabled != nil {
-		settings.GeneralLoggingEnabled = *input.GeneralLoggingEnabled
-	}
-	if input.HoneypotEnabled != nil {
-		settings.HoneypotEnabled = *input.HoneypotEnabled
 	}
 	return nil
 }

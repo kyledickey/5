@@ -229,10 +229,20 @@ type BootstrapGuildResult struct {
 	StarterTemplateCreated bool
 }
 
-// UpdateGuildSettingsParams contains a complete validated settings replacement and its immutable audit evidence.
+// GuildModuleToggle addresses only an explicitly requested canonical flag. The
+// enabling validator supplies the exact configuration it checked; storage rejects
+// concurrent configuration changes instead of enabling an unvalidated destination.
+type GuildModuleToggle struct {
+	ModuleID           string
+	Enabled            bool
+	ExpectedConfigJSON string
+}
+
+// UpdateGuildSettingsParams contains validated core settings, explicit module toggles, and immutable audit evidence.
 type UpdateGuildSettingsParams struct {
-	Settings GuildSettings
-	Audit    *AuditLogEntry
+	ModuleToggles []GuildModuleToggle
+	Settings      GuildSettings
+	Audit         *AuditLogEntry
 }
 
 // UpsertStaffMemberParams groups the validated inputs needed for upsert staff member params.
@@ -275,3 +285,10 @@ type ActionQueueSnapshot struct {
 	OldestPendingOrRetry *OldestActionExecution
 	RecentFailures       []RecentActionFailure
 }
+
+// GuildModuleConfigurationError reports an actionable missing or concurrently
+// changed module configuration without conflating it with a database outage.
+type GuildModuleConfigurationError struct{ Message string }
+
+// Error exposes the configuration correction needed before retrying enablement.
+func (e *GuildModuleConfigurationError) Error() string { return e.Message }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	mysqlerrors "github.com/go-sql-driver/mysql"
+	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/quack/model"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -14,7 +15,8 @@ import (
 
 const starterPolicySlug = "general-rule-violation"
 
-// GetGuildSettings returns the single guild-owned settings record, if one exists.
+// GetGuildSettings returns core settings with enablement projected from the
+// canonical module envelopes, including changes made through native setup.
 func (s *Store) GetGuildSettings(ctx context.Context, guildID string) (*model.GuildSettings, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
@@ -28,10 +30,14 @@ func (s *Store) GetGuildSettings(ctx context.Context, guildID string) (*model.Gu
 		return nil, nil
 	}
 	settings := guildSettingsModelFromRecord(record)
+	if err := loadCanonicalModuleFlags(s.db.WithContext(ctx), &settings); err != nil {
+		return nil, err
+	}
 	return &settings, nil
 }
 
-// UpdateGuildSettings atomically replaces validated mutable settings and appends success audit evidence.
+// UpdateGuildSettings atomically replaces validated core settings, applies only
+// explicit canonical module toggles, and appends success audit evidence.
 func (s *Store) UpdateGuildSettings(ctx context.Context, params model.UpdateGuildSettingsParams) (*model.GuildSettings, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
@@ -48,9 +54,9 @@ func (s *Store) UpdateGuildSettings(ctx context.Context, params model.UpdateGuil
 		record.ManagedEvidenceChannelDiscordID = params.Settings.ManagedEvidenceChannelDiscordID
 		record.NotificationIntroduction = params.Settings.NotificationIntroduction
 		record.NotificationFooter = params.Settings.NotificationFooter
-		record.TicketsEnabled = params.Settings.TicketsEnabled
-		record.GeneralLoggingEnabled = params.Settings.GeneralLoggingEnabled
-		record.HoneypotEnabled = params.Settings.HoneypotEnabled
+		if err := applyCanonicalModuleToggles(tx, params.Settings.GuildID, params.ModuleToggles, now); err != nil {
+			return err
+		}
 		record.StarterPolicyNoticePending = params.Settings.StarterPolicyNoticePending
 		record.StarterPolicyNoticeAcknowledgedAt = params.Settings.StarterPolicyNoticeAcknowledgedAt
 		record.UpdatedAt = now
@@ -70,6 +76,9 @@ func (s *Store) UpdateGuildSettings(ctx context.Context, params model.UpdateGuil
 		return nil, err
 	}
 	settings := guildSettingsModelFromRecord(record)
+	if err := loadCanonicalModuleFlags(s.db.WithContext(ctx), &settings); err != nil {
+		return nil, err
+	}
 	return &settings, nil
 }
 
@@ -118,6 +127,9 @@ func (s *Store) ClearGuildChannelReferences(ctx context.Context, guildID, channe
 		return nil, err
 	}
 	settings := guildSettingsModelFromRecord(record)
+	if err := loadCanonicalModuleFlags(s.db.WithContext(ctx), &settings); err != nil {
+		return nil, err
+	}
 	return &settings, nil
 }
 
@@ -263,7 +275,7 @@ func (s *Store) bootstrapGuildOnce(ctx context.Context, params model.BootstrapGu
 
 		result.Guild = guild
 		result.Settings = guildSettingsModelFromRecord(settingsRecord)
-		return nil
+		return loadCanonicalModuleFlags(tx, &result.Settings)
 	})
 	if err != nil {
 		return nil, err
@@ -404,5 +416,56 @@ func prepareULIDRecord(record *ULIDModelRecord, now time.Time) error {
 		return err
 	}
 	record.ID, record.CreatedAt, record.UpdatedAt = modelValue.ID, modelValue.CreatedAt, modelValue.UpdatedAt
+	return nil
+}
+
+// loadCanonicalModuleFlags projects the shared module envelopes; obsolete guild
+// booleans never override configuration written by native module setup.
+func loadCanonicalModuleFlags(db *gorm.DB, settings *model.GuildSettings) error {
+	var configs []modules.Configuration
+	if err := db.Select("module_id, enabled").Where("guild_id = ? AND module_id IN ?", settings.GuildID, []modules.ID{modules.Tickets, modules.GeneralLogging, modules.Honeypots}).Find(&configs).Error; err != nil {
+		return err
+	}
+	settings.TicketsEnabled, settings.GeneralLoggingEnabled, settings.HoneypotEnabled = false, false, false
+	for _, config := range configs {
+		switch config.ModuleID {
+		case modules.Tickets:
+			settings.TicketsEnabled = config.Enabled
+		case modules.GeneralLogging:
+			settings.GeneralLoggingEnabled = config.Enabled
+		case modules.Honeypots:
+			settings.HoneypotEnabled = config.Enabled
+		}
+	}
+	return nil
+}
+
+// applyCanonicalModuleToggles locks existing module rows and changes only enabled.
+// All changes share the core-settings/audit transaction; configuration bytes,
+// identities, and omitted module flags survive concurrent native setup safely.
+func applyCanonicalModuleToggles(tx *gorm.DB, guildID string, toggles []model.GuildModuleToggle, now time.Time) error {
+	for _, toggle := range toggles {
+		id := modules.ID(toggle.ModuleID)
+		if id != modules.Tickets && id != modules.GeneralLogging && id != modules.Honeypots {
+			return errors.New("unknown guild module")
+		}
+		var config modules.Configuration
+		query := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("guild_id = ? AND module_id = ?", guildID, id).Limit(1).Find(&config)
+		if query.Error != nil {
+			return query.Error
+		}
+		if query.RowsAffected == 0 {
+			if toggle.Enabled {
+				return &model.GuildModuleConfigurationError{Message: fmt.Sprintf("%s is not configured; run /setup first", id)}
+			}
+			continue
+		}
+		if toggle.Enabled && (toggle.ExpectedConfigJSON == "" || config.ConfigJSON != toggle.ExpectedConfigJSON) {
+			return &model.GuildModuleConfigurationError{Message: fmt.Sprintf("%s configuration changed; reload settings and try again", id)}
+		}
+		if err := tx.Model(&modules.Configuration{}).Where("id = ?", config.ID).Updates(map[string]any{"enabled": toggle.Enabled, "updated_at": now}).Error; err != nil {
+			return err
+		}
+	}
 	return nil
 }

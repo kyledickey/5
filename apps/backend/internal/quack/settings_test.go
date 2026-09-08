@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
@@ -22,7 +23,12 @@ func TestGuildSettingsServiceAuthorizationAuditAndNotice(t *testing.T) {
 	}
 	manager := templateGuildContext(t, repositories, "settings-guild", "manager-1", uint64(discordgo.PermissionManageGuild))
 	moderator := templateGuildContext(t, repositories, "settings-guild", "moderator-1", uint64(discordgo.PermissionModerateMembers))
-	service := quack.NewGuildSettingsService(repositories).WithStaffChannelValidator(allowStaffChannel{})
+	service := quack.NewGuildSettingsService(repositories).WithStaffChannelValidator(allowStaffChannel{}).WithModuleEnablementValidator(settingsModuleValidator{})
+	for _, id := range []modules.ID{modules.Tickets, modules.GeneralLogging} {
+		if _, err := modules.NewSQLSettingsStore(repositories.DB()).PutModuleConfiguration(ctx, modules.Configuration{GuildID: bootstrap.Guild.ID, ModuleID: id, ConfigJSON: "{}"}); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	auditChannel := "100000000000000001"
 	intro, footer := "Welcome to this guild", "Review case details in Quack"
@@ -164,4 +170,13 @@ func TestAppealRejoinSettingValidatesAndPersists(t *testing.T) {
 	if err != nil || saved.AppealRejoinURL != "" {
 		t.Fatalf("invite not removed: %+v %v", saved, err)
 	}
+}
+
+// settingsModuleValidator substitutes only the external module validation step.
+// Canonical persistence and transactional configuration comparison remain real.
+type settingsModuleValidator struct{}
+
+// ValidateGuildModuleEnablement approves the exact test configuration bytes.
+func (settingsModuleValidator) ValidateGuildModuleEnablement(context.Context, *quack.GuildStaffContext, string) (string, error) {
+	return "{}", nil
 }
