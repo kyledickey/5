@@ -264,3 +264,12 @@ means further work is required, not completion.
   cover reuse, deletion, forbidden edits and delayed receipt writes. Focused and
   full backend suites pass. Concurrent first-time setup, disabling an old panel
   when moving channels, and live setup rehearsal remain pending.
+
+- Transcript capture now includes readable author names with Discord IDs, orders
+  equal timestamps by message snowflake, deduplicates overlapping history pages,
+  and rejects malformed/non-advancing pages before closure can delete the thread.
+  Attachment metadata includes its original URL with an explicit expiry caveat;
+  this does not preserve attachment bytes. Transport tests cover overlapping and
+  repeated pages, ordering and attachment context. Focused and full backend suites
+  pass. Durable attachment capture and any desired deleted/edited-message history
+  still require separate work; live transcript rehearsal remains pending.

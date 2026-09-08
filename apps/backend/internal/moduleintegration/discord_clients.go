@@ -111,22 +111,49 @@ func (c ticketDiscordClient) CaptureTicketTranscript(ctx context.Context, channe
 		if err != nil {
 			return "", err
 		}
+		for _, message := range page {
+			if message == nil || message.ID == "" {
+				return "", errors.New("Discord returned an incomplete ticket history page")
+			}
+		}
 		messages = append(messages, page...)
 		if len(page) < 100 {
 			break
 		}
-		before = page[len(page)-1].ID
+		next := page[len(page)-1].ID
+		if before != "" && (len(next) > len(before) || len(next) == len(before) && next >= before) {
+			return "", errors.New("Discord ticket history pagination did not advance")
+		}
+		before = next
 	}
-	sort.Slice(messages, func(i, j int) bool { return messages[i].Timestamp.Before(messages[j].Timestamp) })
+	sort.Slice(messages, func(i, j int) bool {
+		if messages[i].Timestamp.Equal(messages[j].Timestamp) {
+			if len(messages[i].ID) != len(messages[j].ID) {
+				return len(messages[i].ID) < len(messages[j].ID)
+			}
+			return messages[i].ID < messages[j].ID
+		}
+		return messages[i].Timestamp.Before(messages[j].Timestamp)
+	})
 	var transcript strings.Builder
+	seen := make(map[string]struct{}, len(messages))
 	for _, message := range messages {
+		if _, exists := seen[message.ID]; exists {
+			continue
+		}
+		seen[message.ID] = struct{}{}
 		authorID := "unknown"
 		if message.Author != nil {
-			authorID = message.Author.ID
+			authorID = message.Author.Username + " (" + message.Author.ID + ")"
 		}
 		fmt.Fprintf(&transcript, "[%s] %s: %s\n", message.Timestamp.UTC().Format(time.RFC3339), authorID, message.Content)
 		for _, attachment := range message.Attachments {
-			fmt.Fprintf(&transcript, "  attachment: %s (%d bytes)\n", attachment.Filename, attachment.Size)
+			if attachment != nil {
+				fmt.Fprintf(&transcript, "  attachment: %s (%d bytes)\n", attachment.Filename, attachment.Size)
+				if attachment.URL != "" {
+					fmt.Fprintf(&transcript, "  original attachment URL (may expire): %s\n", attachment.URL)
+				}
+			}
 		}
 	}
 	return transcript.String(), nil
