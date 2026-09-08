@@ -48,7 +48,7 @@ func CaseCreatedMessage(result CaseCreated) ui.Message {
 		status += "\n{{quack:warn}} Some evidence could not be saved."
 	}
 	message := ui.Conversation(icon, FormatCaseCreated(result), "", status, strings.Join(meta, " · "), false)
-	message.Components = []discordgo.MessageComponent{ui.Row(ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "edit_context", Version: "v1", Payload: created.ID}), "Add context", discordgo.SecondaryButton, false))}
+	message.Components = []discordgo.MessageComponent{ui.Row(casePrimaryControls(created.ID, created.TargetDiscordUserID, created.Validity == model.CaseValidityVoided)...)}
 	return message
 }
 
@@ -88,5 +88,18 @@ func caseTemplateDisplayName(template *quack.TemplateResponse) string {
 		return name
 	default:
 		return slug
+	}
+}
+
+// casePrimaryControls keeps the same navigation and edit controls on case receipts and detail.
+func casePrimaryControls(caseID, targetID string, voided bool) []discordgo.MessageComponent {
+	button := func(action, payload, label string, style discordgo.ButtonStyle, disabled bool) discordgo.MessageComponent {
+		return ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "case", Action: action, Version: "v1", Payload: payload}), label, style, disabled)
+	}
+	return []discordgo.MessageComponent{
+		button("edit_context", caseID, "Edit context", discordgo.SecondaryButton, false),
+		button("evidence", caseID, "View evidence", discordgo.SecondaryButton, false),
+		button("user_detail", targetID, "View user", discordgo.SecondaryButton, false),
+		button("void", caseID, "Void case", discordgo.DangerButton, voided),
 	}
 }

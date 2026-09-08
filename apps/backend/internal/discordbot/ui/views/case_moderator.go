@@ -174,7 +174,8 @@ func FailedActionMessage(result *model.FailedCaseActionResult, page int) ui.Mess
 
 // caseDetailComponents retains explicit recovery controls for authorized staff.
 func caseDetailComponents(detail *quack.CaseDetailResponse) []discordgo.MessageComponent {
-	buttons := []discordgo.MessageComponent{ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "edit_context", Version: "v1", Payload: detail.ID}), "Edit context", discordgo.SecondaryButton, false), ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "void", Version: "v1", Payload: detail.ID}), "Void case", discordgo.DangerButton, detail.Validity == model.CaseValidityVoided)}
+	rows := []discordgo.MessageComponent{ui.Row(casePrimaryControls(detail.ID, detail.TargetDiscordUserID, detail.Validity == model.CaseValidityVoided)...)}
+	buttons := []discordgo.MessageComponent{}
 	for _, action := range detail.Actions {
 		if action.Status == model.ActionExecutionFailed {
 			buttons = append(buttons, ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "retry", Version: "v1", Payload: action.ID}), "Retry", discordgo.SecondaryButton, false), ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "dismiss", Version: "v1", Payload: action.ID}), "Dismiss", discordgo.SecondaryButton, false))
@@ -190,7 +191,10 @@ func caseDetailComponents(detail *quack.CaseDetailResponse) []discordgo.MessageC
 			break
 		}
 	}
-	return []discordgo.MessageComponent{ui.Row(buttons...)}
+	if len(buttons) > 0 {
+		rows = append(rows, ui.Row(buttons...))
+	}
+	return rows
 }
 
 // staffActionSummary preserves enforcement and failure details in readable sentences.
@@ -269,4 +273,17 @@ func safeFailure(code string) string {
 		return "Discord action failed"
 	}
 	return ui.PlainText(strings.ReplaceAll(ui.TruncateRunes(strings.TrimSpace(code), 160), "_", " "))
+}
+
+// CaseEvidenceMessage shows the preserved staff record with an explicit upload entry point.
+func CaseEvidenceMessage(detail *quack.CaseDetailResponse) ui.Message {
+	if detail == nil {
+		return ui.Signal("error", "That case could not be found.", true)
+	}
+	body := evidenceSummary(detail.Evidence)
+	if body == "" {
+		body = "No evidence has been added yet."
+	}
+	body += fmt.Sprintf("\n\nAdd a screenshot with `/case evidence case:%d file:` or use its `message_link` option.", detail.CaseNumber)
+	return ui.Conversation("evidence", fmt.Sprintf("Evidence for case #%d", detail.CaseNumber), "", body, "", true)
 }

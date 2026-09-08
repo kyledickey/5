@@ -91,12 +91,12 @@ means further work is required, not completion.
 | 9 Ticket transcripts | Pending native message capture and close/delete ordering. |
 | 10 Honeypot intents | Pending startup/runtime intent correction. |
 | 11 Honeypot recovery | Pending setup, debounce and incident recovery. |
-| 12 Direct evidence uploads | Pending screenshot/file attachment flow. |
-| 13 Evidence feedback | Saved text/warnings and initial failure flag fixed; dedicated view/upload controls pending. |
-| 14 Evidence preservation | Nonblocking capture and preserving channel customizations fixed; durable-copy links, orphan handling and live checks pending. |
+| 12 Direct evidence uploads | Implemented on `/case add` and `/case evidence`; live rehearsal pending. |
+| 13 Evidence feedback | Saved text/warnings, failure receipts, upload entry and dedicated view implemented; long-record pagination pending. |
+| 14 Evidence preservation | Nonblocking capture, channel customizations and saved-message links fixed; orphan handling and live checks pending. |
 | 15 Inconsistent case entry | Immediate slash/message creation implemented; user context entry and selector pagination pending. |
 | 16 Fragile case drafts | Creation wizard/draft map removed; current saved context can be reopened and edited. |
-| 17 Public deferred errors | Pending acknowledgment/privacy correction. |
+| 17 Public deferred errors | Staff subcommands and evidence/history buttons are private; creation and other controls still need review. |
 | 18 Stale result messages | Pending durable result refresh. |
 | 19 Noisy process errors | Pending module non-event classification. |
 | 20 Maintainability | Creation wizard removed; service composition, schema and stale docs still pending. |
@@ -105,3 +105,11 @@ means further work is required, not completion.
   implemented. Context edits are guild-scoped, require moderation permission,
   preserve enforcement and policy snapshots, and write a `case.update` event.
   The unused draft map, creation wizard and JSON slash option were removed.
+
+- Direct screenshots/files now share the existing preservation limits and warning
+  handling. `/case add file:` captures before enforcement; `/case evidence`
+  appends to an existing case without rescheduling actions. Stored copies link to
+  Discord messages instead of expiring attachment URLs. Case receipts and detail
+  include context/evidence/user/void controls; staff reads and evidence responses
+  are private. Focused tests include actual attachment option payloads and copy
+  adapter responses; `go test ./...` passes. No live Discord rehearsal yet.

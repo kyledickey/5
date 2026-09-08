@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -108,7 +109,7 @@ func (b *Bot) PreserveEvidenceAttachment(ctx context.Context, guildID, channelID
 	if sent == nil || len(sent.Attachments) == 0 || sent.Attachments[0] == nil || sent.Attachments[0].URL == "" {
 		return nil, errors.New("Discord did not confirm an attachment copy")
 	}
-	return &quack.PreservedDiscordAttachment{MessageID: sent.ID, AttachmentID: sent.Attachments[0].ID, URL: sent.Attachments[0].URL}, nil
+	return &quack.PreservedDiscordAttachment{MessageID: sent.ID, AttachmentID: sent.Attachments[0].ID, URL: fmt.Sprintf("https://discord.com/channels/%s/%s/%s", guildID, channelID, sent.ID)}, nil
 }
 
 // discordAttachmentURL restricts managed downloads to Discord attachment CDNs.

@@ -49,6 +49,7 @@ func createCaseFromInteraction(ctx context.Context, services *quack.Services, in
 		contextValues = messageLinkContext(template, link)
 	}
 	created, err := services.Cases.Create(ctx, guildContext, quack.CaseInput{
+		Attachments:             interactionEvidenceFiles(interaction, add.GetOption("file")),
 		TemplateID:              templateID,
 		TargetDiscordUserID:     optionStringValue(userOption),
 		Source:                  model.CaseSourceDiscord,
@@ -68,4 +69,20 @@ func evidenceLinksFromOption(option *discordgo.ApplicationCommandInteractionData
 		return nil
 	}
 	return []string{strings.TrimSpace(option.StringValue())}
+}
+
+// interactionEvidenceFiles accepts only attachment metadata resolved by Discord.
+func interactionEvidenceFiles(interaction *discordgo.InteractionCreate, option *discordgo.ApplicationCommandInteractionDataOption) []quack.DiscordAttachmentSnapshot {
+	if option == nil || interaction == nil {
+		return nil
+	}
+	resolved := interaction.ApplicationCommandData().Resolved
+	if resolved == nil {
+		return nil
+	}
+	file := resolved.Attachments[optionStringValue(option)]
+	if file == nil {
+		return nil
+	}
+	return []quack.DiscordAttachmentSnapshot{{ID: file.ID, Filename: file.Filename, ContentType: file.ContentType, URL: file.URL, SizeBytes: int64(file.Size)}}
 }

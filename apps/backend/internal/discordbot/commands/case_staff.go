@@ -22,7 +22,7 @@ func handleCaseStaffSubcommand(ctx ui.Context, data discordgo.ApplicationCommand
 	if selected == nil {
 		return ui.Immediate(ui.Error("Choose a case operation."))
 	}
-	return ui.Async(ui.DeferPublic(), func(taskCtx context.Context, responder ui.Responder) error {
+	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
 		guildContext, err := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
 		if err != nil {
 			_, editErr := responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(err)))
@@ -30,6 +30,12 @@ func handleCaseStaffSubcommand(ctx ui.Context, data discordgo.ApplicationCommand
 		}
 		var response ui.Message
 		switch selected.Name {
+		case "evidence":
+			detail, addErr := ctx.Services.Cases.AddEvidence(taskCtx, guildContext, optionStringValue(selected.GetOption("case")), evidenceLinksFromOption(selected.GetOption("message_link")), interactionEvidenceFiles(ctx.Interaction, selected.GetOption("file")))
+			err = addErr
+			if detail != nil {
+				response = views.CaseDetailMessage(detail)
+			}
 		case "view":
 			detail, getErr := ctx.Services.Cases.Get(taskCtx, guildContext, optionStringValue(selected.GetOption("case")))
 			err = getErr

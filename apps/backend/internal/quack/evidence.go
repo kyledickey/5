@@ -244,23 +244,7 @@ func (s *EvidenceService) capture(ctx context.Context, guildID, actorDiscordUser
 		}
 		totalAttachments += len(attachments)
 		for _, attachment := range attachments {
-			record := model.CaseEvidenceAttachment{EvidenceID: evidenceID, Filename: truncateRunes(attachment.Filename, 255), ContentType: truncateRunes(attachment.ContentType, 191), SizeBytes: attachment.SizeBytes, OriginalURL: attachment.URL, CopyOutcome: "metadata_only"}
-			if evidenceChannelID == "" {
-				record.Warning = "managed evidence channel is unavailable"
-			} else if attachment.SizeBytes < 0 || attachment.SizeBytes > MaxPreservedAttachmentBytes {
-				record.Warning = "attachment exceeds the managed copy size limit"
-			} else if !supportedEvidenceContentType(attachment.ContentType) {
-				record.Warning = "attachment type is not eligible for managed copying"
-			} else if preserved, copyErr := s.client.PreserveEvidenceAttachment(ctx, guildID, evidenceChannelID, attachment); copyErr != nil {
-				record.Warning = "attachment copy failed; original metadata retained"
-			} else if preserved != nil && preserved.URL != "" && preserved.AttachmentID != "" && preserved.MessageID != "" {
-				record.CopyOutcome = "preserved"
-				record.PreservedURL = preserved.URL
-				record.PreservedMessageDiscordID = preserved.MessageID
-				record.PreservedAttachmentDiscordID = preserved.AttachmentID
-			} else {
-				record.Warning = "attachment copy could not be confirmed; original metadata retained"
-			}
+			record := s.preserveAttachment(ctx, guildID, evidenceChannelID, evidenceID, attachment)
 			if record.Warning != "" {
 				result.Warnings = append(result.Warnings, record.Warning)
 				snapshotWarnings = append(snapshotWarnings, record.Warning)
@@ -288,4 +272,27 @@ func truncateRunes(value string, limit int) string {
 func supportedEvidenceContentType(value string) bool {
 	value = strings.ToLower(strings.TrimSpace(strings.Split(value, ";")[0]))
 	return strings.HasPrefix(value, "image/") || strings.HasPrefix(value, "video/") || strings.HasPrefix(value, "audio/") || value == "text/plain" || value == "application/pdf"
+}
+
+// preserveAttachment records original metadata even when a managed copy fails.
+// Both message capture and direct uploads share these size and type limits.
+func (s *EvidenceService) preserveAttachment(ctx context.Context, guildID, evidenceChannelID, evidenceID string, attachment DiscordAttachmentSnapshot) model.CaseEvidenceAttachment {
+	record := model.CaseEvidenceAttachment{EvidenceID: evidenceID, Filename: truncateRunes(attachment.Filename, 255), ContentType: truncateRunes(attachment.ContentType, 191), SizeBytes: attachment.SizeBytes, OriginalURL: attachment.URL, CopyOutcome: "metadata_only"}
+	if s == nil || s.client == nil || evidenceChannelID == "" {
+		record.Warning = "managed evidence channel is unavailable"
+	} else if attachment.SizeBytes < 0 || attachment.SizeBytes > MaxPreservedAttachmentBytes {
+		record.Warning = "attachment exceeds the managed copy size limit"
+	} else if !supportedEvidenceContentType(attachment.ContentType) {
+		record.Warning = "attachment type is not eligible for managed copying"
+	} else if preserved, copyErr := s.client.PreserveEvidenceAttachment(ctx, guildID, evidenceChannelID, attachment); copyErr != nil {
+		record.Warning = "attachment copy failed; original metadata retained"
+	} else if preserved != nil && preserved.URL != "" && preserved.AttachmentID != "" && preserved.MessageID != "" {
+		record.CopyOutcome = "preserved"
+		record.PreservedURL = preserved.URL
+		record.PreservedMessageDiscordID = preserved.MessageID
+		record.PreservedAttachmentDiscordID = preserved.AttachmentID
+	} else {
+		record.Warning = "attachment copy could not be confirmed; original metadata retained"
+	}
+	return record
 }

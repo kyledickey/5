@@ -15,6 +15,8 @@ func RegisterCaseComponents(registry *interactions.ComponentRegistry) error {
 		"void": handleVoidComponent, "reverse": handleReverseComponent,
 		"message_template": handleMessageTemplateComponent,
 		"edit_context":     handleEditContextComponent,
+		"evidence":         handleCaseEvidenceComponent,
+		"user_detail":      handleCaseUserComponent,
 	}
 	for action, handler := range components {
 		if err := registry.RegisterComponent("case", action, handler); err != nil {

@@ -215,7 +215,7 @@ func (s *CaseService) preflightCreate(ctx context.Context, guildContext *GuildSt
 		links = append(links, input.ContextURL)
 	}
 	result := &caseCreatePreflight{TemplateID: template.Template.ID, TemplateVersion: template.Template.Version, SelectedLevelID: selected.Level.ID, ActionType: actionType, ContextValuesJSON: valuesJSON}
-	if len(links) > 0 {
+	if len(links) > 0 || len(input.Attachments) > 0 {
 		settings, settingsErr := s.store.GetGuildSettings(ctx, guildContext.Guild.ID)
 		if settingsErr != nil {
 			slog.WarnContext(ctx, "Evidence storage settings unavailable", "guild_id", guildContext.Guild.ID)
@@ -245,6 +245,13 @@ func (s *CaseService) preflightCreate(ctx context.Context, guildContext *GuildSt
 		if captured != nil {
 			result.Captured = *captured
 		}
+		uploads, uploadErr := s.evidence.CaptureUploads(ctx, guildContext.Guild.DiscordGuildID, actorID, channelID, input.Attachments)
+		if uploadErr != nil {
+			return nil, uploadErr
+		}
+		result.Captured.Snapshots = append(result.Captured.Snapshots, uploads.Snapshots...)
+		result.Captured.Attachments = append(result.Captured.Attachments, uploads.Attachments...)
+		result.Captured.Warnings = append(result.Captured.Warnings, uploads.Warnings...)
 	}
 	return result, nil
 }

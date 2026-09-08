@@ -12,7 +12,7 @@ import (
 func TestCaseDetailSeparatesStateContextEvidenceAndRecovery(t *testing.T) {
 	detail := &quack.CaseDetailResponse{CaseResponse: quack.CaseResponse{ID: "case-1", CaseNumber: 7, TargetDiscordUserID: "target", Reason: "Official reason", Validity: model.CaseValidityValid, Source: model.CaseSourceDiscord, ContextValues: []quack.CaseContextValueResponse{{Key: "details", Label: "Details", Value: "Visible context"}}, SelectedLevel: &quack.CaseSelectedLevel{TemplateLevelDetails: quack.TemplateLevelDetails{Name: "Timeout"}}}, Actions: []quack.CaseActionDetailResponse{{CaseActionResponse: quack.CaseActionResponse{ID: "action-1", ActionType: model.ActionTimeoutUser, Status: model.ActionExecutionFailed}, LastErrorCode: "permission_denied"}}, Evidence: []quack.CaseEvidenceResponse{{MessageURL: "https://discord.com/channels/1/2/3", CaptureOutcome: "captured"}}, Events: []quack.CaseEventResponse{{EventType: model.CaseEventCreated, Body: "Case created"}}}
 	message := CaseDetailMessage(detail)
-	if message.Ephemeral || len(message.Embeds) != 0 || len(message.Components) != 1 {
+	if message.Ephemeral || len(message.Embeds) != 0 || len(message.Components) != 2 {
 		t.Fatalf("unexpected detail view: %+v", message)
 	}
 	for _, required := range []string{"Case for <@target>.", "> Official reason", "Timeout couldn’t be completed", "permission denied", "> Details — Visible context", "[View message](https://discord.com/channels/1/2/3)", "Case created", "-# Case #7"} {
@@ -21,8 +21,8 @@ func TestCaseDetailSeparatesStateContextEvidenceAndRecovery(t *testing.T) {
 		}
 	}
 	row := message.Components[0].(discordgo.ActionsRow)
-	if len(row.Components) < 3 {
-		t.Fatalf("expected void, retry, and dismiss controls: %+v", row)
+	if len(row.Components) != 4 {
+		t.Fatalf("expected context, evidence, user, and void controls: %+v", row)
 	}
 }
 

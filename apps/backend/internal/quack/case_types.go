@@ -9,17 +9,18 @@ import (
 
 // CaseInput contains moderator-provided context; escalation, reason, and enforcement come from the template.
 type CaseInput struct {
-	TemplateID              string                  `json:"template_id"`
-	TargetDiscordUserID     string                  `json:"target_discord_user_id"`
-	Source                  model.CaseSource        `json:"source"`
-	ContextChannelDiscordID string                  `json:"context_channel_discord_id"`
-	ContextMessageDiscordID string                  `json:"context_message_discord_id"`
-	ContextURL              string                  `json:"context_url"`
-	Metadata                json.RawMessage         `json:"metadata"`
-	ContextValues           []CaseContextValueInput `json:"context_values"`
-	EvidenceLinks           []string                `json:"evidence_links"`
-	ReplacesCaseID          string                  `json:"replaces_case_id,omitempty"`
-	IdempotencyKey          string                  `json:"-"`
+	Attachments             []DiscordAttachmentSnapshot `json:"attachments,omitempty"`
+	TemplateID              string                      `json:"template_id"`
+	TargetDiscordUserID     string                      `json:"target_discord_user_id"`
+	Source                  model.CaseSource            `json:"source"`
+	ContextChannelDiscordID string                      `json:"context_channel_discord_id"`
+	ContextMessageDiscordID string                      `json:"context_message_discord_id"`
+	ContextURL              string                      `json:"context_url"`
+	Metadata                json.RawMessage             `json:"metadata"`
+	ContextValues           []CaseContextValueInput     `json:"context_values"`
+	EvidenceLinks           []string                    `json:"evidence_links"`
+	ReplacesCaseID          string                      `json:"replaces_case_id,omitempty"`
+	IdempotencyKey          string                      `json:"-"`
 }
 
 // CaseContextValueInput carries one typed value keyed by its template definition.

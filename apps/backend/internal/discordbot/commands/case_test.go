@@ -60,8 +60,8 @@ func TestCommandDefinitionDefinesCaseAdd(t *testing.T) {
 	}
 
 	add := command.Options[0]
-	if len(add.Options) != 3 {
-		t.Fatalf("expected template/user/evidence options, got %+v", add.Options)
+	if len(add.Options) != 4 {
+		t.Fatalf("expected template/user/message/file options, got %+v", add.Options)
 	}
 	if !add.Options[0].Autocomplete {
 		t.Fatalf("expected template option to support autocomplete")
