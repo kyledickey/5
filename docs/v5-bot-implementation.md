@@ -1125,3 +1125,54 @@ means further work is required, not completion.
   they freeze decision reason and rejoin URL transactionally, so their eventual
   intent migration needs versioned persisted payloads and legacy-body fallback.
   Do not rebuild historical appeal messages from current settings.
+
+### Live timeout reversal and audit verification
+
+- Tester triggered synthetic honeypot case #4. Discord visibly showed the active
+  one-minute timeout. Administrator opened the new case and voided it with a
+  correction reason; the tester's input returned. SQL confirmed original timeout
+  success at 07:50:54.609 local, recorded expiry 13:51:54 UTC, and successful
+  removal at 07:51:49.950 local—about four seconds before expiry. This is an
+  actual early removal, not merely observing an expired timeout.
+- Grouped live audit rows contained case creation/voids, successful actions,
+  appeal submission/decisions, ticket open/resolve and module settings changes.
+  No read events, skipped mirrors or service-firing bookkeeping appeared in that
+  rehearsal database. Discord mirror delivery remains a separate check.
+- Reversal review found a distinct ownership gap: an old case could remove a
+  newer punishment. A bounded guard is being implemented to compare recorded
+  timeout expiry or original ban provenance with current Discord state, and
+  detect newer Quack enforcement. A mismatch must require review, not removal.
+
+### Notification adapter and guarded reversals
+
+- `5d93ca5` moves case notification rendering into the Discord adapter. Core
+  passes member-safe rule/outcome facts and retains the returned rendered receipt
+  on success or failure. Preparation and delivery fencing are unchanged. Lost
+  sends now have consistent uncertain-outcome classification; current failed
+  notification state remains terminal and is not automatically resent.
+- `ac4b5f7` verifies original enforcement, competing same-kind Quack work and live
+  timeout expiry or original ban reason before reversal. Missing linkage or
+  provenance fails closed. New timeout receipts preserve fixed milliseconds;
+  legacy second-only receipts remain supported. Already absent punishments have
+  explicit no-op attempt/event/audit outcomes. Native summaries describe the
+  resulting state. Visible audit footers omit database resource names and IDs.
+- The guard is an observation, not an atomic Discord compare-and-remove: manual
+  or newly concurrent enforcement can race between inspection and removal. An
+  exactly copied ban reason is weaker than immutable ownership. Newer failed work
+  is conservatively treated as potentially affecting punishment and needs review.
+- SQLite/MySQL provenance and focused ownership, absence, precision, missing-link,
+  privacy and notification tests pass. Root full MySQL-enabled backend suite
+  passed at `/tmp/notification-reversal-integration.log`. Loaded
+  `/tmp/quack-v5-ownership-review` at `ac4b5f7`; readiness passed and the database
+  and dashboard process were preserved.
+- Live `/setup audit` created channel `1546881393651486720` (`moderation-log`).
+  New synthetic case #5 (`01M20NC3983MTZP59HGBMJ7441`) delivered a member timeout DM
+  with exact expiry and native appeal button. The mirror showed separate case
+  creation and timeout success with member, rule, selected level and outcome,
+  without raw database IDs. After expiry, administrator voided the case. SQL
+  recorded `timeout_already_absent` and `reversal_noop=true`; the mirror visibly
+  confirmed absence and that no reversal request was sent.
+- Live changed-punishment/ban ownership and action failure-to-retry acceptance
+  remain open. Case notification formatting is no longer core-owned; persisted
+  appeal decision formatting and broad repository exposure remain follow-up
+  architecture work, not completed by relocating case notification rendering.
