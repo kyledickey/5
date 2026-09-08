@@ -89,8 +89,37 @@ collision. Existing numeric case-number collisions in manually transformed JSONL
 are remapped and reported. The format accepts optional departed/missing flags,
 moderator display name and old action expiry; expired actions are only warnings,
 never replayed. A source is bounded to 64 MiB, with each JSONL row below 2 MiB;
-there is currently no automatic chunking. Oversized sources require a separate
-bounded-export workflow before cutover, rather than truncation or skipped rows.
+use the paged export below for larger guilds. Oversized exports fail without
+writing a destination file; rows are never silently truncated or skipped.
+
+## Export larger guilds in pages
+
+Keep the restored source database unchanged throughout every page (including
+retries). Each invocation has its own read-only snapshot; offsets are not safe
+against inserts, deletes, or edits between invocations. Paging orders by
+`created_at, id`, so equal timestamps are resolved by the unique original ID.
+The default with no paging flags still exports the entire guild.
+
+```sh
+V4_DATABASE_DSN='readonly:password@tcp(test-host:3306)/v4_snapshot' \
+  go run ./cmd/quack-v4-import export \
+  --legacy-guild 123456789012345678 --guild 01J40000000000000000000001 \
+  --limit 1000 --offset 0 --file /private/operator/guild-page-001.jsonl
+```
+
+When more rows remain, the command prints the exact next `--offset` and the
+current `--limit`. Repeat with those bounds and a new private filename until it
+reports no more cases remain. `--limit` accepts 1–100000 rows; `--offset` is
+nonnegative and requires a positive limit. If a page exceeds 64 MiB, lower its
+limit and retry at the **same offset** with the same snapshot. A single row at or
+above 2 MiB is rejected and requires source investigation, not paging.
+
+Dry-run and import each page separately using the same `--source`, `--guild`,
+and `--actor` as the one-guild procedure above. Do not concatenate pages beyond
+the import size limit. Preserve each file checksum and import batch ID; reconcile
+the sum of page row counts against the source guild count. Paging preserves
+original source IDs and row content, so rerunning a page with the same source
+name remains idempotent, even when retrying with different page boundaries.
 
 Required JSONL fields are `format`, `source_id`, `guild_id` (the target ULID),
 `target_discord_user_id`, `reason`, `action_type`, and `created_at`. Preserve the

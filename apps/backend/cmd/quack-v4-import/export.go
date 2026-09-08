@@ -24,11 +24,17 @@ func exportLegacy(ctx context.Context, args []string, output io.Writer) error {
 	sourceGuild := set.String("legacy-guild", "", "legacy Discord guild ID")
 	targetGuild := set.String("guild", "", "target v5 guild ULID")
 	file := set.String("file", "", "new private JSONL output file")
+	limit := set.Int("limit", 0, "maximum cases per page (1-100000; zero exports all)")
+	offset := set.Int64("offset", 0, "number of ordered source cases already exported")
 	if err := set.Parse(args); err != nil {
 		return err
 	}
 	if *sourceGuild == "" || *targetGuild == "" || *file == "" {
 		return errors.New("--legacy-guild, --guild, and --file are required")
+	}
+	options := v4import.ExportOptions{Limit: *limit, Offset: *offset}
+	if err := options.Validate(); err != nil {
+		return err
 	}
 	dsn := os.Getenv("V4_DATABASE_DSN")
 	if dsn == "" {
@@ -50,7 +56,7 @@ func exportLegacy(ctx context.Context, args []string, output io.Writer) error {
 	}
 	defer db.Close()
 	var buffer bytes.Buffer
-	count, err := v4import.Export(ctx, db, *sourceGuild, *targetGuild, &buffer)
+	result, err := v4import.ExportPage(ctx, db, *sourceGuild, *targetGuild, &buffer, options)
 	if err != nil {
 		return err
 	}
@@ -64,6 +70,11 @@ func exportLegacy(ctx context.Context, args []string, output io.Writer) error {
 		_ = os.Remove(*file)
 		return errors.Join(writeErr, closeErr)
 	}
-	_, err = fmt.Fprintf(output, "Exported %d historical cases. Source database unchanged.\n", count)
+	_, err = fmt.Fprintf(output, "Exported %d historical cases. Source database unchanged.\n", result.Count)
+	if err == nil && result.HasMore {
+		_, err = fmt.Fprintf(output, "More cases remain; next page: --limit %d --offset %d (use a new --file).\n", *limit, result.NextOffset)
+	} else if err == nil {
+		_, err = fmt.Fprintln(output, "Export complete; no more cases remain.")
+	}
 	return err
 }

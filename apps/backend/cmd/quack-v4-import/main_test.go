@@ -33,3 +33,16 @@ func TestExportRequiresExplicitSourceAndMapping(t *testing.T) {
 		}
 	}
 }
+
+// TestExportInvalidBoundsPrecedeSourceAccess rejects invalid paging even when
+// no source DSN exists, leaving the requested destination untouched.
+func TestExportInvalidBoundsPrecedeSourceAccess(t *testing.T) {
+	t.Setenv("V4_DATABASE_DSN", "")
+	for _, bounds := range [][]string{{"--limit", "-1"}, {"--limit", "100001"}, {"--offset", "1"}, {"--limit", "2", "--offset", "-1"}} {
+		args := append([]string{"export", "--legacy-guild", "3001", "--guild", "01J40000000000000000000001", "--file", filepath.Join(t.TempDir(), "page.jsonl")}, bounds...)
+		err := run(context.Background(), args, &bytes.Buffer{})
+		if err == nil || !strings.Contains(err.Error(), "export requires --limit") {
+			t.Fatalf("%v: %v", bounds, err)
+		}
+	}
+}
