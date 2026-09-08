@@ -46,7 +46,7 @@ type Runtime struct {
 	registry            *modules.Registry
 	session             *discordgo.Session
 	resolver            guildResolver
-	repository          quack.Repository
+	honeypotTemplates   honeypotTemplateValidator
 	services            *quack.Services
 	cancel              context.CancelFunc
 	bulk                chan bulkDeleteEvent
@@ -76,7 +76,7 @@ func New(ctx context.Context, repositories *store.Store, session *discordgo.Sess
 	if session == nil {
 		return nil, errors.New("optional module Discord session is not configured")
 	}
-	if services == nil || services.Cases == nil || services.Store == nil {
+	if services == nil || services.Cases == nil || services.Templates == nil {
 		return nil, errors.New("optional module core services are not configured")
 	}
 
@@ -95,28 +95,28 @@ func New(ctx context.Context, repositories *store.Store, session *discordgo.Sess
 	ticketClient := ticketDiscordClient{session: session, resolver: resolver}
 	loggingClient := loggingDiscordClient{session: session, resolver: resolver}
 	loggingService := generallogging.NewService(registry, auditor, loggingClient, nil)
-	honeypotTemplates := honeypotTemplateValidator{repository: repositories}
+	honeypotTemplates := honeypotTemplateValidator{templates: services.Templates}
 	honeypotChannels := honeypotChannelValidator{session: session, resolver: resolver}
 	honeypotService := honeypot.NewService(registry, honeypot.NewStore(repositories.DB()), auditor, honeypotChannels, honeypotTemplates, honeypotCaseApplier{cases: services.Cases, session: session})
 	honeypotDiscord := honeypot.NewDiscordAdapter(honeypotService)
 	workerCtx, cancel := context.WithCancel(ctx)
 
 	runtime := &Runtime{
-		Tickets:         ticketService,
-		TicketDiscord:   tickets.NewDiscordAdapter(ticketService, ticketClient),
-		Logging:         loggingService,
-		LoggingQueue:    generallogging.NewDeliveryQueue(workerCtx, loggingService, loggingQueueCapacity, loggingQueueWorkers),
-		Honeypot:        honeypotService,
-		HoneypotDiscord: honeypotDiscord,
-		db:              repositories.DB(),
-		registry:        registry,
-		session:         session,
-		resolver:        resolver,
-		repository:      repositories,
-		services:        services,
-		cancel:          cancel,
-		bulk:            make(chan bulkDeleteEvent, loggingQueueCapacity),
-		closeDone:       make(chan struct{}),
+		Tickets:           ticketService,
+		TicketDiscord:     tickets.NewDiscordAdapter(ticketService, ticketClient),
+		Logging:           loggingService,
+		LoggingQueue:      generallogging.NewDeliveryQueue(workerCtx, loggingService, loggingQueueCapacity, loggingQueueWorkers),
+		Honeypot:          honeypotService,
+		HoneypotDiscord:   honeypotDiscord,
+		db:                repositories.DB(),
+		registry:          registry,
+		session:           session,
+		resolver:          resolver,
+		honeypotTemplates: honeypotTemplates,
+		services:          services,
+		cancel:            cancel,
+		bulk:              make(chan bulkDeleteEvent, loggingQueueCapacity),
+		closeDone:         make(chan struct{}),
 	}
 	runtime.honeypotCounter = &honeypotCounter{session: session, service: honeypotService, resolver: resolver, sharedLocks: &runtime.honeypotWarningLocks}
 	runtime.HoneypotRuntime = honeypot.NewRuntime(workerCtx, honeypotDiscord, honeypotQueueCapacity, honeypotQueueWorkers, runtime.honeypotCounter)

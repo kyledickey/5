@@ -67,50 +67,27 @@ func (a honeypotCaseApplier) DeleteHoneypotMessage(ctx context.Context, channelI
 	return err
 }
 
-// honeypotTemplateValidator projects live core policy without duplicating it
-// into optional-module persistence.
-type honeypotTemplateValidator struct{ repository quack.Repository }
+// unattendedTemplateValidator exposes only the core compatibility use case
+// needed by honeypot setup and live policy revalidation.
+type unattendedTemplateValidator interface {
+	ValidateUnattendedTemplate(context.Context, string, string) error
+}
 
-// ValidateHoneypotTemplate requires an active, unattended-compatible v5 policy.
+// honeypotTemplateValidator maps core policy failures to module availability
+// without giving the integration adapter access to template persistence.
+type honeypotTemplateValidator struct{ templates unattendedTemplateValidator }
+
+// ValidateHoneypotTemplate checks live core policy and preserves operational
+// failures as errors distinct from a policy becoming unavailable.
 func (v honeypotTemplateValidator) ValidateHoneypotTemplate(ctx context.Context, guildID, templateID string) error {
-	if v.repository == nil {
-		return errors.New("honeypot template repository is not configured")
+	if v.templates == nil {
+		return errors.New("honeypot template service is not configured")
 	}
-	template, err := v.repository.GetCaseTemplateExpanded(ctx, strings.TrimSpace(guildID), strings.TrimSpace(templateID))
-	if err != nil {
-		if errors.Is(err, model.ErrTemplateCompatibilityReviewRequired) {
-			return fmt.Errorf("%w: %v", honeypot.ErrTemplateUnavailable, err)
-		}
-		return err
+	err := v.templates.ValidateUnattendedTemplate(ctx, guildID, templateID)
+	if errors.Is(err, quack.ErrUnattendedTemplateUnavailable) {
+		return fmt.Errorf("%w: %v", honeypot.ErrTemplateUnavailable, err)
 	}
-	if template == nil || template.Template.ArchivedAt != nil {
-		return honeypot.ErrTemplateUnavailable
-	}
-	for _, field := range template.ContextFields {
-		if field.Required {
-			return fmt.Errorf("%w: required context field %s cannot be supplied unattended", honeypot.ErrTemplateUnavailable, field.Key)
-		}
-	}
-	defaults := 0
-	for _, level := range template.Levels {
-		if level.Level.IsDefault {
-			defaults++
-		}
-		if len(level.Actions) > 1 {
-			return fmt.Errorf("%w: template level has multiple actions", honeypot.ErrTemplateUnavailable)
-		}
-		for _, action := range level.Actions {
-			switch action.ActionType {
-			case model.ActionSendDM, model.ActionTimeoutUser, model.ActionKickUser, model.ActionBanUser:
-			default:
-				return fmt.Errorf("%w: unsupported unattended action %s", honeypot.ErrTemplateUnavailable, action.ActionType)
-			}
-		}
-	}
-	if defaults != 1 || len(template.Levels) == 0 {
-		return fmt.Errorf("%w: template must have exactly one default level", honeypot.ErrTemplateUnavailable)
-	}
-	return nil
+	return err
 }
 
 // honeypotChannelValidator checks the current Discord channel and bot access.
@@ -281,7 +258,7 @@ func (r *Runtime) HandleTemplateChange(ctx context.Context, guildID, templateID 
 	if r == nil || r.HoneypotDiscord == nil {
 		return
 	}
-	if err := (honeypotTemplateValidator{repository: r.repository}).ValidateHoneypotTemplate(ctx, guildID, templateID); errors.Is(err, honeypot.ErrTemplateUnavailable) {
+	if err := (r.honeypotTemplates).ValidateHoneypotTemplate(ctx, guildID, templateID); errors.Is(err, honeypot.ErrTemplateUnavailable) {
 		_ = r.HoneypotDiscord.HandleTemplateUnavailable(ctx, guildID, templateID)
 	}
 }

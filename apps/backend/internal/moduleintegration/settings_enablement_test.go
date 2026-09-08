@@ -43,7 +43,7 @@ func TestCoreSettingsReflectNativeModuleSetup(t *testing.T) {
 	if err != nil || !settings.TicketsEnabled {
 		t.Fatalf("native setup invisible: %+v %v", settings, err)
 	}
-	runtime := &Runtime{registry: registry, repository: repository}
+	runtime := &Runtime{registry: registry, honeypotTemplates: honeypotTemplateValidator{templates: quack.NewTemplateService(repository)}}
 	guild := &quack.GuildStaffContext{Guild: &bootstrap.Guild, Staff: &model.StaffMember{DiscordUserID: "owner"}, ActorDiscordUserID: "owner", PermissionBits: uint64(discordgo.PermissionManageGuild), Permissions: map[model.PermissionAction]bool{model.PermissionActionGuildSettingsWrite: true, model.PermissionActionGuildSettingsRead: true}}
 	core := quack.NewGuildSettingsService(repository).WithModuleEnablementValidator(runtime)
 	enable := true

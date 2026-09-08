@@ -240,7 +240,7 @@ func TestTemplateDriftDisablesOnlyMatchingHoneypotConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := honeypot.NewService(registry, honeypot.NewStore(db), nil, nil, nil, nil)
-	runtime := &Runtime{repository: repository, HoneypotDiscord: honeypot.NewDiscordAdapter(service)}
+	runtime := &Runtime{honeypotTemplates: honeypotTemplateValidator{templates: quack.NewTemplateService(repository)}, HoneypotDiscord: honeypot.NewDiscordAdapter(service)}
 	if _, err := repository.ArchiveCaseTemplate(context.Background(), guild.ID, template.Template.ID, nil); err != nil {
 		t.Fatal(err)
 	}

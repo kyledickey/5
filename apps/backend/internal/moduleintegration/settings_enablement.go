@@ -97,7 +97,7 @@ func (r *Runtime) ValidateGuildModuleEnablement(ctx context.Context, guild *quac
 		if err := (honeypotChannelValidator{session: r.session, resolver: r.resolver}).ValidateHoneypotChannel(ctx, guild.Guild.ID, settings.ChannelDiscordID); err != nil {
 			return "", err
 		}
-		if err := (honeypotTemplateValidator{repository: r.repository}).ValidateHoneypotTemplate(ctx, guild.Guild.ID, settings.TemplateID); err != nil {
+		if err := (r.honeypotTemplates).ValidateHoneypotTemplate(ctx, guild.Guild.ID, settings.TemplateID); err != nil {
 			return "", err
 		}
 	default:

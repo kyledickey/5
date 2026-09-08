@@ -53,7 +53,7 @@ func (r *Runtime) SetupHoneypot(ctx ui.Context) ui.HandlerResult {
 			}
 			settings.TemplateID = template.ID
 		}
-		if err := (honeypotTemplateValidator{repository: r.repository}).ValidateHoneypotTemplate(taskCtx, actor.GuildID, settings.TemplateID); err != nil {
+		if err := (r.honeypotTemplates).ValidateHoneypotTemplate(taskCtx, actor.GuildID, settings.TemplateID); err != nil {
 			return fail("The selected honeypot template is unavailable. Restore or repair it before setup.")
 		}
 		channelID, err := ui.SetupChannel(taskCtx, r.session, ctx.Interaction.GuildID, specified, settings.ChannelDiscordID, "honeypot", ui.SetupHoneypotChannel)

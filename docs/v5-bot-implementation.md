@@ -1460,3 +1460,19 @@ means further work is required, not completion.
   message as separate case evidence.
 - The one-minute timeout expired naturally; the native tester's message composer
   returned. No manual permission or punishment changes were needed.
+
+### Statistics and automation policy boundaries
+
+- `6c35709` composes staff statistics with the other core services. The HTTP
+  adapter uses that shared service instead of constructing one from the combined
+  repository. Statistics no longer requires an audit-write capability or builds
+  discarded read events; authorization and bounded derived queries are unchanged.
+  Focused core/API tests and the full MySQL-enabled backend suite passed.
+- Honeypot setup, enablement, and policy-change handling now ask the template
+  service to validate unattended compatibility. Integration no longer owns those
+  rules or retains a combined repository field for them. Policy unavailability
+  still maps to the honeypot sentinel, while transient storage errors remain
+  distinct. Focused tests cover the compatibility rules, guild isolation, and
+  adapter error mapping. These are composition changes, not a new live rehearsal.
+- The integrated full backend suite passed with MySQL enabled; the beta remains
+  on its previously verified binary until the next authorized runtime switch.
