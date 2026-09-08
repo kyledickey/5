@@ -38,24 +38,38 @@ func TestHoneypotFiltersBeforeDiscordLookup(t *testing.T) {
 		}
 	}
 	configure(`{"channel_discord_id":"trap","template_id":"template"}`)
+	guildReads := 0
+	if err := db.Callback().Query().Before("gorm:query").Register("test_gateway_resolution", func(tx *gorm.DB) {
+		if tx.Statement.Table == "guilds" {
+			guildReads++
+			if _, bounded := tx.Statement.Context.Deadline(); !bounded {
+				t.Error("gateway guild lookup has no deadline")
+			}
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
 	session, _ := discordgo.New("Bot test")
 	reads := 0
-	session.Client = &http.Client{Transport: ticketRoundTripper(func(*http.Request) (*http.Response, error) {
+	session.Client = &http.Client{Transport: ticketRoundTripper(func(request *http.Request) (*http.Response, error) {
 		reads++
+		if _, bounded := request.Context().Deadline(); !bounded {
+			t.Error("honeypot Discord lookup has no deadline")
+		}
 		return nil, errors.New("stop after first lookup")
 	})}
 	runtime := &Runtime{db: db, registry: registry, session: session, HoneypotRuntime: &honeypot.Runtime{}}
 	event := &discordgo.MessageCreate{Message: &discordgo.Message{ID: "message", GuildID: "guild", ChannelID: "ordinary", Author: &discordgo.User{ID: "member"}}}
-	runtime.submitHoneypotMessage(event)
+	runtime.onMessageCreate(session, event)
 	event.ChannelID = "trap"
 	event.Author.Bot = true
-	runtime.submitHoneypotMessage(event)
+	runtime.onMessageCreate(session, event)
 	if reads != 1 {
 		t.Fatalf("ordinary bot must reach live permission lookup: %d reads", reads)
 	}
 	session.State.User = &discordgo.User{ID: "quack", Bot: true}
 	event.Author.ID = "quack"
-	runtime.submitHoneypotMessage(event)
+	runtime.onMessageCreate(session, event)
 	if reads != 1 {
 		t.Fatal("Quack message reached trigger lookup")
 	}
@@ -63,9 +77,12 @@ func TestHoneypotFiltersBeforeDiscordLookup(t *testing.T) {
 	event.Author.Bot = false
 	event.ChannelID = "ordinary"
 	configure(`{"channel_discord_id":"ordinary","template_id":"template"}`)
-	runtime.submitHoneypotMessage(event)
+	runtime.onMessageCreate(session, event)
 	if reads != 2 {
 		t.Fatalf("new trap configuration not observed: %d reads", reads)
+	}
+	if guildReads != 4 {
+		t.Fatalf("want one guild lookup per message, got %d for four messages", guildReads)
 	}
 }
 

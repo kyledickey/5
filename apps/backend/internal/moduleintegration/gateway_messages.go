@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/modules"
@@ -24,13 +25,18 @@ func (r *Runtime) submit(event generallogging.Event) {
 
 // internalGuildID resolves active guilds and suppresses events for unknown guilds.
 func (r *Runtime) internalGuildID(discordGuildID string) (string, bool) {
-	id, err := (guildResolver{db: r.db}).internalID(context.Background(), discordGuildID)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	id, err := (guildResolver{db: r.db}).internalID(ctx, discordGuildID)
 	return id, err == nil
 }
 
-// onMessageCreate retains bounded context only when logging is enabled.
+// onMessageCreate resolves the guild once for optional routing. Ticket admission
+// and logging capture precede potentially slow honeypot permission lookups.
 func (r *Runtime) onMessageCreate(_ *discordgo.Session, event *discordgo.MessageCreate) {
-	r.submitHoneypotMessage(event)
+	if r == nil {
+		return
+	}
 	r.recordTicketMessage(event)
 	if event == nil || event.Message == nil || event.GuildID == "" {
 		return
@@ -39,20 +45,22 @@ func (r *Runtime) onMessageCreate(_ *discordgo.Session, event *discordgo.Message
 	if !ok {
 		return
 	}
-	_ = r.Logging.CacheMessage(context.Background(), cachedMessage(guildID, event.Message))
+	if r.Logging != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = r.Logging.CacheMessage(ctx, cachedMessage(guildID, event.Message))
+		cancel()
+	}
+	r.submitHoneypotMessage(guildID, event)
 }
 
 // submitHoneypotMessage performs live member/permission projection only for an
 // enabled guild, then submits to the module's isolated bounded runtime.
-func (r *Runtime) submitHoneypotMessage(event *discordgo.MessageCreate) {
+func (r *Runtime) submitHoneypotMessage(guildID string, event *discordgo.MessageCreate) {
 	if r == nil || r.registry == nil || r.session == nil || r.HoneypotRuntime == nil || event == nil || event.Message == nil || event.GuildID == "" {
 		return
 	}
-	ctx := context.Background()
-	guildID, ok := r.internalGuildID(event.GuildID)
-	if !ok {
-		return
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	configuration, err := r.registry.Configuration(ctx, guildID, modules.Honeypots)
 	if err != nil || configuration == nil || !configuration.Enabled {
 		return
@@ -64,15 +72,15 @@ func (r *Runtime) submitHoneypotMessage(event *discordgo.MessageCreate) {
 	if event.Author == nil || event.Author.ID == currentBotID(r.session) || event.WebhookID != "" {
 		return
 	}
-	channel, err := r.session.Channel(event.ChannelID)
+	channel, err := r.session.Channel(event.ChannelID, discordgo.WithContext(ctx))
 	if err != nil || channel == nil || channel.GuildID != event.GuildID || event.Author == nil {
 		return
 	}
-	guild, err := r.session.Guild(event.GuildID)
+	guild, err := r.session.Guild(event.GuildID, discordgo.WithContext(ctx))
 	if err != nil || guild == nil {
 		return
 	}
-	member, err := r.session.GuildMember(event.GuildID, event.Author.ID)
+	member, err := r.session.GuildMember(event.GuildID, event.Author.ID, discordgo.WithContext(ctx))
 	if err != nil || member == nil {
 		return
 	}
