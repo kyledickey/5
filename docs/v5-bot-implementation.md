@@ -322,3 +322,12 @@ means further work is required, not completion.
   settings alongside the existing moderator/bot exemption tests. Focused and full
   backend suites pass. Trap creation/default template/counter and live journeys
   remain pending.
+
+- Added the normal template-service helper for honeypot setup: an initial editable
+  ban policy with member notification and appeals enabled, using standard template
+  validation/persistence/audit. Repeated use preserves administrator edits and
+  version; archived templates require explicit restoration. A regression test
+  creates the default, edits it to an actionless warning and proves reuse does not
+  restore the ban. Focused and full backend suites pass. This helper is not yet
+  connected to the Discord setup command; trap creation/warning/counter, concurrent
+  setup handling and live rehearsal remain pending.

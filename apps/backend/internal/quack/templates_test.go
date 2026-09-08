@@ -352,3 +352,31 @@ func TestTemplateWritesRequireManagerAtServiceBoundary(t *testing.T) {
 		})
 	}
 }
+
+// TestHoneypotTemplateIsEditableAndReused verifies setup creates a real template
+// and never resets its custom punishment when run again.
+func TestHoneypotTemplateIsEditableAndReused(t *testing.T) {
+	ctx := context.Background()
+	repository := newMigratedStore(t)
+	guild := templateGuildContext(t, repository, "guild-honeypot", "admin", uint64(discordgo.PermissionManageGuild))
+	service := quack.NewTemplateService(repository)
+	created, err := service.EnsureHoneypotTemplate(ctx, guild)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(created.Levels) != 1 || len(created.Levels[0].Actions) != 1 || created.Levels[0].Actions[0].ActionType != model.ActionBanUser || !created.Levels[0].NotifyUser {
+		t.Fatalf("wrong default honeypot policy: %+v", created)
+	}
+	input := quack.TemplateInput{Slug: "honeypot", Name: "Custom trap", ReasonTemplate: "Custom warning", Appealable: true, Levels: []quack.TemplateLevelInput{{Name: "Default", Position: 1, IsDefault: true, NotifyUser: true}}}
+	edited, err := service.Update(ctx, guild, created.ID, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reused, err := service.EnsureHoneypotTemplate(ctx, guild)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reused.ID != created.ID || reused.Version != edited.Version || reused.Name != "Custom trap" || len(reused.Levels[0].Actions) != 0 {
+		t.Fatalf("setup reset edited policy: %+v", reused)
+	}
+}
