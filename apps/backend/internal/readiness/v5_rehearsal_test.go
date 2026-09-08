@@ -36,7 +36,7 @@ func TestCleanInstallComposesEveryAcceptedV5Surface(t *testing.T) {
 	if err := repository.Migrate(); err != nil {
 		t.Fatalf("migrate clean database: %v", err)
 	}
-	assertContiguousMigrationLedger(t, db)
+	assertCurrentSchemaReady(t, db)
 
 	cfg := config.Default()
 	cfg.Discord.AppID = "123456789012345678"
@@ -78,30 +78,15 @@ func TestCleanInstallComposesEveryAcceptedV5Surface(t *testing.T) {
 	})
 }
 
-// assertContiguousMigrationLedger verifies that clean installation records an
-// ordered prefix with no duplicate or skipped physical migration versions.
-func assertContiguousMigrationLedger(t *testing.T, db *gorm.DB) {
+// assertCurrentSchemaReady verifies clean startup uses the current definitions
+// and has completed initialization without replaying the retired migration chain.
+func assertCurrentSchemaReady(t *testing.T, db *gorm.DB) {
 	t.Helper()
-	var ledger []struct {
-		Version uint64
-		Name    string
+	if db.Migrator().HasTable("quack_schema_migrations") {
+		t.Fatal("clean installation replayed historical migrations")
 	}
-	if err := db.Raw("SELECT version, name FROM quack_schema_migrations ORDER BY version").Scan(&ledger).Error; err != nil {
-		t.Fatalf("read migration ledger: %v", err)
-	}
-	if len(ledger) != 11 {
-		t.Fatalf("migration ledger omitted final v5 migrations: %+v", ledger)
-	}
-	for index, entry := range ledger {
-		want := uint64(index + 1)
-		if entry.Version != want {
-			t.Fatalf("migration ledger is not contiguous at index %d: got %d want %d", index, entry.Version, want)
-		}
-	}
-	for version, name := range map[int]string{9: "appeals_and_member_access_0200", 10: "v4_historical_import_0400", 11: "final_storage_constraints_0410"} {
-		if ledger[version-1].Name != name {
-			t.Fatalf("migration %d has name %q, want %q", version, ledger[version-1].Name, name)
-		}
+	if version, err := store.New(db, nil).MigrationReadiness(context.Background()); err != nil || version != 1 {
+		t.Fatalf("current schema is not ready: version=%d err=%v", version, err)
 	}
 }
 

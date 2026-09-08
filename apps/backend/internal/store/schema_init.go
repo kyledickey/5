@@ -40,7 +40,7 @@ func (s *Store) InitializeSchema() error {
 				return fmt.Errorf("create current schema marker: %w", err)
 			}
 		}
-		models := append(schemaModels(), &GuildSettingsRecord{}, &GuildAppealSettingsRecord{}, &AppealNotificationRecord{}, &V4ImportBatchRecord{}, &V4ImportSourceRecord{})
+		models := append(schemaModels(), &GuildSettingsRecord{}, &GuildAppealSettingsRecord{}, &AppealNotificationRecord{}, &V4ImportBatchRecord{}, &V4ImportSourceRecord{}, &auditMirrorDelivery{})
 		if err := db.AutoMigrate(models...); err != nil {
 			return fmt.Errorf("initialize core schema: %w", err)
 		}

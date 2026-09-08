@@ -804,3 +804,14 @@ means further work is required, not completion.
   application is still shared with its last migration; replacing that runner,
   making direct initialization the default, and deleting frozen compatibility
   code remain part of the outstanding schema cleanup.
+
+- Empty databases now use direct current-schema initialization by default, so the
+  ordinary feature test harnesses exercise it rather than replaying the eleven-step
+  chain. This exposed and fixed missing audit-mirror receipt initialization, an
+  unconditional legacy template-quarantine lookup, recovery manifests assuming the
+  old ledger, and readiness rejecting current-schema databases. Historical fixture
+  tests now explicitly create their retired quarantine table or invoke the legacy
+  runner; clean composition instead verifies current-schema readiness. Focused
+  storage/service and route/readiness tests pass, followed by the full MySQL-enabled
+  backend suite. Existing nonempty databases retain the old compatibility runner;
+  deleting it and switching the live rehearsal database remain outstanding.

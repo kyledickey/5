@@ -72,6 +72,9 @@ func (s *Store) BuildRecoveryManifest(ctx context.Context) (*RecoveryManifest, e
 	}
 	manifest := &RecoveryManifest{Version: "quack-v5-recovery/v1", CapturedAt: time.Now().UTC(), Tables: map[string]RecoveryTableManifest{}, GuildCaseHighWater: map[string]uint64{}}
 	for _, definition := range recoveryTables {
+		if definition.name == "quack_schema_migrations" && s.db.Migrator().HasTable(&currentSchema{}) {
+			definition = recoveryTableDefinition{"quack_current_schema", []string{"id"}, "id"}
+		}
 		if !s.db.Migrator().HasTable(definition.name) {
 			return nil, fmt.Errorf("required recovery table %s is missing", definition.name)
 		}

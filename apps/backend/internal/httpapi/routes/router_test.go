@@ -655,6 +655,10 @@ func TestTemplateRouteRejectsQuarantinedLegacyPolicyExplicitly(t *testing.T) {
 		t.Fatalf("archive quarantined template: %v", err)
 	}
 	reason := "level has multiple actions; template does not have exactly one default level"
+	// Explicit historical quarantine fixture; fresh v5 databases omit this table.
+	if err := repositories.DB().Exec(`CREATE TABLE quack_v5_0002_template_compatibility (template_id TEXT PRIMARY KEY, previous_archived_at DATETIME, previous_deleted_at DATETIME, reason TEXT, recorded_at DATETIME)`).Error; err != nil {
+		t.Fatal(err)
+	}
 	if err := repositories.DB().Exec(
 		"INSERT INTO quack_v5_0002_template_compatibility (template_id, previous_archived_at, previous_deleted_at, reason, recorded_at) VALUES (?, ?, ?, ?, ?)",
 		created.Template.ID, nil, nil, reason, now,

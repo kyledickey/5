@@ -69,6 +69,13 @@ func (s *Store) Migrate() error {
 	if s.db.Migrator().HasTable(&currentSchema{}) {
 		return s.InitializeSchema()
 	}
+	tables, err := s.db.Migrator().GetTables()
+	if err != nil {
+		return fmt.Errorf("inspect database before initialization: %w", err)
+	}
+	if len(tables) == 0 {
+		return s.InitializeSchema()
+	}
 
 	return runMigrations(s.db, registeredMigrations())
 }

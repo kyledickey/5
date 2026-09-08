@@ -141,6 +141,10 @@ func TestCaseTemplateStorageListOmitsQuarantinedTemplates(t *testing.T) {
 	}
 
 	now := time.Now().UTC()
+	// This fixture deliberately recreates the retired quarantine table.
+	if err := store.DB().Exec(`CREATE TABLE quack_v5_0002_template_compatibility (template_id TEXT PRIMARY KEY, previous_archived_at DATETIME, previous_deleted_at DATETIME, reason TEXT, recorded_at DATETIME)`).Error; err != nil {
+		t.Fatal(err)
+	}
 	if err := store.DB().Exec(
 		"INSERT INTO quack_v5_0002_template_compatibility (template_id, previous_archived_at, previous_deleted_at, reason, recorded_at) VALUES (?, ?, ?, ?, ?)",
 		created.Template.ID, nil, nil, "level uses an escalation window", now,

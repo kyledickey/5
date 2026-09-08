@@ -8,7 +8,7 @@ import (
 
 func TestOptionalModuleLogicalMigrationsJoinCentralLedger(t *testing.T) {
 	db := openSQLiteMigrationDB(t)
-	if err := New(db, nil).Migrate(); err != nil {
+	if err := runMigrations(db, registeredMigrations()); err != nil {
 		t.Fatalf("migrate optional modules: %v", err)
 	}
 

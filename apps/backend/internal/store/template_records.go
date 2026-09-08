@@ -19,15 +19,18 @@ func getCaseTemplateExpanded(db *gorm.DB, guildID, templateID string) (*Expanded
 		return nil, fmt.Errorf("get case template: %w", err)
 	}
 
-	var compatibility migration0002TemplateCompatibility
-	compatibilityResult := db.Where("template_id = ?", templateRecord.ID).Limit(1).Find(&compatibility)
-	if compatibilityResult.Error != nil {
-		return nil, fmt.Errorf("get case template compatibility state: %w", compatibilityResult.Error)
-	}
-	if compatibilityResult.RowsAffected > 0 {
-		return nil, &model.TemplateCompatibilityReviewError{
-			TemplateID: templateRecord.ID,
-			Reason:     compatibility.Reason,
+	// Only adopted historical databases have quarantined pre-release templates.
+	if db.Migrator().HasTable(&migration0002TemplateCompatibility{}) {
+		var compatibility migration0002TemplateCompatibility
+		compatibilityResult := db.Where("template_id = ?", templateRecord.ID).Limit(1).Find(&compatibility)
+		if compatibilityResult.Error != nil {
+			return nil, fmt.Errorf("get case template compatibility state: %w", compatibilityResult.Error)
+		}
+		if compatibilityResult.RowsAffected > 0 {
+			return nil, &model.TemplateCompatibilityReviewError{
+				TemplateID: templateRecord.ID,
+				Reason:     compatibility.Reason,
+			}
 		}
 	}
 

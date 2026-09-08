@@ -35,17 +35,17 @@ func TestMigrateSQLiteForwardAndRerun(t *testing.T) {
 		t.Fatalf("rerun sqlite migrations: %v", err)
 	}
 
-	for _, table := range []string{"guilds", "cases", "case_action_attempts", "case_events", "audit_log_entries", "quack_schema_migrations"} {
+	for _, table := range []string{"guilds", "cases", "case_action_attempts", "case_events", "audit_log_entries", "quack_current_schema"} {
 		if !db.Migrator().HasTable(table) {
 			t.Fatalf("expected table %s", table)
 		}
 	}
 	var ledgerCount int64
-	if err := db.Model(&schemaMigration{}).Count(&ledgerCount).Error; err != nil {
+	if err := db.Model(&currentSchema{}).Count(&ledgerCount).Error; err != nil {
 		t.Fatalf("count migration ledger: %v", err)
 	}
-	if ledgerCount != int64(len(registeredMigrations())) {
-		t.Fatalf("expected %d migration ledger rows after rerun, got %d", len(registeredMigrations()), ledgerCount)
+	if ledgerCount != 1 {
+		t.Fatalf("expected %d migration ledger rows after rerun, got %d", 1, ledgerCount)
 	}
 }
 
@@ -525,7 +525,7 @@ func assertTemplateDeletedState(t *testing.T, db *gorm.DB, templateID string, de
 
 func TestRegisteredMigrationsProduceEveryCurrentSchemaFieldAndIndex(t *testing.T) {
 	db := openSQLiteMigrationDB(t)
-	if err := New(db, nil).Migrate(); err != nil {
+	if err := runMigrations(db, registeredMigrations()); err != nil {
 		t.Fatalf("migrate clean sqlite schema: %v", err)
 	}
 
@@ -613,7 +613,7 @@ func TestMigrateAddsKnownCurrentV5ColumnsToOlderSchema(t *testing.T) {
 func TestMigrateRejectsEditedAppliedMigration(t *testing.T) {
 	db := openSQLiteMigrationDB(t)
 	repositories := New(db, nil)
-	if err := repositories.Migrate(); err != nil {
+	if err := runMigrations(db, registeredMigrations()); err != nil {
 		t.Fatalf("migrate sqlite schema: %v", err)
 	}
 	if err := db.Model(&schemaMigration{}).Where("version = ?", 1).Update("checksum", "edited").Error; err != nil {
@@ -690,7 +690,7 @@ func TestRollbackLastMigrationRunsReviewedInverse(t *testing.T) {
 func TestRollbackRefusesForwardOnlyModuleMigrationWithoutChangingHistory(t *testing.T) {
 	db := openSQLiteMigrationDB(t)
 	repositories := New(db, nil)
-	if err := repositories.Migrate(); err != nil {
+	if err := runMigrations(db, registeredMigrations()); err != nil {
 		t.Fatalf("migrate baseline: %v", err)
 	}
 	want := insertRepresentativeHistory(t, db)

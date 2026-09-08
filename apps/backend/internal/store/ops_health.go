@@ -5,11 +5,18 @@ import (
 	"fmt"
 )
 
-// MigrationReadiness verifies that the applied migration ledger exactly
-// matches the current reviewed registry and contains no dirty entry.
+// MigrationReadiness requires a completed direct initialization, or a current
+// historical migration ledger for databases not yet moved to the new schema path.
 func (s *Store) MigrationReadiness(ctx context.Context) (uint64, error) {
 	if s == nil || s.db == nil {
 		return 0, fmt.Errorf("database not connected")
+	}
+	if s.db.WithContext(ctx).Migrator().HasTable(&currentSchema{}) {
+		var marker currentSchema
+		if err := s.db.WithContext(ctx).First(&marker, "id = ?", 1).Error; err != nil {
+			return 0, fmt.Errorf("current schema initialization is incomplete: %w", err)
+		}
+		return 1, nil
 	}
 	applied, err := loadAppliedMigrations(s.db.WithContext(ctx))
 	if err != nil {
