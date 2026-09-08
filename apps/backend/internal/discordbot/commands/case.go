@@ -86,12 +86,23 @@ func HandleCaseInteraction(ctx ui.Context) ui.HandlerResult {
 			return nil
 		}
 
-		message, err := ui.Publish(responder, views.CaseCreatedMessage(views.CaseCreated{
-			Case:     result.Case,
-			Template: result.Template,
-		}))
+		receipt := views.CaseCreatedMessage(views.CaseCreated{Case: result.Case, Template: result.Template})
+		message, err := ui.Publish(responder, receipt)
+		if err != nil {
+			// A committed case must never be replaced by the dispatcher's
+			// generic command failure. Retrying this edit cannot repeat it.
+			message, err = establishPrivateCaseReceipt(taskCtx, responder, receipt)
+			if err != nil {
+				receipt.Ephemeral = true
+				receipt.Content += "\n\nThe case was created. Do not create it again; use `/case view` to check its result."
+				_, _ = responder.Followup(receipt)
+				return nil
+			}
+		}
 		if err == nil && message != nil {
-			updatePublicCaseResult(taskCtx, responder, ctx.Services, result.Case, message.ID, result.Template)
+			if refreshErr := updatePublicCaseResult(taskCtx, responder, ctx.Services, result.Case, message.ID, message.ChannelID, result.Template); refreshErr != nil {
+				_, _ = responder.Followup(ui.Content("The case was created, but automatic result updates could not be saved. Use `/case view` to check the outcome.", true))
+			}
 		}
 		return err
 	})

@@ -38,6 +38,13 @@ func TestAdoptCurrentSchemaPreservesHistory(t *testing.T) {
 			}
 			delete(before.Tables, "quack_schema_migrations")
 			delete(after.Tables, "quack_current_schema")
+			// Current startup creates the new delivery table; it contains no historical
+			// moderation records and must begin empty on adoption.
+			var publications int64
+			if err := db.Table("case_publications").Count(&publications).Error; err != nil || publications != 0 {
+				t.Fatalf("expected an empty publication table after adoption: count=%d err=%v", publications, err)
+			}
+			delete(after.Tables, "case_publications")
 			if !reflect.DeepEqual(before.Tables, after.Tables) || !reflect.DeepEqual(before.GuildCaseHighWater, after.GuildCaseHighWater) {
 				t.Fatal("adoption changed preserved history or case numbering")
 			}

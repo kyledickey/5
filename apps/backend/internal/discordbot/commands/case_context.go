@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
@@ -90,8 +91,16 @@ func modalTextValue(data discordgo.ModalSubmitInteractionData, customID string) 
 // private deferred response. A publication failure retains a usable private case.
 func publishPrivateContextCase(ctx context.Context, responder ui.Responder, services *quack.Services, created *quack.CaseResponse, template *quack.TemplateResponse) error {
 	result := views.CaseCreatedMessage(views.CaseCreated{Case: created, Template: template})
-	if _, err := responder.EditOriginal(ui.EditMessage(result)); err != nil {
-		return err
+	if _, err := establishPrivateCaseReceipt(ctx, responder, result); err != nil {
+		// A failed edit may have reached Discord. Never publish a potentially
+		// inherited private followup as though its visibility were confirmed.
+		slog.WarnContext(ctx, "Could not establish private case receipt", "case_id", created.ID, "error_type", fmt.Sprintf("%T", err))
+		result.Ephemeral = true
+		result.Content += "\n\nThe case was created. Quack could not confirm public delivery. Do not create it again; use `/case view` to check its result."
+		if _, fallbackErr := responder.Followup(result); fallbackErr != nil {
+			slog.WarnContext(ctx, "Could not deliver committed case receipt", "case_id", created.ID, "error_type", fmt.Sprintf("%T", fallbackErr))
+		}
+		return nil
 	}
 	message, err := responder.Followup(result)
 	if err != nil {
@@ -105,10 +114,38 @@ func publishPrivateContextCase(ctx context.Context, responder ui.Responder, serv
 		return nil
 	}
 	if message != nil {
-		updatePublicCaseResult(ctx, responder, services, created, message.ID, template)
+		if err := updatePublicCaseResult(ctx, responder, services, created, message.ID, message.ChannelID, template); err != nil {
+			slog.WarnContext(ctx, "Could not persist public case receipt", "case_id", created.ID, "error_type", fmt.Sprintf("%T", err))
+			result.Content += "\n\nThe case was created and posted publicly, but automatic result updates could not be saved. Use `/case view` to check the outcome."
+			_, _ = responder.EditOriginal(ui.EditMessage(result))
+			return nil
+		}
 	}
 	if err := responder.DeleteOriginal(); err != nil {
 		slog.WarnContext(ctx, "Could not remove private case receipt", "case_id", created.ID, "error_type", fmt.Sprintf("%T", err))
 	}
 	return nil
+}
+
+// establishPrivateCaseReceipt retries the idempotent original-message edit before
+// public publication. It never repeats the committed moderation operation.
+func establishPrivateCaseReceipt(ctx context.Context, responder ui.Responder, result ui.Message) (*discordgo.Message, error) {
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			timer := time.NewTimer(250 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, lastErr
+			case <-timer.C:
+			}
+		}
+		message, err := responder.EditOriginal(ui.EditMessage(result))
+		lastErr = err
+		if err == nil {
+			return message, nil
+		}
+	}
+	return nil, lastErr
 }

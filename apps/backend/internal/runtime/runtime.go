@@ -66,11 +66,21 @@ func Run(ctx context.Context) (runErr error) {
 	queue := workqueue.New(cfg.EventQueue.Size, cfg.EventQueue.Workers)
 	var moduleRuntime *moduleintegration.Runtime
 	queueStarted := false
+	publicationCtx, stopPublications := context.WithCancel(ctx)
+	var publicationsDone chan struct{}
 	defer func() {
 		slog.Info("Stopping Quack")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.API.ShutdownTimeoutSeconds)*time.Second)
 		defer cancel()
 		var shutdownErrors []error
+		stopPublications()
+		if publicationsDone != nil {
+			select {
+			case <-publicationsDone:
+			case <-shutdownCtx.Done():
+				shutdownErrors = append(shutdownErrors, shutdownCtx.Err())
+			}
+		}
 		if queueStarted {
 			shutdownErrors = append(shutdownErrors, queue.StopContext(shutdownCtx))
 		}
@@ -105,6 +115,9 @@ func Run(ctx context.Context) (runErr error) {
 	if err := bot.Open(); err != nil {
 		return fmt.Errorf("connect Discord bot: %w", err)
 	}
+
+	publicationsDone = make(chan struct{})
+	go func() { defer close(publicationsDone); bot.RunCasePublications(publicationCtx, repositories) }()
 
 	queue.Start(ctx, services.Actions.ProcessCaseActions, repositories)
 	queueStarted = true

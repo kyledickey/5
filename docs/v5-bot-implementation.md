@@ -881,3 +881,15 @@ means further work is required, not completion.
   regression following saved setup through delivery, including destination and
   absence of transport audit noise. Root independently passed general-logging
   and moduleintegration package tests after review.
+- Public case receipts now persist message/channel coordinates and an allowlisted
+  presentation snapshot. A bot-credential worker resumes after restart, refreshes
+  enforcement/void status and evidence health, retries transport/storage failures,
+  and retires definitively deleted messages. Pending receipts reconcile every two
+  seconds; stable receipts every five minutes, subject to backlog/outages. Initial
+  response failures retain a committed-case explanation instead of generic failure
+  or another moderation operation. Root reviewed privacy/lifecycle boundaries and
+  the consolidated MySQL-enabled backend suite passed. Initial Discord send and
+  local receipt storage remain non-atomic: a crash between them can leave an
+  untracked public message; failed registration retains private feedback and a
+  bounded interaction-token refresh fallback. Recovery manifests now preserve
+  current-schema publication receipts without requiring them before legacy adoption.

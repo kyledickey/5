@@ -262,7 +262,7 @@ type fakeResponder struct {
 func (f *fakeResponder) EditOriginal(edit ui.Edit) (*discordgo.Message, error) {
 	f.edit = edit
 	f.editCount++
-	return &discordgo.Message{ID: "message-1"}, nil
+	return &discordgo.Message{ID: "message-1", ChannelID: "channel-1"}, nil
 }
 
 func (f *fakeResponder) Followup(message ui.Message) (*discordgo.Message, error) {
@@ -270,7 +270,7 @@ func (f *fakeResponder) Followup(message ui.Message) (*discordgo.Message, error)
 		message.Ephemeral = true
 	}
 	f.followup = message
-	return &discordgo.Message{ID: "followup-1"}, nil
+	return &discordgo.Message{ID: "followup-1", ChannelID: "channel-1"}, nil
 }
 
 func (f *fakeResponder) EditFollowup(messageID string, edit ui.Edit) (*discordgo.Message, error) {
@@ -285,7 +285,7 @@ func (f *fakeResponder) DeleteOriginal() error {
 
 func (f *fakeResponder) UpdateMessage(edit ui.Edit) (*discordgo.Message, error) {
 	f.updated = edit
-	return &discordgo.Message{ID: "message-1"}, nil
+	return &discordgo.Message{ID: "message-1", ChannelID: "channel-1"}, nil
 }
 
 func newCaseCommandHarness(t *testing.T) (*store.Store, *quack.Services, string) {

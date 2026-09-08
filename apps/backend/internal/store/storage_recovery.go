@@ -71,7 +71,11 @@ func (s *Store) BuildRecoveryManifest(ctx context.Context) (*RecoveryManifest, e
 		return nil, errors.New("database not connected")
 	}
 	manifest := &RecoveryManifest{Version: "quack-v5-recovery/v1", CapturedAt: time.Now().UTC(), Tables: map[string]RecoveryTableManifest{}, GuildCaseHighWater: map[string]uint64{}}
-	for _, definition := range recoveryTables {
+	definitions := append([]recoveryTableDefinition{}, recoveryTables...)
+	if s.db.Migrator().HasTable(&currentSchema{}) {
+		definitions = append(definitions, recoveryTableDefinition{"case_publications", []string{"message_id", "case_id", "channel_id", "presentation_json", "last_digest", "retry_at"}, "message_id"})
+	}
+	for _, definition := range definitions {
 		if definition.name == "quack_schema_migrations" && s.db.Migrator().HasTable(&currentSchema{}) {
 			definition = recoveryTableDefinition{"quack_current_schema", []string{"id"}, "id"}
 		}
