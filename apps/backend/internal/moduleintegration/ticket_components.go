@@ -42,6 +42,13 @@ func (r *Runtime) ticketActor(ctx ui.Context) (tickets.Actor, error) {
 func (r *Runtime) openTicketComponent(ctx ui.Context) ui.HandlerResult {
 	return r.ticketTask(ctx, func(taskCtx context.Context, responder ui.Responder, actor tickets.Actor) error {
 		ticket, err := r.TicketDiscord.Open(taskCtx, actor)
+		if errors.Is(err, tickets.ErrDuplicateOpen) {
+			active, lookupErr := r.Tickets.ActiveForMember(taskCtx, actor)
+			if lookupErr == nil {
+				_, err = responder.EditOriginal(ui.EditMessage(existingTicketMessage(active)))
+				return err
+			}
+		}
 		if err != nil && ticket == nil {
 			_, _ = responder.EditOriginal(ui.ErrorEdit(ticketErrorMessage(err)))
 			return nil

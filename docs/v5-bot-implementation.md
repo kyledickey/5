@@ -542,3 +542,11 @@ means further work is required, not completion.
   reservation. Tests cover both failure stages, recovery and an old-close/new-ticket
   race boundary; focused and full backend suites pass. Historical cancelled-state
   simplification, owner-facing recovery feedback and live rehearsal remain pending.
+
+- Duplicate ticket opening now resolves the caller's own durable reservation and
+  returns the existing thread link. A ticket awaiting closure cleanup instead
+  offers Finish closing through the existing authorized close handler; provisional
+  openings show a brief wait message. The lookup is scoped to guild and member,
+  and does not expose another member's ticket. Ownership/isolation and presentation
+  tests pass along with the full backend suite. Live recovery UX, direct close
+  error feedback and remaining lifecycle simplification are still pending.

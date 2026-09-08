@@ -346,6 +346,15 @@ func TestTicketDeletionWaitsForTranscriptPublication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	active, err := service.ActiveForMember(ctx, actor)
+	if err != nil || active == nil || active.ID != ticket.ID {
+		t.Fatalf("missing own ticket: %+v %v", active, err)
+	}
+	for _, other := range []tickets.Actor{{GuildID: actor.GuildID, DiscordUserID: "other"}, {GuildID: "other-guild", DiscordUserID: actor.DiscordUserID}} {
+		if active, err := service.ActiveForMember(ctx, other); err != nil || active != nil {
+			t.Fatalf("leaked member ticket: %+v %v", active, err)
+		}
+	}
 	client.failPublish = true
 	if _, err := adapter.Close(ctx, actor, ticket.ID); err == nil {
 		t.Fatal("failed transcript upload reported success")
