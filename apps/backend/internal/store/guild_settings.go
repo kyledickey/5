@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	mysqlerrors "github.com/go-sql-driver/mysql"
 	"github.com/quackdiscord/bot/internal/quack/model"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -122,6 +123,28 @@ func (s *Store) ClearGuildChannelReferences(ctx context.Context, guildID, channe
 
 // BootstrapGuild atomically refreshes guild lifecycle state and creates the one-time exact starter policy.
 func (s *Store) BootstrapGuild(ctx context.Context, params model.BootstrapGuildParams) (*model.BootstrapGuildResult, error) {
+	// Concurrent ready/guild-create events can deadlock while locking a guild
+	// that does not exist yet. MySQL rolls back the victim transaction in full,
+	// so retry only that definite rollback, with fresh result flags each time.
+	for attempt := 0; ; attempt++ {
+		result, err := s.bootstrapGuildOnce(ctx, params)
+		var dbErr *mysqlerrors.MySQLError
+		if attempt >= 4 || !errors.As(err, &dbErr) || dbErr.Number != 1213 {
+			return result, err
+		}
+		timer := time.NewTimer(time.Duration(10<<attempt) * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+// bootstrapGuildOnce owns one atomic attempt; no external effects occur before
+// commit and failed attempts never leak created flags into a later retry.
+func (s *Store) bootstrapGuildOnce(ctx context.Context, params model.BootstrapGuildParams) (*model.BootstrapGuildResult, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}

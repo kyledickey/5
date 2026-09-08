@@ -318,3 +318,45 @@ func TestMySQLConcurrentTemplateEditsRejectStaleVersion(t *testing.T) {
 		t.Fatalf("successful update audit count=%d", updates)
 	}
 }
+
+// TestMySQLConcurrentGuildBootstrapRecoversDeadlocks reproduces overlapping
+// gateway bootstrap events and verifies one complete starter policy per guild.
+func TestMySQLConcurrentGuildBootstrapRecoversDeadlocks(t *testing.T) {
+	db := openIsolatedMySQLDB(t)
+	repository := store.New(db, nil)
+	if err := repository.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	start := make(chan struct{})
+	results := make(chan error, 16)
+	for i := 0; i < 16; i++ {
+		guildID := fmt.Sprintf("bootstrap-%d", i%4)
+		go func() {
+			<-start
+			_, err := repository.BootstrapGuild(ctx, model.BootstrapGuildParams{DiscordGuildID: guildID, Name: "Guild", OwnerDiscordUserID: "owner"})
+			results <- err
+		}()
+	}
+	close(start)
+	for i := 0; i < 16; i++ {
+		if err := <-results; err != nil {
+			t.Errorf("bootstrap: %v", err)
+		}
+	}
+	for i := 0; i < 4; i++ {
+		guild, err := repository.GetGuildByDiscordID(ctx, fmt.Sprintf("bootstrap-%d", i))
+		if err != nil || guild == nil {
+			t.Fatalf("missing guild: %+v err=%v", guild, err)
+		}
+		settings, err := repository.GetGuildSettings(ctx, guild.ID)
+		if err != nil || settings == nil || settings.StarterPolicyTemplateID == "" {
+			t.Fatalf("missing starter binding: %+v err=%v", settings, err)
+		}
+		templates, err := repository.ListCaseTemplates(ctx, guild.ID)
+		if err != nil || len(templates) != 1 {
+			t.Fatalf("duplicate or missing starter: count=%d err=%v", len(templates), err)
+		}
+	}
+}

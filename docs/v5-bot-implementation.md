@@ -690,3 +690,14 @@ means further work is required, not completion.
   complete `go test ./...` suite with `QUACK_TEST_MYSQL_DSN` configured pass.
   The database reset/schema simplification, runtime switch and actual Discord
   journeys are still pending; this verifies database behavior, not live UX.
+
+- With explicit runtime-switch approval, stopped the old beta process, backed up
+  local data to mode-0600 `/tmp/quack-before-v5-rehearsal.sql`, reset only the local
+  `quack` database and migrated the current schema. The current backend connected
+  to Beta Bot, MySQL and Redis. Live startup exposed a concurrent guild-bootstrap
+  MySQL deadlock; bootstrap now retries only MySQL's fully rolled-back deadlock
+  victims, with bounded context-aware delays and fresh per-attempt result flags.
+  A 16-caller, four-guild MySQL regression and the full MySQL-enabled suite pass.
+  Subsequent startup exposed command fingerprint churn and an unhandled Discord
+  rate limit, currently being fixed before the feature rehearsal proceeds. The
+  beta process is stopped at that registration failure; the new database is intact.
