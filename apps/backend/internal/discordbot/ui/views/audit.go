@@ -43,6 +43,12 @@ func AuditMirrorMessage(message quack.AuditMirrorMessage) ui.Message {
 			context += " · " + ui.PlainText(message.TemplateName)
 		}
 	}
+	if message.Action == string(model.AuditActionCaseCreate) && message.SelectedOutcome != "" {
+		if message.SelectedLevelName != "" {
+			context += "\nSelected level: **" + ui.PlainText(message.SelectedLevelName) + "**"
+		}
+		context += "\nSelected outcome: **" + ui.PlainText(message.SelectedOutcome) + "**"
+	}
 	meta := []string{}
 	if message.ResourceID != "" && message.CaseID == "" {
 		meta = append(meta, ui.PlainText(message.ResourceType)+" `"+strings.ReplaceAll(message.ResourceID, "`", "")+"`")

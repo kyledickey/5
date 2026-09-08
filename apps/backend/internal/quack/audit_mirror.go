@@ -37,6 +37,11 @@ type AuditMirrorMessage struct {
 	RequestID           string
 	CorrelationID       string
 	MetadataJSON        string
+
+	// SelectedLevelName and SelectedOutcome describe the immutable creation
+	// decision, not a claim that its queued enforcement has completed.
+	SelectedLevelName string
+	SelectedOutcome   string
 }
 
 // AuditMirrorSender delivers one already-redacted important event to Discord.

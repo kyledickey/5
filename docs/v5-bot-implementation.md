@@ -908,3 +908,9 @@ means further work is required, not completion.
   this flow and independently passed context/evidence tests in services and commands.
   Concurrent submissions and upload-before-storage crashes still lack a durable
   capture reservation; this is not a claim of exactly-once external uploads.
+- Case-created audit mirrors now include selected level and selected outcome from
+  the immutable case snapshot, including timeout duration. Historical records with
+  no selected level do not invent one. These fields describe the saved decision;
+  separate enforcement-result events still report actual success/failure, and
+  transport events remain excluded. Root reviewed snapshot provenance and passed
+  focused service/view audit tests.
