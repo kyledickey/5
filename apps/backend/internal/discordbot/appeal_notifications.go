@@ -53,7 +53,7 @@ func (a *AppealNotificationAdapter) SendAppealStaffNotification(ctx context.Cont
 		return receipt, fmt.Errorf("%w: staff channel unavailable", quack.ErrAppealDeliveryDeferred)
 	}
 	if receipt.ChannelID == channelID && receipt.MessageID != "" {
-		message := views.AppealStaffMessage(appeal).ForApplication(ui.SessionApplicationID(a.Session))
+		message := views.AppealStaffPage(appeal, 1, ui.SessionApplicationID(a.Session)).ForApplication(ui.SessionApplicationID(a.Session))
 		emptyEmbeds := []*discordgo.MessageEmbed{}
 		emptyAttachments := []*discordgo.MessageAttachment{}
 		_, err := a.Session.ChannelMessageEditComplex(&discordgo.MessageEdit{ID: receipt.MessageID, Channel: channelID, Content: &message.Content, Components: &message.Components, Embeds: &emptyEmbeds, Attachments: &emptyAttachments, Files: message.Files, AllowedMentions: &discordgo.MessageAllowedMentions{}}, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
@@ -66,7 +66,7 @@ func (a *AppealNotificationAdapter) SendAppealStaffNotification(ctx context.Cont
 			return receipt, fmt.Errorf("%w: %v", quack.ErrAppealDeliveryDeferred, err)
 		}
 	}
-	message, err := a.Session.ChannelMessageSendComplex(channelID, views.AppealStaffMessage(appeal).SendParams(ui.SessionApplicationID(a.Session)), discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+	message, err := a.Session.ChannelMessageSendComplex(channelID, views.AppealStaffPage(appeal, 1, ui.SessionApplicationID(a.Session)).SendParams(ui.SessionApplicationID(a.Session)), discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 	if err != nil {
 		return receipt, appealSendError(err)
 	}

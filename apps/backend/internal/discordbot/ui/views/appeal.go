@@ -6,9 +6,29 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
+	"github.com/quackdiscord/bot/internal/discordtext"
 	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
+
+// AppealStaffPage paginates a complete statement while retaining decision controls.
+// Shared queue messages use page one; browsing opens a private copy for each staff
+// member so one reader cannot change another reader's place in the statement.
+func AppealStaffPage(appeal *quack.AppealResponse, page int, applicationID string) ui.Message {
+	message := AppealStaffMessage(appeal)
+	if appeal == nil {
+		return message
+	}
+	pages := ui.TextPages(discordtext.Resolve(message.Content, applicationID), 1700)
+	page = max(1, min(page, len(pages)))
+	message.Content = pages[page-1]
+	if len(pages) > 1 {
+		message.Content += fmt.Sprintf("\n\n-# Case #%d · Statement page %d/%d", appeal.CaseNumber, page, len(pages))
+		controls, _ := ui.Pagination("appeal", "statement", fmt.Sprintf("%d|%s", page, appeal.ID), page, len(pages))
+		message.Components = append(message.Components, controls...)
+	}
+	return message
+}
 
 // AppealStaffMessage renders the submitted statement and current staff controls.
 func AppealStaffMessage(appeal *quack.AppealResponse) ui.Message {

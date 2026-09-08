@@ -767,3 +767,16 @@ means further work is required, not completion.
   Focused tests and the full MySQL-enabled backend suite pass. Live verification,
   appeal statement pagination, configured web buttons, and the broader outstanding
   acceptance items remain pending; the running beta has not been reloaded yet.
+
+- Long appeal statements now render as native pages in `/appeals`, dedicated staff
+  queue sends/refreshes, and decision receipts. Paging a shared channel message
+  opens a private reading copy; subsequent clicks update that private copy, so
+  moderators do not overwrite each other's reading position. Every read resolves
+  current guild authority and calls the authorized appeal service. Decision buttons
+  remain attached to the same appeal on each page, with a return to pending appeals.
+  Tests verify a complete 3,000-duck Unicode statement without a file fallback,
+  retained decision identity, shared/private acknowledgement behavior, and revoked
+  permission rejection. Discord-focused and full MySQL-enabled suites pass. These
+  pagination changes still await live rehearsal after the next beta reload; web
+  buttons, schema simplification, broader module rehearsal and other tracked
+  acceptance work remain open.

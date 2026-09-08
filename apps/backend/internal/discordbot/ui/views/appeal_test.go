@@ -3,11 +3,39 @@ package views
 import (
 	"strings"
 	"testing"
+	"unicode/utf16"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
+
+// TestLongAppealStatementUsesNativePages verifies a complete Unicode statement
+// remains readable with decision controls and never falls back to a text file.
+func TestLongAppealStatementUsesNativePages(t *testing.T) {
+	appeal := &quack.AppealResponse{ID: "appeal", CaseNumber: 12, Status: model.AppealStatusPending, Answers: []model.AppealAnswer{{QuestionID: "reason", Value: strings.Repeat("🦆", 3000) + "FINAL STATEMENT"}}}
+	var all strings.Builder
+	for page := 1; ; page++ {
+		message := AppealStaffPage(appeal, page, "819019613371236432").ForApplication("819019613371236432")
+		if len(message.Files) != 0 || len(utf16.Encode([]rune(message.Content))) > 2000 || len(message.Components) != 2 {
+			t.Fatalf("statement page %d lost native rendering: %+v", page, message)
+		}
+		all.WriteString(message.Content)
+		decisions := message.Components[0].(discordgo.ActionsRow)
+		if decisions.Components[0].(discordgo.Button).CustomID != "appeal:accept:v1:appeal" {
+			t.Fatal("statement page lost decision identity")
+		}
+		if message.Components[1].(discordgo.ActionsRow).Components[1].(discordgo.Button).Disabled {
+			break
+		}
+		if page > 100 {
+			t.Fatal("statement never reached its last page")
+		}
+	}
+	if strings.Count(all.String(), "🦆") != 3000 || !strings.Contains(all.String(), "FINAL STATEMENT") {
+		t.Fatal("statement pagination lost content")
+	}
+}
 
 func TestAppealEntryOpensDiscordFormWithoutWebsite(t *testing.T) {
 	for _, baseURL := range []string{"", "http://unused.example", "https://unused.example"} {

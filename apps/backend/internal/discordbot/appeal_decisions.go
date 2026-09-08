@@ -61,13 +61,13 @@ func appealDecisionHandler(services *quack.Services, appeals *quack.AppealServic
 				text = "Appeal accepted. The case was voided and any ban or timeout removal is queued."
 			}
 			if privateQueue {
-				message := views.AppealStaffMessage(decided)
+				message := views.AppealStaffPage(decided, 1, ui.SessionApplicationID(ctx.Session))
 				message.Components = append(message.Components, ui.Row(ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "appeal", Action: "page", Version: "v1", Payload: "1"}), "Next pending appeal", discordgo.SecondaryButton, false)))
 				_, err = ui.Publish(responder, message)
 				return err
 			}
 			if ctx.Session != nil && ctx.Interaction.Message != nil {
-				message := views.AppealStaffMessage(decided).ForApplication(ui.SessionApplicationID(ctx.Session))
+				message := views.AppealStaffPage(decided, 1, ui.SessionApplicationID(ctx.Session)).ForApplication(ui.SessionApplicationID(ctx.Session))
 				emptyEmbeds := []*discordgo.MessageEmbed{}
 				if _, editErr := ctx.Session.ChannelMessageEditComplex(&discordgo.MessageEdit{ID: ctx.Interaction.Message.ID, Channel: ctx.Interaction.ChannelID, Content: &message.Content, Components: &message.Components, Embeds: &emptyEmbeds, Files: message.Files, AllowedMentions: &discordgo.MessageAllowedMentions{}}, discordgo.WithContext(taskCtx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false)); editErr != nil {
 					text += " The queue message could not be refreshed; the decision is saved."

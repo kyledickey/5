@@ -28,6 +28,11 @@ func RegisterAppealComponents(registry *interactions.ComponentRegistry, services
 			return err
 		}
 	}
+	for action, delta := range map[string]int{"statement_prev": -1, "statement_next": 1} {
+		if err := registry.RegisterComponent("appeal", action, appealStatementPage(services, appeals, delta)); err != nil {
+			return err
+		}
+	}
 	return registry.RegisterComponent("appeal", "reverse", appealReversalHandler(services, appeals))
 }
 
