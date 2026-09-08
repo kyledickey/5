@@ -331,3 +331,14 @@ means further work is required, not completion.
   restore the ban. Focused and full backend suites pass. This helper is not yet
   connected to the Discord setup command; trap creation/warning/counter, concurrent
   setup handling and live rehearsal remain pending.
+
+- Connected `/setup honeypot` through named module setup handlers. It resolves live
+  Manage Server authority, creates/reuses the normal editable template, creates or
+  reuses the trap channel, posts/edits a mention-suppressed warning and enables the
+  trap only after warning delivery. Custom warning text is optional. Existing
+  channel names and selected policy edits are preserved. A newly created channel
+  reference is saved disabled before delivery so ordinary retry can reuse it.
+  Setup displays the current created-incident count; live counter refresh is not
+  wired yet. Command routing and the full backend suite pass. Full setup transport
+  tests, permission preflight, concurrent/ambiguous setup recovery, live counter
+  updates and live rehearsal remain pending.

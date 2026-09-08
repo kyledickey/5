@@ -97,7 +97,7 @@ func (r *Registry) LookupCommand(name string) (ui.Handler, bool) {
 }
 
 // Register explicitly wires register so runtime behavior does not depend on init-time registration.
-func Register(session *discordgo.Session, services *quack.Services, ticketSetup ui.Handler, componentRegistrars ...ComponentRegistrar) error {
+func Register(session *discordgo.Session, services *quack.Services, moduleSetup SetupHandlers, componentRegistrars ...ComponentRegistrar) error {
 	if session == nil {
 		return errors.New("discord session is not configured")
 	}
@@ -109,7 +109,7 @@ func Register(session *discordgo.Session, services *quack.Services, ticketSetup 
 	if err := registry.Register(AppealsCommandSpec()); err != nil {
 		return err
 	}
-	if err := registry.Register(SetupCommandSpec(ticketSetup)); err != nil {
+	if err := registry.Register(SetupCommandSpec(moduleSetup)); err != nil {
 		return err
 	}
 	if err := registry.Register(CaseCommandSpec()); err != nil {

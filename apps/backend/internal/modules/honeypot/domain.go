@@ -36,6 +36,8 @@ const (
 
 // Settings is one guild's complete honeypot configuration.
 type Settings struct {
+	WarningMessageID string `json:"warning_message_id,omitempty"`
+	WarningText      string `json:"warning_text,omitempty"`
 	ChannelDiscordID string `json:"channel_discord_id"`
 	TemplateID       string `json:"template_id"`
 	DisabledReason   string `json:"disabled_reason,omitempty"`

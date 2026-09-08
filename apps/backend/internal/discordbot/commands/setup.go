@@ -8,8 +8,11 @@ import (
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
+// SetupHandlers supplies optional-module configuration without coupling commands to their runtime.
+type SetupHandlers struct{ Tickets, Honeypot ui.Handler }
+
 // SetupCommandSpec exposes the bot's server configuration without a dashboard.
-func SetupCommandSpec(ticketSetup ...ui.Handler) CommandSpec {
+func SetupCommandSpec(moduleSetup ...SetupHandlers) CommandSpec {
 	permissions := int64(discordgo.PermissionManageServer)
 	dm := false
 	spec := CommandSpec{Definition: &discordgo.ApplicationCommand{Name: "setup", Description: "Configure Quack for this server", DefaultMemberPermissions: &permissions, DMPermission: &dm, Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "appeals", Description: "Choose the private channel for appeal reviews", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionChannel, Name: "channel", Description: "Private text channel for the appeal queue", Required: true, ChannelTypes: []discordgo.ChannelType{discordgo.ChannelTypeGuildText}}}}}}, Handler: handleSetup}
@@ -20,14 +23,23 @@ func SetupCommandSpec(ticketSetup ...ui.Handler) CommandSpec {
 			{Type: discordgo.ApplicationCommandOptionChannel, Name: "queue", Description: "Private text channel for staff ticket notifications", Required: true, ChannelTypes: []discordgo.ChannelType{discordgo.ChannelTypeGuildText}},
 		},
 	})
+	spec.Definition.Options = append(spec.Definition.Options, &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "honeypot", Description: "Create or update the honeypot trap", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionString, Name: "warning", Description: "Warning shown in the trap channel", MaxLength: 1500}}})
 	spec.Handler = func(ctx ui.Context) ui.HandlerResult {
 		if ctx.Interaction != nil && ctx.Interaction.Interaction != nil {
 			options := ctx.Interaction.ApplicationCommandData().Options
-			if len(options) == 1 && options[0].Name == "tickets" {
-				if len(ticketSetup) > 0 && ticketSetup[0] != nil {
-					return ticketSetup[0](ctx)
+			if len(options) == 1 && (options[0].Name == "tickets" || options[0].Name == "honeypot") {
+				var handler ui.Handler
+				if len(moduleSetup) > 0 {
+					if options[0].Name == "tickets" {
+						handler = moduleSetup[0].Tickets
+					} else {
+						handler = moduleSetup[0].Honeypot
+					}
 				}
-				return ui.Immediate(ui.Error("Ticket setup is unavailable."))
+				if handler != nil {
+					return handler(ctx)
+				}
+				return ui.Immediate(ui.Error("This setup feature is unavailable."))
 			}
 		}
 		return handleSetup(ctx)
