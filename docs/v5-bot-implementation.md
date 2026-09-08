@@ -931,3 +931,25 @@ means further work is required, not completion.
   Discord, MySQL, Redis, queue, action capabilities and current schema version 1.
   Dashboard pane `%3` was untouched. Feature-level Discord rehearsals remain
   incomplete; readiness is startup evidence, not proof of every user journey.
+
+### September 8 parallel integration and live ticket acceptance
+
+- Separate reviewed commits: `4827cae` explicit application URLs; `b8be3c8` native
+  case history totals/import labels with UTF-16 budgeting; `bad4bb3` interrupted
+  honeypot incident recovery; `02d6616` canonical module enablement with live checks.
+  Focused packages and the consolidated MySQL-enabled backend suite pass.
+  These newer changes have not yet been loaded into the running beta process.
+- With the previously integrated beta, the tester opened a private ticket, received
+  the same ticket on duplicate open, and exchanged messages with the admin who
+  joined from the staff queue. The tester closed it inside the thread. The queue
+  retained the transcript, both participant messages were present in persisted
+  transcript content, and the thread was removed. The tester could retrieve the
+  closed transcript through View without access to the staff queue.
+- The tester then opened a new ticket and the admin closed it from the queue.
+  Discord displayed a closure receipt and transcript attachment. Database checks
+  confirmed both tickets resolved by the respective actors and the member slot
+  was empty. No live member content is included in this evidence record.
+- Remaining ticket gaps: old ephemeral receipts retain stale deleted-thread
+  mentions until refreshed, and closure inside a deleted thread provides little
+  visible feedback. Legacy retention of text deleted before closure is being
+  restored; this rehearsal does not establish that behavior.
