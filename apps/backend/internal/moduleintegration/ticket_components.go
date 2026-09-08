@@ -89,7 +89,13 @@ func (r *Runtime) viewTicketComponent(ctx ui.Context) ui.HandlerResult {
 			_, _ = responder.EditOriginal(ui.ErrorEdit(ticketErrorMessage(err)))
 			return nil
 		}
-		lines := []string{fmt.Sprintf("The ticket for <@%s> is **%s**.", ticket.OwnerDiscordUserID, ticket.Status)}
+		if ticket.Status == tickets.StatusOpen && actor.CanModerate {
+			if err := r.TicketDiscord.Join(taskCtx, actor, ticket.ID); err != nil {
+				_, _ = responder.EditOriginal(ui.ErrorEdit("Quack could not add you to the ticket thread. Check the bot's thread permissions and try again."))
+				return nil
+			}
+		}
+		lines := []string{fmt.Sprintf("The ticket for <@%s> is **%s**.", ticket.OwnerDiscordUserID, ticket.Status), "Open the conversation: <#" + ticket.ThreadDiscordChannelID + ">."}
 		for _, event := range events {
 			lines = append(lines, ui.Quote(ui.PlainText(event.Body))+"\n-# "+ui.RelativeTime(event.CreatedAt))
 		}

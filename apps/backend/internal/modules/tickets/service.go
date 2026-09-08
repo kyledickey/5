@@ -278,13 +278,8 @@ func validateSettings(settings Settings, enabled bool) error {
 	if enabled && strings.TrimSpace(settings.EntryChannelDiscordID) == "" {
 		return errors.New("entry channel is required when tickets are enabled")
 	}
-	if enabled && len(settings.StaffRoleDiscordIDs) == 0 {
-		return errors.New("at least one staff role is required when tickets are enabled")
-	}
-	for _, roleID := range settings.StaffRoleDiscordIDs {
-		if strings.TrimSpace(roleID) == "" {
-			return errors.New("staff role ids cannot be empty")
-		}
+	if enabled && strings.TrimSpace(settings.QueueChannelDiscordID) == "" {
+		return errors.New("staff queue channel is required when tickets are enabled")
 	}
 	if settings.TranscriptRetentionDays < 1 || settings.TranscriptRetentionDays > 365 {
 		return errors.New("transcript retention must be 1 to 365 days")

@@ -3,27 +3,11 @@ package moduleintegration
 import (
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/modules/generallogging"
 	"github.com/quackdiscord/bot/internal/modules/tickets"
 )
-
-// ticketPermissionOverwrites constructs the exact private text-channel ACL.
-func ticketPermissionOverwrites(guildID, ownerID, botID string, staffRoleIDs []string) []*discordgo.PermissionOverwrite {
-	overwrites := []*discordgo.PermissionOverwrite{
-		{ID: guildID, Type: discordgo.PermissionOverwriteTypeRole, Deny: discordgo.PermissionViewChannel},
-		{ID: ownerID, Type: discordgo.PermissionOverwriteTypeMember, Allow: ticketChannelPermissions},
-		{ID: botID, Type: discordgo.PermissionOverwriteTypeMember, Allow: ticketChannelPermissions | discordgo.PermissionManageChannels},
-	}
-	for _, roleID := range staffRoleIDs {
-		if roleID = strings.TrimSpace(roleID); roleID != "" {
-			overwrites = append(overwrites, &discordgo.PermissionOverwrite{ID: roleID, Type: discordgo.PermissionOverwriteTypeRole, Allow: ticketChannelPermissions})
-		}
-	}
-	return overwrites
-}
 
 // validateStaffOnlyACL requires an explicit everyone denial and, when supplied,
 // explicit visibility for every configured staff role.
@@ -53,30 +37,6 @@ func validateStaffOnlyACL(channel *discordgo.Channel, guildID string, staffRoleI
 		if !allowedRoles[roleID] {
 			return fmt.Errorf("staff role %s cannot view ticket channel", roleID)
 		}
-	}
-	return nil
-}
-
-// validateTicketACL additionally requires explicit owner visibility.
-func validateTicketACL(channel *discordgo.Channel, guildID, ownerID, botID string, staffRoleIDs []string) error {
-	if err := validateStaffOnlyACL(channel, guildID, staffRoleIDs); err != nil {
-		return err
-	}
-	ownerVisible := false
-	botVisible := false
-	for _, overwrite := range channel.PermissionOverwrites {
-		if overwrite.ID == ownerID && overwrite.Type == discordgo.PermissionOverwriteTypeMember && overwrite.Allow&discordgo.PermissionViewChannel != 0 {
-			ownerVisible = true
-		}
-		if overwrite.ID == botID && overwrite.Type == discordgo.PermissionOverwriteTypeMember && overwrite.Allow&discordgo.PermissionViewChannel != 0 {
-			botVisible = true
-		}
-	}
-	if !ownerVisible {
-		return errors.New("ticket owner cannot view private channel")
-	}
-	if !botVisible {
-		return errors.New("Discord bot cannot view private channel")
 	}
 	return nil
 }

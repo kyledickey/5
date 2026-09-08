@@ -49,7 +49,6 @@ func setup(t *testing.T) (*gorm.DB, *tickets.Service, *auditRecorder) {
 	settings := tickets.Defaults()
 	settings.EntryChannelDiscordID = "entry"
 	settings.QueueChannelDiscordID = "queue"
-	settings.StaffRoleDiscordIDs = []string{"staff-role"}
 	if _, err := service.UpdateSettings(context.Background(), tickets.Actor{GuildID: "guild-a", DiscordUserID: "admin", CanManage: true}, true, settings); err != nil {
 		t.Fatal(err)
 	}
@@ -132,6 +131,7 @@ func TestImportDryRunAndIdempotency(t *testing.T) {
 }
 
 type discordFake struct {
+	joined              []string
 	frozen              bool
 	failPublish         bool
 	transcriptPublishes int
@@ -148,7 +148,7 @@ func (f *discordFake) CreatePrivateTicketChannel(context.Context, string, string
 	f.channelCalls++
 	return fmt.Sprintf("private-thread-%d", f.channelCalls), nil
 }
-func (f *discordFake) EnsureTicketPermissions(context.Context, string, string, string, []string) error {
+func (f *discordFake) EnsureTicketPermissions(context.Context, string, string, string) error {
 	f.permissionCalls++
 	return f.permissionError
 }
@@ -257,14 +257,14 @@ func TestDiscordAdapterPrivateFlowAndRepair(t *testing.T) {
 	}
 }
 
-func TestEnabledTicketsRequireStaffRole(t *testing.T) {
+func TestEnabledTicketsNeedChannelsWithoutCustomStaffRoles(t *testing.T) {
 	_, service, _ := setup(t)
 	settings := tickets.Defaults()
 	settings.EntryChannelDiscordID = "entry"
 	settings.QueueChannelDiscordID = "queue"
 	_, err := service.UpdateSettings(context.Background(), tickets.Actor{GuildID: "guild-a", DiscordUserID: "admin", CanManage: true}, true, settings)
-	if err == nil {
-		t.Fatal("enabled tickets accepted no staff role")
+	if err != nil {
+		t.Fatalf("tickets required custom staff roles: %v", err)
 	}
 }
 
@@ -370,3 +370,37 @@ func TestTicketDeletionWaitsForTranscriptPublication(t *testing.T) {
 
 // SendTicketWelcome models the thread greeting independently from staff replies.
 func (f *discordFake) SendTicketWelcome(context.Context, *tickets.Ticket) error { return nil }
+
+// JoinTicketThread records only membership requests that passed service authorization.
+func (f *discordFake) JoinTicketThread(_ context.Context, channelID, userID string) error {
+	f.joined = append(f.joined, channelID+":"+userID)
+	return nil
+}
+
+func TestTicketJoinRequiresCurrentModeratorAndOpenTicket(t *testing.T) {
+	_, service, _ := setup(t)
+	ctx := context.Background()
+	client := &discordFake{}
+	adapter := tickets.NewDiscordAdapter(service, client)
+	ticket, err := adapter.Open(ctx, tickets.Actor{GuildID: "guild-a", DiscordUserID: "member"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := tickets.Actor{GuildID: "guild-a", DiscordUserID: "mod"}
+	if err := adapter.Join(ctx, actor, ticket.ID); !errors.Is(err, tickets.ErrPermissionDenied) {
+		t.Fatalf("nonmoderator joined: %v", err)
+	}
+	actor.CanModerate = true
+	if err := adapter.Join(ctx, actor, ticket.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.Close(ctx, actor, ticket.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := adapter.Join(ctx, actor, ticket.ID); !errors.Is(err, tickets.ErrInvalidTransition) {
+		t.Fatalf("closed ticket joined: %v", err)
+	}
+	if len(client.joined) != 1 {
+		t.Fatalf("unexpected invitations: %v", client.joined)
+	}
+}

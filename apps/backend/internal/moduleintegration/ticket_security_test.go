@@ -78,10 +78,17 @@ func TestTicketThreadRepairPreservesCurrentStaffAndRemovesFormerStaff(t *testing
 		body := ""
 		switch request.Method {
 		case http.MethodGet:
-			if strings.Contains(request.URL.Path, "/guilds/") {
-				body = `[{"user":{"id":"current-staff"},"roles":["staff-role"]},{"user":{"id":"new-staff"},"roles":["staff-role"]},{"user":{"id":"former-staff"},"roles":[]}]`
-			} else {
+			switch {
+			case strings.HasSuffix(request.URL.Path, "/guilds/guild"):
+				body = `{"id":"guild","roles":[{"id":"staff-role","permissions":"1099511627776"}]}`
+			case strings.HasSuffix(request.URL.Path, "/members/current-staff"):
+				body = `{"user":{"id":"current-staff"},"roles":["staff-role"]}`
+			case strings.HasSuffix(request.URL.Path, "/members/former-staff"):
+				body = `{"user":{"id":"former-staff"},"roles":[]}`
+			case strings.Contains(request.URL.Path, "/channels/thread/thread-members"):
 				body = `[{"user_id":"owner"},{"user_id":"bot"},{"user_id":"former-staff"},{"user_id":"current-staff"}]`
+			default:
+				t.Fatalf("unexpected read: %s", request.URL.Path)
 			}
 		case http.MethodPut:
 			added = append(added, request.URL.Path)
@@ -93,10 +100,10 @@ func TestTicketThreadRepairPreservesCurrentStaffAndRemovesFormerStaff(t *testing
 		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
 	})}
 	client := ticketDiscordClient{session: session}
-	if err := client.syncTicketThreadMembers(context.Background(), "guild", "thread", "owner", []string{"staff-role"}); err != nil {
+	if err := client.syncTicketThreadMembers(context.Background(), "guild", "thread", "owner"); err != nil {
 		t.Fatal(err)
 	}
-	if len(removed) != 1 || !strings.HasSuffix(removed[0], "/former-staff") || len(added) != 1 || !strings.HasSuffix(added[0], "/new-staff") {
+	if len(removed) != 1 || !strings.HasSuffix(removed[0], "/former-staff") || len(added) != 0 {
 		t.Fatalf("unexpected invitation removals: %v", removed)
 	}
 }

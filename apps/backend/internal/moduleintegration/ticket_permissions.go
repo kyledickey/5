@@ -80,24 +80,19 @@ func (r *Runtime) repairTicketThreadsGuild(discordGuildID string) {
 	if err != nil {
 		return
 	}
-	settings, _, err := r.Tickets.Settings(ctx, tickets.Actor{GuildID: guildID, CanManage: true})
-	if err != nil {
-		slog.WarnContext(ctx, "Ticket permission repair settings unavailable", "guild_id", guildID)
-		return
-	}
 	client := ticketDiscordClient{session: r.session, resolver: r.resolver}
 	after := ""
 	for {
 		var records []struct{ ID, ThreadDiscordChannelID, OwnerDiscordUserID string }
 		if err := r.db.WithContext(ctx).Table("tickets").Select("id, thread_discord_channel_id, owner_discord_user_id").
-			Where("guild_id = ? AND id > ?", guildID, after).Order("id ASC").Limit(100).Find(&records).Error; err != nil {
+			Where("guild_id = ? AND status = ? AND id > ?", guildID, tickets.StatusOpen, after).Order("id ASC").Limit(100).Find(&records).Error; err != nil {
 			slog.ErrorContext(ctx, "Ticket permission repair lookup failed", "guild_id", guildID)
 			return
 		}
 		for _, ticket := range records {
 			channel, err := r.session.Channel(ticket.ThreadDiscordChannelID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 			if err == nil && channel != nil && channel.GuildID == discordGuildID && channel.Type == discordgo.ChannelTypeGuildPrivateThread {
-				err = client.syncTicketThreadMembers(ctx, discordGuildID, channel.ID, ticket.OwnerDiscordUserID, settings.StaffRoleDiscordIDs)
+				err = client.syncTicketThreadMembers(ctx, discordGuildID, channel.ID, ticket.OwnerDiscordUserID)
 			}
 			if err != nil {
 				slog.WarnContext(ctx, "Ticket permission repair incomplete", "guild_id", guildID, "ticket_id", ticket.ID)

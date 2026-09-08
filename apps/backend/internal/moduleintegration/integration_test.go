@@ -83,17 +83,6 @@ func TestModuleAuditAdapterWritesImmutableCoreEntry(t *testing.T) {
 	}
 }
 
-func TestPrivateChannelACLRequiresEveryoneDenialAndStaffVisibility(t *testing.T) {
-	channel := &discordgo.Channel{GuildID: "guild", PermissionOverwrites: ticketPermissionOverwrites("guild", "owner", "bot", []string{"staff"})}
-	if err := validateTicketACL(channel, "guild", "owner", "bot", []string{"staff"}); err != nil {
-		t.Fatalf("valid private ACL rejected: %v", err)
-	}
-	channel.PermissionOverwrites = channel.PermissionOverwrites[1:]
-	if err := validateTicketACL(channel, "guild", "owner", "bot", []string{"staff"}); err == nil {
-		t.Fatal("public ticket ACL was accepted")
-	}
-}
-
 func TestOptionalModuleHTTPRegistrarsMountCompleteSurface(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:module-routes?mode=memory&cache=shared"), &gorm.Config{})
 	if err != nil {

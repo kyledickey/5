@@ -223,3 +223,16 @@ means further work is required, not completion.
   payload, including restricted mentions. Focused tests and the full backend suite
   pass. Custom staff-role configuration, setup/panel delivery and live verification
   remain outstanding.
+
+- Removed custom ticket staff-role settings and the requirement to configure them.
+  Queue messages now offer Join thread; joining uses freshly resolved moderation
+  authority, verifies guild-scoped ticket access, and rejects closed tickets.
+  Permission repair checks only existing thread members against live guild roles,
+  removing former moderators while preserving the owner, bot and guild owner.
+  It no longer scans the entire guild or invites every staff member at opening.
+  Background repair targets open tickets rather than deleted historical threads.
+  Removed obsolete private text-channel ACL construction and its matching test.
+  Regression tests cover unauthorized/closed joins, current moderator retention,
+  former moderator removal, and configuration without custom roles. Focused and
+  full backend suites pass. Setup/panel delivery, recovery controls, closure-state
+  consolidation and live verification remain pending.

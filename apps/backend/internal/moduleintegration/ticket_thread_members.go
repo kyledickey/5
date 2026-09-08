@@ -3,54 +3,32 @@ package moduleintegration
 import (
 	"context"
 	"errors"
-	"strings"
 
 	"github.com/bwmarrin/discordgo"
 )
 
-// syncTicketThreadMembers grants current staff access and removes stale invitations.
-// Private threads cannot use role overwrites, so their explicit membership follows
-// a fresh guild-member snapshot. The owner and bot always retain their invitations.
-func (c ticketDiscordClient) syncTicketThreadMembers(ctx context.Context, guildID, threadID, ownerID string, staffRoleIDs []string) error {
+// syncTicketThreadMembers removes invitations held by former moderators.
+// It inspects only existing thread members, never the entire guild, and does not
+// invite staff who have not chosen to join the conversation.
+func (c ticketDiscordClient) syncTicketThreadMembers(ctx context.Context, guildID, threadID, ownerID string) error {
 	botID, err := c.botUserID(ctx)
 	if err != nil {
 		return err
 	}
-	wanted := map[string]struct{}{ownerID: {}, botID: {}}
-	roles := make(map[string]struct{}, len(staffRoleIDs))
-	for _, roleID := range staffRoleIDs {
-		if roleID = strings.TrimSpace(roleID); roleID != "" {
-			roles[roleID] = struct{}{}
+	guild, err := c.session.Guild(guildID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+	if err != nil {
+		return err
+	}
+	if guild == nil {
+		return errors.New("guild authorization unavailable")
+	}
+	roles := make(map[string]int64)
+	for _, role := range guild.Roles {
+		if role != nil {
+			roles[role.ID] = role.Permissions
 		}
 	}
 	after := ""
-	for len(roles) > 0 {
-		members, err := c.session.GuildMembers(guildID, after, 1000, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
-		if err != nil {
-			return err
-		}
-		for _, member := range members {
-			if member == nil || member.User == nil || member.User.ID == "" {
-				return errors.New("Discord returned an invalid guild member")
-			}
-			for _, roleID := range member.Roles {
-				if _, ok := roles[roleID]; ok {
-					wanted[member.User.ID] = struct{}{}
-					break
-				}
-			}
-		}
-		if len(members) < 1000 {
-			break
-		}
-		next := members[len(members)-1].User.ID
-		if next == after {
-			return errors.New("Discord repeated a guild-member page")
-		}
-		after = next
-	}
-	present := make(map[string]struct{})
-	after = ""
 	for {
 		members, err := c.session.ThreadMembers(threadID, 100, false, after, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 		if err != nil {
@@ -60,11 +38,25 @@ func (c ticketDiscordClient) syncTicketThreadMembers(ctx context.Context, guildI
 			if member == nil || member.UserID == "" {
 				return errors.New("Discord returned an invalid thread member")
 			}
-			present[member.UserID] = struct{}{}
-			if _, ok := wanted[member.UserID]; !ok {
-				if err := c.session.ThreadMemberRemove(threadID, member.UserID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false)); err != nil {
-					return err
+			if member.UserID == ownerID || member.UserID == botID || member.UserID == guild.OwnerID {
+				continue
+			}
+			current, err := c.session.GuildMember(guildID, member.UserID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+			var rest *discordgo.RESTError
+			if err != nil && !(errors.As(err, &rest) && rest.Message != nil && rest.Message.Code == discordgo.ErrCodeUnknownMember) {
+				return err
+			}
+			permissions := roles[guildID]
+			if current != nil {
+				for _, id := range current.Roles {
+					permissions |= roles[id]
 				}
+			}
+			if current != nil && permissions&(discordgo.PermissionAdministrator|discordgo.PermissionModerateMembers) != 0 {
+				continue
+			}
+			if err := c.session.ThreadMemberRemove(threadID, member.UserID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false)); err != nil {
+				return err
 			}
 		}
 		if len(members) < 100 {
@@ -75,14 +67,6 @@ func (c ticketDiscordClient) syncTicketThreadMembers(ctx context.Context, guildI
 			return errors.New("Discord repeated a thread-member page")
 		}
 		after = next
-	}
-	for userID := range wanted {
-		if _, ok := present[userID]; ok || userID == botID {
-			continue
-		}
-		if err := c.session.ThreadMemberAdd(threadID, userID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false)); err != nil {
-			return err
-		}
 	}
 	return nil
 }

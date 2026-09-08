@@ -13,12 +13,6 @@ import (
 	"github.com/quackdiscord/bot/internal/modules/tickets"
 )
 
-const ticketChannelPermissions = discordgo.PermissionViewChannel |
-	discordgo.PermissionSendMessages |
-	discordgo.PermissionReadMessageHistory |
-	discordgo.PermissionAttachFiles |
-	discordgo.PermissionEmbedLinks
-
 // ticketDiscordClient implements the module's narrow private-channel port with
 // Discord resources resolved from the integration-owned guild adapter.
 type ticketDiscordClient struct {
@@ -53,12 +47,9 @@ func (c ticketDiscordClient) CreatePrivateTicketChannel(ctx context.Context, gui
 	return thread.ID, nil
 }
 
-// EnsureTicketPermissions validates private-thread inheritance or replaces a
-// text channel's ACL with owner, configured staff, and bot-only visibility.
-func (c ticketDiscordClient) EnsureTicketPermissions(ctx context.Context, channelID, ownerID, guildID string, staffRoleIDs []string) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
+// EnsureTicketPermissions invites the owner into a verified private thread.
+// Moderators join on demand through the queue instead of receiving mass invitations.
+func (c ticketDiscordClient) EnsureTicketPermissions(ctx context.Context, channelID, ownerID, guildID string) error {
 	discordGuildID, err := c.resolver.discordID(ctx, guildID)
 	if err != nil {
 		return err
@@ -67,29 +58,13 @@ func (c ticketDiscordClient) EnsureTicketPermissions(ctx context.Context, channe
 	if err != nil {
 		return err
 	}
-	if channel.GuildID != discordGuildID {
-		return errors.New("ticket channel belongs to another guild")
+	if channel == nil || channel.GuildID != discordGuildID || channel.Type != discordgo.ChannelTypeGuildPrivateThread {
+		return errors.New("ticket must be a private thread in this guild")
 	}
-	if channel.IsThread() {
-		if channel.Type != discordgo.ChannelTypeGuildPrivateThread {
-			return errors.New("ticket thread is not private")
-		}
-		if err := c.session.ThreadMemberAdd(channelID, ownerID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false)); err != nil {
-			return err
-		}
-		return c.syncTicketThreadMembers(ctx, discordGuildID, channelID, ownerID, staffRoleIDs)
-	}
-	botID, err := c.botUserID(ctx)
-	if err != nil {
+	if err := c.session.ThreadMemberAdd(channelID, ownerID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false)); err != nil {
 		return err
 	}
-	updated, err := c.session.ChannelEditComplex(channelID, &discordgo.ChannelEdit{
-		PermissionOverwrites: ticketPermissionOverwrites(discordGuildID, ownerID, botID, staffRoleIDs),
-	}, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
-	if err != nil {
-		return err
-	}
-	return validateTicketACL(updated, discordGuildID, ownerID, botID, staffRoleIDs)
+	return c.syncTicketThreadMembers(ctx, discordGuildID, channelID, ownerID)
 }
 
 // botUserID returns the current application identity needed for explicit ACLs.
@@ -197,4 +172,9 @@ func (c ticketDiscordClient) SendTicketWelcome(ctx context.Context, ticket *tick
 	payload.AllowedMentions = &discordgo.MessageAllowedMentions{Users: []string{ticket.OwnerDiscordUserID}}
 	_, err := c.session.ChannelMessageSendComplex(ticket.ThreadDiscordChannelID, payload, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 	return err
+}
+
+// JoinTicketThread adds the moderator authorized by the ticket adapter.
+func (c ticketDiscordClient) JoinTicketThread(ctx context.Context, channelID, userID string) error {
+	return c.session.ThreadMemberAdd(channelID, userID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 }

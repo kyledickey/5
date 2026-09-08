@@ -24,7 +24,10 @@ func (c ticketDiscordClient) PublishTicketQueue(ctx context.Context, ticket *tic
 	}
 	content := fmt.Sprintf("<@%s> opened a ticket: <#%s>.", ticket.OwnerDiscordUserID, ticket.ThreadDiscordChannelID)
 	message := ui.Signal("ticket", content, false)
-	message.Components = tickets.TicketComponents(ticket.ID)
+	message.Components = []discordgo.MessageComponent{ui.Row(
+		ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "ticket", Action: "view", Version: "v1", Payload: ticket.ID}), "Join thread", discordgo.PrimaryButton, false),
+		ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "ticket", Action: "close", Version: "v1", Payload: ticket.ID}), "Close", discordgo.DangerButton, false),
+	)}
 	if transcript != nil {
 		message.Content = fmt.Sprintf("{{quack:ticket}} The ticket for <@%s> was closed. The transcript is attached.", ticket.OwnerDiscordUserID)
 		message.Components = []discordgo.MessageComponent{}

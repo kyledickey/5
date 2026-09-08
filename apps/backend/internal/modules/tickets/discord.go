@@ -10,9 +10,10 @@ import (
 // DiscordClient is the narrow private-channel transport owned by the ticket adapter.
 type DiscordClient interface {
 	CreatePrivateTicketChannel(context.Context, string, string, Settings) (string, error)
-	EnsureTicketPermissions(context.Context, string, string, string, []string) error
+	EnsureTicketPermissions(context.Context, string, string, string) error
 	SendTicketReply(context.Context, string, string) error
 	SendTicketWelcome(context.Context, *Ticket) error
+	JoinTicketThread(context.Context, string, string) error
 	FreezeTicketChannel(context.Context, string) error
 	CaptureTicketTranscript(context.Context, string) (string, error)
 	PublishTicketQueue(context.Context, *Ticket, Settings, *Transcript) (*QueueReceipt, error)
@@ -60,7 +61,7 @@ func (a *DiscordAdapter) Open(ctx context.Context, actor Actor) (*Ticket, error)
 	if err != nil {
 		return nil, err
 	}
-	if err := a.client.EnsureTicketPermissions(ctx, channelID, actor.DiscordUserID, actor.GuildID, settings.StaffRoleDiscordIDs); err != nil {
+	if err := a.client.EnsureTicketPermissions(ctx, channelID, actor.DiscordUserID, actor.GuildID); err != nil {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cleanupCancel()
 		_ = a.client.DeleteProvisionalTicketChannel(cleanupCtx, channelID)
@@ -176,14 +177,14 @@ func (a *DiscordAdapter) RepairPermissions(ctx context.Context, actor Actor, tic
 	if err != nil {
 		return err
 	}
-	settings, enabled, err := a.service.loadSettings(ctx, actor.GuildID)
+	_, enabled, err := a.service.loadSettings(ctx, actor.GuildID)
 	if err != nil {
 		return err
 	}
 	if !enabled {
 		return ErrDisabled
 	}
-	if err := a.client.EnsureTicketPermissions(ctx, ticket.ThreadDiscordChannelID, ticket.OwnerDiscordUserID, actor.GuildID, settings.StaffRoleDiscordIDs); err != nil {
+	if err := a.client.EnsureTicketPermissions(ctx, ticket.ThreadDiscordChannelID, ticket.OwnerDiscordUserID, actor.GuildID); err != nil {
 		return err
 	}
 	return a.service.RecordPermissionsRepaired(ctx, actor.GuildID, ticketID)
@@ -200,4 +201,20 @@ func (a *DiscordAdapter) HandleDeletedChannel(ctx context.Context, guildID, tick
 // HandleDeletedEntryChannel disables new tickets until an administrator selects a private entry destination.
 func (a *DiscordAdapter) HandleDeletedEntryChannel(ctx context.Context, guildID, channelID string) error {
 	return a.service.RepairDeletedEntryChannel(ctx, guildID, channelID)
+}
+
+// Join admits a current moderator to an open ticket without assigning ownership.
+// The caller supplies freshly resolved guild authority, never cached role grants.
+func (a *DiscordAdapter) Join(ctx context.Context, actor Actor, ticketID string) error {
+	if !actor.CanModerate {
+		return ErrPermissionDenied
+	}
+	ticket, _, err := a.service.Detail(ctx, actor, ticketID)
+	if err != nil {
+		return err
+	}
+	if ticket.Status != StatusOpen {
+		return ErrInvalidTransition
+	}
+	return a.client.JoinTicketThread(ctx, ticket.ThreadDiscordChannelID, actor.DiscordUserID)
 }
