@@ -1,11 +1,14 @@
 package views
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf16"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
@@ -109,5 +112,50 @@ func TestVoidedCaseDoesNotInviteAnotherAppeal(t *testing.T) {
 	row := message.Components[0].(discordgo.ActionsRow)
 	if !row.Components[3].(discordgo.Button).Disabled {
 		t.Fatal("voided case still offers an enabled void control")
+	}
+}
+
+// TestCaseProfileUsesAllTimeCountsAndLabelsLegacy ensures a one-row page does
+// not become a misleading escalation count or hide imported moderation history.
+func TestCaseProfileUsesAllTimeCountsAndLabelsLegacy(t *testing.T) {
+	profile := &quack.CaseProfileResponse{Cases: []quack.CaseResponse{{CaseNumber: 8, TargetDiscordUserID: "member", Source: model.CaseSourceV4Import, Validity: model.CaseValidityValid}}, Total: 21, Limit: 10, Offset: 20, Summary: quack.CaseProfileSummary{Total: 21, ByValidity: map[string]int64{"valid": 17, "voided": 4}}}
+	message := CaseProfileMessage(profile, 3, "member")
+	for _, text := range []string{"21 total · 17 valid · 4 voided", "Imported v4", "eligible v5 cases", "Page 3/3"} {
+		if !strings.Contains(message.Content, text) {
+			t.Fatalf("missing %q: %s", text, message.Content)
+		}
+	}
+	if !message.Ephemeral || len(message.Components) == 0 {
+		t.Fatal("profile privacy or pagination lost")
+	}
+}
+
+// TestCaseHistoryWorstCaseLabelsStayNative bounds UTF-16 after application emoji
+// expansion while retaining every row, tag, date, summary, and page control.
+func TestCaseHistoryWorstCaseLabelsStayNative(t *testing.T) {
+	for _, name := range []string{strings.Repeat("😀", 100), strings.Repeat("_*~`", 25), strings.Repeat("{{quack:history}}", 6)} {
+		profile := &quack.CaseProfileResponse{Total: 100, Limit: 10, Summary: quack.CaseProfileSummary{Total: 100, ByValidity: map[string]int64{"valid": 90, "voided": 10}}}
+		for i := 0; i < 10; i++ {
+			profile.Cases = append(profile.Cases, quack.CaseResponse{CaseNumber: uint64(18446744073709551600) + uint64(i), TargetDiscordUserID: "12345678901234567890", Source: model.CaseSourceV4Import, Validity: model.CaseValidityVoided, CreatedAt: time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC), SelectedLevel: &quack.CaseSelectedLevel{TemplateLevelDetails: quack.TemplateLevelDetails{Name: name}}})
+		}
+		for _, message := range []ui.Message{CaseListMessage(&quack.CaseListResponse{Cases: profile.Cases, Total: 100, Limit: 10}, 1, ""), CaseProfileMessage(profile, 1, "12345678901234567890")} {
+			for _, app := range []string{"", "968198214450831370", "819019613371236432"} {
+				prepared := message.ForApplication(app)
+				if len(utf16.Encode([]rune(prepared.Content))) > 2000 || len(prepared.Files) != 0 || len(prepared.Components) == 0 {
+					t.Fatalf("history left native text: units=%d files=%d", len(utf16.Encode([]rune(prepared.Content))), len(prepared.Files))
+				}
+				for _, item := range profile.Cases {
+					if !strings.Contains(prepared.Content, fmt.Sprintf("**#%d**", item.CaseNumber)) {
+						t.Fatal("history row truncated away")
+					}
+				}
+				if strings.Count(prepared.Content, "Imported v4") != 10 || strings.Count(prepared.Content, "**Voided**") != 10 || !strings.Contains(prepared.Content, "Page 1/10") {
+					t.Fatal("row tags or pagination lost")
+				}
+			}
+		}
+		if profile.Cases[0].SelectedLevel.Name != name {
+			t.Fatal("display truncation changed original detail name")
+		}
 	}
 }

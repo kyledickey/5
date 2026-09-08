@@ -53,7 +53,7 @@ func handleCaseStaffSubcommand(ctx ui.Context, data discordgo.ApplicationCommand
 			profile, profileErr := ctx.Services.Cases.UserHistory(taskCtx, guildContext, targetID, quack.CaseListInput{Limit: "10"})
 			err = profileErr
 			if profile != nil {
-				response = views.CaseListMessage(&quack.CaseListResponse{Cases: profile.Cases, Total: profile.Total, Limit: profile.Limit, Offset: profile.Offset}, 1, targetID)
+				response = views.CaseProfileMessage(profile, 1, targetID)
 			}
 		case "failures":
 			failed, failedErr := ctx.Services.Actions.ListFailures(taskCtx, guildContext, 10, 0)

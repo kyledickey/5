@@ -33,19 +33,21 @@ func pageCases(delta int, user bool) ui.Handler {
 			}
 			input := quack.CaseListInput{Limit: "10", Offset: strconv.Itoa((page - 1) * 10)}
 			var list *quack.CaseListResponse
+			var response ui.Message
 			if user {
 				profile, listErr := ctx.Services.Cases.UserHistory(taskCtx, guildContext, targetID, input)
 				if listErr != nil {
 					return listErr
 				}
-				list = &quack.CaseListResponse{Cases: profile.Cases, Total: profile.Total, Limit: profile.Limit, Offset: profile.Offset}
+				response = views.CaseProfileMessage(profile, page, targetID)
 			} else {
 				list, err = ctx.Services.Cases.List(taskCtx, guildContext, input)
 				if err != nil {
 					return err
 				}
+				response = views.CaseListMessage(list, page, targetID)
 			}
-			_, editErr := responder.UpdateMessage(ui.EditMessage(views.CaseListMessage(list, page, targetID)))
+			_, editErr := responder.UpdateMessage(ui.EditMessage(response))
 			return editErr
 		})
 	}

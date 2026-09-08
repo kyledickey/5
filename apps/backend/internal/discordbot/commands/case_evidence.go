@@ -81,7 +81,7 @@ func handleCaseUserComponent(ctx ui.Context) ui.HandlerResult {
 		if err != nil {
 			return err
 		}
-		_, err = responder.EditOriginal(ui.EditMessage(views.CaseListMessage(&quack.CaseListResponse{Cases: profile.Cases, Total: profile.Total, Limit: profile.Limit, Offset: profile.Offset}, 1, parsed.Payload)))
+		_, err = responder.EditOriginal(ui.EditMessage(views.CaseProfileMessage(profile, 1, parsed.Payload)))
 		return err
 	})
 }

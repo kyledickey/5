@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"unicode/utf16"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
@@ -103,6 +104,26 @@ func notificationDeliverySentence(status string) string {
 
 // CaseListMessage renders one stable case page and its navigation controls.
 func CaseListMessage(list *quack.CaseListResponse, page int, targetID string) ui.Message {
+	return boundedCaseHistoryMessage(list, page, targetID, "")
+}
+
+// boundedCaseHistoryMessage budgets the complete page after Markdown escaping,
+// including profile totals. Only display names shrink; all ten rows and controls
+// remain native. Each icon token reserves 64 extra units for application emojis.
+func boundedCaseHistoryMessage(list *quack.CaseListResponse, page int, targetID, summary string) ui.Message {
+	for limit := 100; ; limit-- {
+		message := caseHistoryMessageWithLabels(list, page, targetID, limit)
+		message.Content += summary
+		units := len(utf16.Encode([]rune(message.Content))) + 64*strings.Count(message.Content, "{{quack:")
+		if units <= 2000 || limit == 0 {
+			return message
+		}
+	}
+}
+
+// caseHistoryMessageWithLabels renders a complete page using a bounded display
+// label; original names remain available in case detail and are never modified.
+func caseHistoryMessageWithLabels(list *quack.CaseListResponse, page int, targetID string, labelLimit int) ui.Message {
 	if page < 1 {
 		page = 1
 	}
@@ -111,9 +132,15 @@ func CaseListMessage(list *quack.CaseListResponse, page int, targetID string) ui
 		for _, item := range list.Cases {
 			summary := "Case recorded"
 			if item.SelectedLevel != nil {
-				summary = ui.PlainText(ui.TruncateRunes(item.SelectedLevel.Name, 100))
+				summary = ui.PlainText(ui.TruncateRunes(item.SelectedLevel.Name, labelLimit))
+				if len([]rune(item.SelectedLevel.Name)) > labelLimit {
+					summary += "…"
+				}
 			}
 			row := fmt.Sprintf("**#%d**  <@%s> · %s", item.CaseNumber, item.TargetDiscordUserID, summary)
+			if item.Source == model.CaseSourceV4Import {
+				row += " · **Imported v4**"
+			}
 			if item.Validity == model.CaseValidityVoided {
 				row += " · **Voided**"
 			}
@@ -153,6 +180,21 @@ func CaseListMessage(list *quack.CaseListResponse, page int, targetID string) ui
 	}
 	message := ui.Conversation("history", lead, "", strings.Join(rows, "\n\n"), fmt.Sprintf("Page %d/%d · %d total", page, totalPages, total), false)
 	message.Components = components
+	return message
+}
+
+// CaseProfileMessage combines a paginated staff history with persisted all-time
+// counts. Imported history remains visible but is never described as escalation.
+func CaseProfileMessage(profile *quack.CaseProfileResponse, page int, targetID string) ui.Message {
+	if profile == nil {
+		message := CaseListMessage(nil, page, targetID)
+		message.Ephemeral = true
+		return message
+	}
+	summary := fmt.Sprintf("\n\n**All-time history:** %d total · %d valid · %d voided.", profile.Summary.Total, profile.Summary.ByValidity[string(model.CaseValidityValid)], profile.Summary.ByValidity[string(model.CaseValidityVoided)])
+	summary += "\nThese history totals include imported v4 cases. Escalation uses eligible v5 cases for the selected rule and its decay setting."
+	message := boundedCaseHistoryMessage(&quack.CaseListResponse{Cases: profile.Cases, Total: profile.Total, Limit: profile.Limit, Offset: profile.Offset}, page, targetID, summary)
+	message.Ephemeral = true
 	return message
 }
 
