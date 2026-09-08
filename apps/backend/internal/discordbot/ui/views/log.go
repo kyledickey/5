@@ -11,6 +11,15 @@ import (
 // The module retains its structured JSON contract and controls which content may be included.
 func StaffLogMessage(payload string) ui.Message {
 	var event struct {
+		Messages []struct {
+			MessageID   string `json:"message_id"`
+			ActorID     string `json:"actor_id"`
+			Content     string `json:"content"`
+			Attachments []struct {
+				Filename string `json:"filename"`
+			} `json:"attachments"`
+			EmbedTypes []string `json:"embed_types"`
+		} `json:"messages"`
 		BeforeKnown       *bool `json:"before_known"`
 		BeforeAttachments []struct {
 			Filename string `json:"filename"`
@@ -79,7 +88,7 @@ func StaffLogMessage(payload string) ui.Message {
 		lead = strings.TrimSuffix(lead, ".") + " in <#" + event.ChannelID + ">."
 	}
 	parts := []string{}
-	if event.Before != "" {
+	if event.Before != "" && len(event.Messages) == 0 {
 		before := ui.Quote(ui.PlainText(event.Before))
 		if event.Type == "message_edit" {
 			before = "Before:\n" + before
@@ -109,7 +118,7 @@ func StaffLogMessage(payload string) ui.Message {
 			parts = append(parts, "Files after: none.")
 		}
 	}
-	if len(event.Attachments) > 0 {
+	if len(event.Attachments) > 0 && len(event.Messages) == 0 {
 		names := []string{}
 		for _, attachment := range event.Attachments {
 			names = append(names, ui.PlainText(attachment.Filename))
@@ -120,8 +129,29 @@ func StaffLogMessage(payload string) ui.Message {
 		}
 		parts = append(parts, label+strings.Join(names, ", "))
 	}
-	if len(event.EmbedTypes) > 0 {
+	if len(event.EmbedTypes) > 0 && len(event.Messages) == 0 {
 		parts = append(parts, "Included embeds: "+ui.PlainText(strings.Join(event.EmbedTypes, ", "))+".")
+	}
+	for _, message := range event.Messages {
+		author := "Unknown author"
+		if message.ActorID != "" {
+			author = "<@" + message.ActorID + ">"
+		}
+		record := author + " · Message " + ui.PlainText(message.MessageID)
+		if message.Content != "" {
+			record += "\n" + ui.Quote(ui.PlainText(message.Content))
+		}
+		if len(message.Attachments) > 0 {
+			names := make([]string, 0, len(message.Attachments))
+			for _, attachment := range message.Attachments {
+				names = append(names, ui.PlainText(attachment.Filename))
+			}
+			record += "\nFiles: " + strings.Join(names, ", ")
+		}
+		if len(message.EmbedTypes) > 0 {
+			record += "\nIncluded embeds: " + ui.PlainText(strings.Join(message.EmbedTypes, ", ")) + "."
+		}
+		parts = append(parts, record)
 	}
 	if reason := event.Metadata["reason"]; reason != "" {
 		parts = append(parts, "Reason:\n"+ui.Quote(ui.PlainText(reason)))

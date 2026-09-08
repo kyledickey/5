@@ -31,7 +31,7 @@ func (r *Runtime) internalGuildID(discordGuildID string) (string, bool) {
 // onMessageCreate retains bounded context only when logging is enabled.
 func (r *Runtime) onMessageCreate(_ *discordgo.Session, event *discordgo.MessageCreate) {
 	r.submitHoneypotMessage(event)
-	if event == nil || event.Message == nil || event.GuildID == "" || (event.Author != nil && event.Author.Bot) {
+	if event == nil || event.Message == nil || event.GuildID == "" {
 		return
 	}
 	guildID, ok := r.internalGuildID(event.GuildID)
@@ -135,6 +135,9 @@ func (r *Runtime) onMessageDeleteBulk(_ *discordgo.Session, event *discordgo.Mes
 // cachedMessage copies the bounded subset allowed by logging privacy settings.
 func cachedMessage(guildID string, message *discordgo.Message) generallogging.CachedMessage {
 	cached := generallogging.CachedMessage{GuildID: guildID, ChannelDiscordID: message.ChannelID, MessageDiscordID: message.ID, Content: message.Content}
+	if message.Author != nil {
+		cached.AuthorDiscordUserID = message.Author.ID
+	}
 	for _, attachment := range message.Attachments {
 		cached.Attachments = append(cached.Attachments, generallogging.AttachmentMetadata{DiscordID: attachment.ID, Filename: attachment.Filename, ContentType: attachment.ContentType, Size: int64(attachment.Size)})
 	}

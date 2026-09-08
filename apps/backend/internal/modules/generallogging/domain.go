@@ -63,6 +63,8 @@ type AttachmentMetadata struct {
 
 // Event is an ephemeral Discord event delivered to configured staff channels.
 type Event struct {
+	// BulkMessages retains each cached deletion author and file association.
+	BulkMessages      []CachedMessage
 	BeforeKnown       bool
 	BeforeAttachments []AttachmentMetadata
 	// SnapshotComplete prevents queued edits from consulting a newer cache version.

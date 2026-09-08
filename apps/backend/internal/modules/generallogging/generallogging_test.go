@@ -403,3 +403,55 @@ func TestNativeSetupPersistsOneChannelAndDeliversMessageDetails(t *testing.T) {
 		t.Fatal("message delivery added audit bookkeeping")
 	}
 }
+
+// TestBulkDeleteKeepsPerMessageAttributionAndPrivacy checks author/file mapping,
+// token redaction, and privacy flags on the structured per-message records.
+func TestBulkDeleteKeepsPerMessageAttributionAndPrivacy(t *testing.T) {
+	for _, include := range []bool{true, false} {
+		t.Run(fmt.Sprint(include), func(t *testing.T) {
+			_, service, client, _ := setup(t)
+			settings, _, _, err := service.Settings(context.Background(), logmodule.Actor{GuildID: "guild-a", CanManage: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			settings.IncludeMessageContent, settings.IncludeAttachmentMetadata = include, include
+			if _, err := service.UpdateSettings(context.Background(), logmodule.Actor{GuildID: "guild-a", CanManage: true}, true, settings); err != nil {
+				t.Fatal(err)
+			}
+			for _, id := range []string{"one", "two"} {
+				if err := service.CacheMessage(context.Background(), logmodule.CachedMessage{GuildID: "guild-a", MessageDiscordID: id, AuthorDiscordUserID: "author-" + id, Content: "body-" + id + " token=secret-value", Attachments: []logmodule.AttachmentMetadata{{Filename: id + ".png"}}}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := service.HandleBulkDelete(context.Background(), "guild-a", "source", []string{"one", "two"}); err != nil {
+				t.Fatal(err)
+			}
+			payload := client.payloads[len(client.payloads)-1]
+			var event struct {
+				Messages []struct {
+					ID          string                         `json:"message_id"`
+					Actor       string                         `json:"actor_id"`
+					Content     string                         `json:"content"`
+					Attachments []logmodule.AttachmentMetadata `json:"attachments"`
+				} `json:"messages"`
+			}
+			if err := json.Unmarshal([]byte(payload), &event); err != nil {
+				t.Fatal(err)
+			}
+			if len(event.Messages) != 2 || strings.Contains(payload, "secret-value") {
+				t.Fatalf("missing or unredacted records: %s", payload)
+			}
+			for _, message := range event.Messages {
+				if message.Actor != "author-"+message.ID {
+					t.Fatal("message author mismatch")
+				}
+				if include && (message.Content == "" || len(message.Attachments) != 1 || message.Attachments[0].Filename != message.ID+".png") {
+					t.Fatal("message content/file association lost")
+				}
+				if !include && (message.Content != "" || len(message.Attachments) != 0) {
+					t.Fatal("bulk records bypassed privacy")
+				}
+			}
+		})
+	}
+}

@@ -40,3 +40,20 @@ func TestEditLogDistinguishesEmptyTextAndRemovedFiles(t *testing.T) {
 		t.Fatalf("unknown text presented as empty: %s", unknown.Content)
 	}
 }
+
+// TestBulkLogShowsEachAuthorWithTheirOwnFiles preserves legacy attribution while
+// avoiding duplicate display of backward-compatible aggregate payload fields.
+func TestBulkLogShowsEachAuthorWithTheirOwnFiles(t *testing.T) {
+	message := StaffLogMessage(`{"event":"message_bulk_delete","before":"aggregate duplicate","attachments":[{"Filename":"aggregate.png"}],"messages":[{"message_id":"one","actor_id":"alice","content":"first text","attachments":[{"Filename":"first.png"}]},{"message_id":"two","actor_id":"bob","content":"second text","attachments":[{"Filename":"second.png"}]}],"metadata":{"message_count":"2","cached_count":"2"}}`)
+	for _, part := range []string{"<@alice> · Message one", "first text", "Files: first.png", "<@bob> · Message two", "second text", "Files: second.png"} {
+		if !strings.Contains(message.Content, part) {
+			t.Fatalf("missing %q: %s", part, message.Content)
+		}
+	}
+	if strings.Contains(message.Content, "aggregate") {
+		t.Fatal("bulk content displayed twice")
+	}
+	if strings.Index(message.Content, "first.png") > strings.Index(message.Content, "<@bob>") {
+		t.Fatal("files detached from author")
+	}
+}

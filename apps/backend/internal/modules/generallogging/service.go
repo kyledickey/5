@@ -164,17 +164,22 @@ func (s *Service) Handle(ctx context.Context, event Event) error {
 
 // HandleBulkDelete consumes cached context for a configured bulk deletion without retaining a permanent archive.
 func (s *Service) HandleBulkDelete(ctx context.Context, guildID, channelID string, messageIDs []string) error {
+	if len(messageIDs) > 100 {
+		return errors.New("bulk logging accepts at most 100 Discord message IDs")
+	}
+	var messages []CachedMessage
 	parts := make([]string, 0, len(messageIDs))
 	var attachments []AttachmentMetadata
 	var embedTypes []string
 	for _, id := range messageIDs {
 		if cached, ok := s.cache.Get(guildID, id); ok {
+			messages = append(messages, cached)
 			parts = append(parts, cached.Content)
 			attachments = append(attachments, cached.Attachments...)
 			embedTypes = append(embedTypes, cached.EmbedTypes...)
 		}
 	}
-	err := s.Handle(ctx, Event{GuildID: guildID, ChannelDiscordID: channelID, Type: MessageBulkDelete, Before: strings.Join(parts, "\n---\n"), Attachments: attachments, EmbedTypes: embedTypes, Metadata: map[string]string{"message_count": fmt.Sprint(len(messageIDs)), "cached_count": fmt.Sprint(len(parts))}})
+	err := s.Handle(ctx, Event{BulkMessages: messages, GuildID: guildID, ChannelDiscordID: channelID, Type: MessageBulkDelete, Before: strings.Join(parts, "\n---\n"), Attachments: attachments, EmbedTypes: embedTypes, Metadata: map[string]string{"message_count": fmt.Sprint(len(messageIDs)), "cached_count": fmt.Sprint(len(parts))}})
 	if err != nil {
 		return err
 	}
@@ -272,6 +277,23 @@ func formatEvent(event Event, settings Settings) string {
 	}
 	if settings.IncludeEmbedMetadata {
 		payload["embed_types"] = event.EmbedTypes
+	}
+	if len(event.BulkMessages) > 0 {
+		records := make([]map[string]any, 0, len(event.BulkMessages))
+		for _, message := range event.BulkMessages {
+			record := map[string]any{"message_id": message.MessageDiscordID, "actor_id": message.AuthorDiscordUserID}
+			if settings.IncludeMessageContent {
+				record["content"] = redact(message.Content)
+			}
+			if settings.IncludeAttachmentMetadata {
+				record["attachments"] = message.Attachments
+			}
+			if settings.IncludeEmbedMetadata {
+				record["embed_types"] = message.EmbedTypes
+			}
+			records = append(records, record)
+		}
+		payload["messages"] = records
 	}
 	metadata := map[string]string{}
 	for key, value := range event.Metadata {
