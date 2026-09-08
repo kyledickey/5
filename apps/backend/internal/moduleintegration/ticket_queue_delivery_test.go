@@ -32,6 +32,7 @@ func TestTicketTranscriptRecreatesDeletedQueueMessage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	session.State.User = &discordgo.User{ID: "bot"}
 	writes := 0
 	session.Client = &http.Client{Transport: ticketRoundTripper(func(r *http.Request) (*http.Response, error) {
 		status, body := http.StatusOK, ""
@@ -39,7 +40,9 @@ func TestTicketTranscriptRecreatesDeletedQueueMessage(t *testing.T) {
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/channels/queue"):
 			body = fmt.Sprintf(`{"id":"queue","guild_id":"guild","type":0,"permission_overwrites":[{"id":"guild","type":0,"deny":"%d","allow":"0"}]}`, discordgo.PermissionViewChannel)
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/guilds/guild"):
-			body = `{"id":"guild","roles":[]}`
+			body = `{"id":"guild","roles":[{"id":"bot-role","permissions":"8"}]}`
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/members/bot"):
+			body = `{"user":{"id":"bot"},"roles":["bot-role"]}`
 		case r.Method == http.MethodPatch || r.Method == http.MethodPost:
 			writes++
 			if err := r.ParseMultipartForm(1 << 20); err != nil {

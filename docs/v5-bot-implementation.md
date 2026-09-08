@@ -504,3 +504,12 @@ means further work is required, not completion.
   deferred feedback, successful persistence, revoked manager authority and rejected
   destinations. Focused and full backend suites pass. Live registration/delivery
   and explicit bot send/attachment permission preflight remain pending.
+
+- Shared staff destination validation now checks Quack's fresh REST membership
+  and channel overwrites for View Channel, Send Messages, Read Message History
+  and Attach Files. Audit/appeal setup and delivery, ticket queues and general logs
+  all use this boundary, including long-record attachments. Evaluation uses an
+  isolated state rather than cached gateway authority. Tests remove each required
+  permission while the gateway cache still grants ownership and verify rejection;
+  transcript/log transport regressions and the full backend suite pass. Live
+  configuration and permission-repair rehearsal remain pending.

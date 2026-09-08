@@ -18,7 +18,7 @@ func TestStaffDestinationRejectsCrossGuildPublicAndPermissionDrift(t *testing.T)
 			session, _ := discordgo.New("Bot test")
 			session.State.User = &discordgo.User{ID: "bot"}
 			channel := &discordgo.Channel{ID: "channel", GuildID: "guild", Type: discordgo.ChannelTypeGuildText, PermissionOverwrites: []*discordgo.PermissionOverwrite{{ID: "guild", Type: discordgo.PermissionOverwriteTypeRole, Deny: discordgo.PermissionViewChannel}, {ID: "staff", Type: discordgo.PermissionOverwriteTypeRole, Allow: discordgo.PermissionViewChannel}}}
-			guild := &discordgo.Guild{ID: "guild", OwnerID: "owner", Roles: []*discordgo.Role{{ID: "guild"}, {ID: "staff", Permissions: discordgo.PermissionModerateMembers}}}
+			guild := &discordgo.Guild{ID: "guild", OwnerID: "owner", Roles: []*discordgo.Role{{ID: "guild"}, {ID: "staff", Permissions: discordgo.PermissionModerateMembers}, {ID: "bot-role", Permissions: discordgo.PermissionAdministrator}}}
 			switch scenario {
 			case "cross-guild":
 				channel.GuildID = "other"
@@ -40,6 +40,8 @@ func TestStaffDestinationRejectsCrossGuildPublicAndPermissionDrift(t *testing.T)
 					body = channel
 				case strings.HasSuffix(request.URL.Path, "/guilds/guild"):
 					body = guild
+				case strings.HasSuffix(request.URL.Path, "/members/bot"):
+					body = &discordgo.Member{User: &discordgo.User{ID: "bot"}, Roles: []string{"bot-role"}}
 				case strings.Contains(request.URL.Path, "/members/"):
 					body = &discordgo.Member{User: &discordgo.User{ID: "former-staff"}}
 				default:

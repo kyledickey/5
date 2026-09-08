@@ -60,7 +60,7 @@ func TestLongLogDeliveryPreservesContentAndChecksAttachments(t *testing.T) {
 					}
 					body = `{"id":"delivered"}`
 				case strings.HasSuffix(r.URL.Path, "/channels/log"):
-					permissions := int64(discordgo.PermissionViewChannel | discordgo.PermissionSendMessages)
+					permissions := int64(discordgo.PermissionViewChannel | discordgo.PermissionReadMessageHistory | discordgo.PermissionSendMessages)
 					if allowFiles {
 						permissions |= discordgo.PermissionAttachFiles
 					}

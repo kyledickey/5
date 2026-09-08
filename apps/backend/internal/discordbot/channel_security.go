@@ -60,7 +60,7 @@ func (b *Bot) ValidateStaffChannel(ctx context.Context, guildID, channelID strin
 	if !private {
 		return errors.New("destination must deny public access")
 	}
-	return nil
+	return b.validateStaffDeliveryPermissions(ctx, guild, channel, botID)
 }
 
 // authorizeEvidenceSource evaluates fresh Discord state, including private-thread membership,
