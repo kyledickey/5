@@ -1176,3 +1176,37 @@ means further work is required, not completion.
   remain open. Case notification formatting is no longer core-owned; persisted
   appeal decision formatting and broad repository exposure remain follow-up
   architecture work, not completed by relocating case notification rendering.
+
+### Native history totals verification
+
+- Administrator used View user from case #5 in Helium. The private native history
+  listed cases #5 through #1, marked the four voided cases and displayed
+  `5 total · 1 valid · 4 voided` with disabled pagination on page 1/1.
+- A read-only query of the local tester's cases confirmed one valid and four
+  voided rows in the rehearsal guild. This verifies current native totals and
+  visibility; no imported cases were added to the live database, so imported
+  labels and multipage navigation remain separate acceptance checks.
+
+### Parallel appeal and native detail integration
+
+- Two GPT-6 medium agents completed independent slices; root reviewed the
+  boundaries and integrated them in separate conventional commits.
+- `a588649` persists version-one appeal decision facts and renders member copy
+  in the Discord adapter. The decision reason and rejoin URL remain snapshots
+  through settings changes, reconstructed workers and safe delivery retries.
+  Legacy rows without intent retain exact saved bodies. Invalid or unsupported
+  nonempty payloads fail without sending or falling back. Nullable additive TEXT
+  supports MySQL upgrades; legacy migration sources are unchanged. SQLite/MySQL
+  upgrade and recovery-manifest mutation checks passed.
+- `7c9f95f` gives native case details the latest six events and omits unused
+  action-attempt reads. Event filtering happens before the SQL limit; IDs break
+  timestamp ties. Authorization, recovery controls and native output remain
+  covered by parity tests. Full HTTP detail and mutation responses stay complete.
+- The combined MySQL-enabled `go test ./...` passed; output is in
+  `/tmp/native-detail-appeal-intent-full.log`. Build
+  `/tmp/quack-v5-appeal-detail-review` also passed. The existing beta remained
+  healthy during this work; this batch has not yet been loaded for live acceptance.
+- The architecture review recommends considering bounded evidence reads next,
+  rather than wrapping every remaining infrastructure repository access. Evidence
+  collections remain unbounded and need deterministic pagination; no associated
+  live correctness failure or authorization bypass was established by that review.
