@@ -108,6 +108,13 @@ type MessageTranscriptCapture interface {
 
 // Close preserves and publishes the transcript before deleting the private thread.
 func (a *DiscordAdapter) Close(ctx context.Context, actor Actor, ticketID string) (*Ticket, error) {
+	return a.CloseWithProgress(ctx, actor, ticketID, nil)
+}
+
+// CloseWithProgress reports durable transcript publication before deleting the
+// conversation. A failed acknowledgement leaves the thread available for retry;
+// progress must not claim deletion or successful member-reservation cleanup.
+func (a *DiscordAdapter) CloseWithProgress(ctx context.Context, actor Actor, ticketID string, beforeDelete func(*Ticket) error) (*Ticket, error) {
 	release, err := a.closes.acquire(ctx, actor.GuildID+":"+ticketID)
 	if err != nil {
 		return nil, err
@@ -151,6 +158,11 @@ func (a *DiscordAdapter) Close(ctx context.Context, actor Actor, ticketID string
 			return resolved, err
 		}
 		if _, err := a.publishQueue(ctx, resolved, settings, transcript); err != nil {
+			return resolved, err
+		}
+	}
+	if beforeDelete != nil {
+		if err := beforeDelete(resolved); err != nil {
 			return resolved, err
 		}
 	}

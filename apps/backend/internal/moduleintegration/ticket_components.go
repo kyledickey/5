@@ -172,15 +172,7 @@ func (r *Runtime) closeTicketComponent(ctx ui.Context) ui.HandlerResult {
 		return ui.Immediate(ui.Error("That ticket is unavailable."))
 	}
 	return r.ticketTask(ctx, func(taskCtx context.Context, responder ui.Responder, actor tickets.Actor) error {
-		if ticket, err := r.TicketDiscord.Close(taskCtx, actor, ticketID); err != nil {
-			_, editErr := responder.EditOriginal(ui.EditMessage(ticketCloseFailureMessage(ticket, err)))
-			return editErr
-		}
-		message := ui.Signal("lock", "Ticket closed. The transcript has been saved and the private thread deleted.", true)
-		id := ui.MustCustomID(ui.CustomID{Namespace: "ticket", Action: "view", Version: "v1", Payload: ticketID})
-		message.Components = []discordgo.MessageComponent{ui.Row(ui.Button(id, "View closed ticket", discordgo.SecondaryButton, false))}
-		_, err := responder.EditOriginal(ui.EditMessage(message))
-		return err
+		return closeTicketWithFeedback(taskCtx, responder, r.TicketDiscord, actor, ticketID, ctx.Interaction.ChannelID)
 	})
 }
 
