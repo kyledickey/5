@@ -114,7 +114,8 @@ func validEventType(t EventType) bool {
 }
 
 // RouteAllTo selects one destination for the complete supported event set.
-// Cache and retry bounds are preserved when administrators move the log channel.
+// Native setup enables available message content and metadata to match the
+// promised staff log detail. Cache and retry bounds survive channel changes.
 func (s Settings) RouteAllTo(channelID string) Settings {
 	s.Channels = make(map[EventType]string)
 	for _, event := range []EventType{MessageEdit, MessageDelete, MessageBulkDelete, MemberJoin, MemberLeave, DiscordBan, DiscordUnban, GuildChange, ChannelChange} {

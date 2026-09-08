@@ -165,12 +165,16 @@ func (s *Service) Handle(ctx context.Context, event Event) error {
 // HandleBulkDelete consumes cached context for a configured bulk deletion without retaining a permanent archive.
 func (s *Service) HandleBulkDelete(ctx context.Context, guildID, channelID string, messageIDs []string) error {
 	parts := make([]string, 0, len(messageIDs))
+	var attachments []AttachmentMetadata
+	var embedTypes []string
 	for _, id := range messageIDs {
 		if cached, ok := s.cache.Get(guildID, id); ok {
 			parts = append(parts, cached.Content)
+			attachments = append(attachments, cached.Attachments...)
+			embedTypes = append(embedTypes, cached.EmbedTypes...)
 		}
 	}
-	err := s.Handle(ctx, Event{GuildID: guildID, ChannelDiscordID: channelID, Type: MessageBulkDelete, Before: strings.Join(parts, "\n---\n"), Metadata: map[string]string{"message_count": fmt.Sprint(len(messageIDs)), "cached_count": fmt.Sprint(len(parts))}})
+	err := s.Handle(ctx, Event{GuildID: guildID, ChannelDiscordID: channelID, Type: MessageBulkDelete, Before: strings.Join(parts, "\n---\n"), Attachments: attachments, EmbedTypes: embedTypes, Metadata: map[string]string{"message_count": fmt.Sprint(len(messageIDs)), "cached_count": fmt.Sprint(len(parts))}})
 	if err != nil {
 		return err
 	}

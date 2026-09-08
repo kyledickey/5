@@ -60,6 +60,7 @@ func (q *DeliveryQueue) Submit(event Event) error {
 // cloneEvent copies mutable payload fields before handing them to another goroutine.
 func cloneEvent(event Event) Event {
 	event.Attachments = append([]AttachmentMetadata(nil), event.Attachments...)
+	event.BeforeAttachments = append([]AttachmentMetadata(nil), event.BeforeAttachments...)
 	event.EmbedTypes = append([]string(nil), event.EmbedTypes...)
 	if event.Metadata != nil {
 		metadata := make(map[string]string, len(event.Metadata))

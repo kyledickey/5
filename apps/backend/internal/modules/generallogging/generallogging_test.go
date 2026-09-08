@@ -3,6 +3,7 @@ package generallogging_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -28,6 +29,7 @@ type deliveryFake struct {
 	attempts  int
 	failUntil int
 	payloads  []string
+	channels  []string
 }
 
 func (f *deliveryFake) ValidateStaffOnlyChannel(_ context.Context, _ string, channelID string) error {
@@ -36,7 +38,7 @@ func (f *deliveryFake) ValidateStaffOnlyChannel(_ context.Context, _ string, cha
 	}
 	return nil
 }
-func (f *deliveryFake) SendStaffLog(_ context.Context, _, _, payload string) error {
+func (f *deliveryFake) SendStaffLog(_ context.Context, _, channelID, payload string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.attempts++
@@ -44,6 +46,7 @@ func (f *deliveryFake) SendStaffLog(_ context.Context, _, _, payload string) err
 		return errors.New("temporary Discord failure")
 	}
 	f.payloads = append(f.payloads, payload)
+	f.channels = append(f.channels, channelID)
 	return nil
 }
 
@@ -344,5 +347,59 @@ func TestDeliveryQueueSkipsUnconfiguredEventsButReportsFailures(t *testing.T) {
 				t.Fatal("real failure disappeared from module status")
 			}
 		})
+	}
+}
+
+// TestNativeSetupPersistsOneChannelAndDeliversMessageDetails exercises the same
+// settings operation as /setup logging through persistence and event formatting.
+// Delivery bookkeeping must remain absent from the administration audit stream.
+func TestNativeSetupPersistsOneChannelAndDeliversMessageDetails(t *testing.T) {
+	_, service, client, audit := setup(t)
+	ctx := context.Background()
+	actor := logmodule.Actor{GuildID: "guild-a", DiscordUserID: "admin", CanManage: true}
+	settings, _, _, err := service.Settings(ctx, actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.UpdateSettings(ctx, actor, true, settings.RouteAllTo("new-staff-log")); err != nil {
+		t.Fatal(err)
+	}
+	saved, enabled, _, err := service.Settings(ctx, actor)
+	if err != nil || !enabled || len(saved.Channels) != 9 {
+		t.Fatalf("setup not persisted: %+v, %v", saved, err)
+	}
+	auditCount := len(audit.events)
+	for _, kind := range []logmodule.EventType{logmodule.MessageDelete, logmodule.MessageBulkDelete} {
+		cached := logmodule.CachedMessage{GuildID: actor.GuildID, ChannelDiscordID: "source", MessageDiscordID: "cached", Content: "original content", Attachments: []logmodule.AttachmentMetadata{{Filename: "proof.png", ContentType: "image/png", Size: 42}}, EmbedTypes: []string{"image"}}
+		if err := service.CacheMessage(ctx, cached); err != nil {
+			t.Fatal(err)
+		}
+		if kind == logmodule.MessageBulkDelete {
+			err = service.HandleBulkDelete(ctx, actor.GuildID, "source", []string{"cached", "uncached"})
+		} else {
+			err = service.Handle(ctx, logmodule.Event{GuildID: actor.GuildID, Type: kind, MessageDiscordID: "cached"})
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		var payload struct {
+			Before      string                         `json:"before"`
+			Attachments []logmodule.AttachmentMetadata `json:"attachments"`
+			EmbedTypes  []string                       `json:"embed_types"`
+		}
+		if err := json.Unmarshal([]byte(client.payloads[len(client.payloads)-1]), &payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload.Before != cached.Content || len(payload.Attachments) != 1 || payload.Attachments[0].Filename != "proof.png" || len(payload.EmbedTypes) != 1 || payload.EmbedTypes[0] != "image" {
+			t.Fatalf("%s lost configured message detail: %+v", kind, payload)
+		}
+	}
+	for _, channel := range client.channels {
+		if channel != "new-staff-log" {
+			t.Fatalf("old destination used: %s", channel)
+		}
+	}
+	if len(audit.events) != auditCount {
+		t.Fatal("message delivery added audit bookkeeping")
 	}
 }

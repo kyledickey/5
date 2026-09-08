@@ -875,3 +875,9 @@ means further work is required, not completion.
   update the same private message and refresh live authorization. Root reviewed
   the lifecycle/privacy boundaries and independently passed focused ticket and
   closure tests. The service still loads the full timeline before presentation.
+- General logging bulk deletions now retain available cached attachment/embed
+  details, and queued edits defensively copy their prior attachment snapshots.
+  Native one-channel setup already enabled content and metadata; added a service
+  regression following saved setup through delivery, including destination and
+  absence of transport audit noise. Root independently passed general-logging
+  and moduleintegration package tests after review.

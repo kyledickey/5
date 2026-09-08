@@ -19,3 +19,14 @@ func TestRouteAllToMovesEveryEventTogether(t *testing.T) {
 		t.Fatalf("incorrect setup settings: %+v", settings)
 	}
 }
+
+// TestQueuedEditOwnsBeforeAttachmentSnapshot ensures a caller cannot mutate the
+// old attachment details after an edit has crossed the queue boundary.
+func TestQueuedEditOwnsBeforeAttachmentSnapshot(t *testing.T) {
+	original := Event{BeforeAttachments: []AttachmentMetadata{{Filename: "original.png"}}}
+	queued := cloneEvent(original)
+	original.BeforeAttachments[0].Filename = "later.png"
+	if queued.BeforeAttachments[0].Filename != "original.png" {
+		t.Fatal("queued edit shares mutable before-attachment state")
+	}
+}
