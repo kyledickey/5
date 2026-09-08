@@ -164,14 +164,25 @@ func (s *Service) Queue(ctx context.Context, actor Actor, status Status, limit i
 	return s.store.list(ctx, actor.GuildID, status, limit)
 }
 
-// Detail returns a private ticket and timeline to its owner or current staff.
-func (s *Service) Detail(ctx context.Context, actor Actor, ticketID string) (*Ticket, []Event, error) {
+// authorizedTicket checks the current guild-scoped record and owner-or-staff
+// authority without loading private timeline content. Every access rechecks these
+// conditions; callers needing history must explicitly use Detail.
+func (s *Service) authorizedTicket(ctx context.Context, actor Actor, ticketID string) (*Ticket, error) {
 	ticket, err := s.store.get(ctx, actor.GuildID, ticketID)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if actor.DiscordUserID != ticket.OwnerDiscordUserID && !actor.CanModerate {
-		return nil, nil, ErrPermissionDenied
+		return nil, ErrPermissionDenied
+	}
+	return ticket, nil
+}
+
+// Detail returns a private ticket and timeline to its owner or current staff.
+func (s *Service) Detail(ctx context.Context, actor Actor, ticketID string) (*Ticket, []Event, error) {
+	ticket, err := s.authorizedTicket(ctx, actor, ticketID)
+	if err != nil {
+		return nil, nil, err
 	}
 	events, err := s.store.timeline(ctx, actor.GuildID, ticketID)
 	return ticket, events, err

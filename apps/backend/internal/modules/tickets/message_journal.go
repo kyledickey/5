@@ -289,7 +289,7 @@ func (s *Service) closeJournalAdmission(ctx context.Context, ticket *Ticket) (fu
 // ResolveNativeTranscript merges original received text with final live history
 // under the journal gate, then atomically saves closure/retention before deletion.
 func (s *Service) ResolveNativeTranscript(ctx context.Context, actor Actor, ticketID string, surviving []TranscriptMessage) (*Ticket, error) {
-	ticket, _, err := s.Detail(ctx, actor, ticketID)
+	ticket, err := s.authorizedTicket(ctx, actor, ticketID)
 	if err != nil {
 		return nil, err
 	}
@@ -326,7 +326,7 @@ func (s *Service) ResolveNativeTranscript(ctx context.Context, actor Actor, tick
 // resolveLegacyTranscript keeps compatibility with older client ports only when
 // there is no journal text to merge; it must never silently discard original text.
 func (s *Service) resolveLegacyTranscript(ctx context.Context, actor Actor, ticketID, content string) (*Ticket, error) {
-	ticket, _, err := s.Detail(ctx, actor, ticketID)
+	ticket, err := s.authorizedTicket(ctx, actor, ticketID)
 	if err != nil {
 		return nil, err
 	}

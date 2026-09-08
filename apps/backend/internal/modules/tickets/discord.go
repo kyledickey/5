@@ -90,7 +90,7 @@ func (a *DiscordAdapter) Reply(ctx context.Context, actor Actor, ticketID, body 
 	if err := validateReply(body); err != nil {
 		return err
 	}
-	ticket, _, err := a.service.Detail(ctx, actor, ticketID)
+	ticket, err := a.service.authorizedTicket(ctx, actor, ticketID)
 	if err != nil {
 		return err
 	}
@@ -120,7 +120,7 @@ func (a *DiscordAdapter) CloseWithProgress(ctx context.Context, actor Actor, tic
 		return nil, err
 	}
 	defer release()
-	ticket, _, err := a.service.Detail(ctx, actor, ticketID)
+	ticket, err := a.service.authorizedTicket(ctx, actor, ticketID)
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +206,7 @@ func (a *DiscordAdapter) RepairPermissions(ctx context.Context, actor Actor, tic
 	if !actor.CanManage {
 		return ErrPermissionDenied
 	}
-	ticket, _, err := a.service.Detail(ctx, actor, ticketID)
+	ticket, err := a.service.authorizedTicket(ctx, actor, ticketID)
 	if err != nil {
 		return err
 	}
@@ -242,7 +242,7 @@ func (a *DiscordAdapter) Join(ctx context.Context, actor Actor, ticketID string)
 	if !actor.CanModerate {
 		return ErrPermissionDenied
 	}
-	ticket, _, err := a.service.Detail(ctx, actor, ticketID)
+	ticket, err := a.service.authorizedTicket(ctx, actor, ticketID)
 	if err != nil {
 		return err
 	}
