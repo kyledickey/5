@@ -43,7 +43,7 @@ type AuditMirrorSender interface {
 type AuditMirrorRepository interface {
 	GetGuildSettings(context.Context, string) (*model.GuildSettings, error)
 	GetGuildByID(context.Context, string) (*model.Guild, error)
-	CreateAuditLogEntry(context.Context, *model.AuditLogEntry) error
+	SaveAuditMirrorDelivery(context.Context, string, bool, time.Time) error
 	ClearGuildChannelReferences(context.Context, string, string, *model.AuditLogEntry) (*model.GuildSettings, error)
 	ListPendingAuditMirrorEntries(context.Context, int) ([]model.AuditLogEntry, error)
 }
@@ -111,35 +111,40 @@ func (w *AuditMirrorWorker) PollOnce(ctx context.Context) error {
 func (w *AuditMirrorWorker) process(ctx context.Context, entry model.AuditLogEntry) error {
 	settings, err := w.store.GetGuildSettings(ctx, entry.GuildID)
 	if err != nil {
-		return w.recordOutcome(ctx, entry, model.AuditActionMirrorFailed, model.AuditResultFailure, "settings_unavailable", nil)
+		return w.recordDelivery(ctx, entry, false, "settings_unavailable")
 	}
 	if settings == nil || strings.TrimSpace(settings.AuditMirrorChannelDiscordID) == "" {
-		return w.recordOutcome(ctx, entry, model.AuditActionMirrorSkipped, model.AuditResultSuccess, "not_configured", nil)
+		return w.recordDelivery(ctx, entry, true, "not_configured")
 	}
 	guild, err := w.store.GetGuildByID(ctx, entry.GuildID)
 	if err != nil || guild == nil {
-		return w.recordOutcome(ctx, entry, model.AuditActionMirrorFailed, model.AuditResultFailure, "guild_unavailable", nil)
+		return w.recordDelivery(ctx, entry, false, "guild_unavailable")
 	}
 	if w.sender == nil {
-		return w.recordOutcome(ctx, entry, model.AuditActionMirrorFailed, model.AuditResultFailure, "sender_unavailable", nil)
+		return w.recordDelivery(ctx, entry, false, "sender_unavailable")
 	}
 	message := AuditMirrorMessage{AuditEntryID: entry.ID, DiscordGuildID: guild.DiscordGuildID, ChannelDiscordID: settings.AuditMirrorChannelDiscordID, OccurredAt: entry.CreatedAt, ActorDiscordUserID: entry.ActorDiscordUserID, Action: entry.Action, ResourceType: entry.ResourceType, ResourceID: entry.ResourceID, Result: entry.Result, FailureReason: entry.FailureReason, RequestID: entry.RequestID, CorrelationID: entry.CorrelationID, MetadataJSON: model.RedactAuditMetadata(entry.MetadataJSON)}
 	if err := w.sender.SendAuditMirror(ctx, message); err != nil {
 		if errors.Is(err, ErrAuditMirrorChannelUnavailable) {
-			if recordErr := w.recordOutcome(ctx, entry, model.AuditActionMirrorFailed, model.AuditResultFailure, "channel_unavailable", nil); recordErr != nil {
+			if recordErr := w.recordDelivery(ctx, entry, false, "channel_unavailable"); recordErr != nil {
 				return recordErr
 			}
 			repair := &model.AuditLogEntry{GuildID: entry.GuildID, ActorDiscordUserID: "quack-system", Source: model.AuditSourceSystem, Action: string(model.AuditActionMirrorRepaired), ResourceType: "guild_settings", ResourceID: settings.ID, Result: model.AuditResultSuccess, CorrelationID: entry.CorrelationID, MetadataJSON: auditMirrorMetadata(entry.ID, map[string]any{"cleared_channel_reference": true})}
 			_, clearErr := w.store.ClearGuildChannelReferences(ctx, entry.GuildID, settings.AuditMirrorChannelDiscordID, repair)
 			return clearErr
 		}
-		return w.recordOutcome(ctx, entry, model.AuditActionMirrorFailed, model.AuditResultFailure, "delivery_failed", nil)
+		return w.recordDelivery(ctx, entry, false, "delivery_failed")
 	}
-	return w.recordOutcome(ctx, entry, model.AuditActionMirrorDelivered, model.AuditResultSuccess, "", nil)
+	return w.recordDelivery(ctx, entry, true, "")
 }
 
-func (w *AuditMirrorWorker) recordOutcome(ctx context.Context, original model.AuditLogEntry, action model.AuditAction, result model.AuditResult, failure string, extra map[string]any) error {
-	return recordAudit(ctx, w.store, &model.AuditLogEntry{GuildID: original.GuildID, ActorDiscordUserID: "quack-system", Source: model.AuditSourceSystem, Action: string(action), ResourceType: "audit_entry", ResourceID: original.ID, Result: result, FailureReason: failure, RequestID: original.RequestID, CorrelationID: original.CorrelationID, MetadataJSON: auditMirrorMetadata(original.ID, extra)})
+// recordDelivery keeps delivery progress separate from the moderation events it transports.
+func (w *AuditMirrorWorker) recordDelivery(ctx context.Context, original model.AuditLogEntry, finished bool, failure string) error {
+	retryAt := time.Now().UTC().Add(time.Minute)
+	if !finished {
+		slog.WarnContext(ctx, "Audit mirror delivery failed", "audit_entry_id", original.ID, "guild_id", original.GuildID, "reason", failure)
+	}
+	return w.store.SaveAuditMirrorDelivery(ctx, original.ID, finished, retryAt)
 }
 
 func auditMirrorMetadata(originalID string, extra map[string]any) string {

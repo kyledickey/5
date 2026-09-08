@@ -54,11 +54,11 @@ func TestAuditServiceRedactsAndFiltersCompleteContract(t *testing.T) {
 	repository := newMigratedStore(t)
 	moderator := templateGuildContext(t, repository, "audit-guild", "moderator", uint64(discordgo.PermissionModerateMembers))
 	now := time.Now().UTC()
-	entry := model.AuditLogEntry{ULIDModel: model.ULIDModel{CreatedAt: now.Add(-time.Minute)}, GuildID: moderator.Guild.ID, ActorDiscordUserID: "actor", Source: model.AuditSourceHoneypot, Action: string(model.AuditActionHoneypotTrigger), ResourceType: "case", ResourceID: "case-1", Result: model.AuditResultSuccess, MetadataJSON: `{"case_id":"case-1","target_discord_user_id":"member-1","token":"secret","nested":{"request_payload":{"content":"private"}}}`}
+	entry := model.AuditLogEntry{ULIDModel: model.ULIDModel{CreatedAt: now.Add(-time.Minute)}, GuildID: moderator.Guild.ID, ActorDiscordUserID: "actor", Source: model.AuditSourceHoneypot, Action: string(model.AuditActionCaseCreate), ResourceType: "case", ResourceID: "case-1", Result: model.AuditResultSuccess, MetadataJSON: `{"case_id":"case-1","target_discord_user_id":"member-1","token":"secret","nested":{"request_payload":{"content":"private"}}}`}
 	if err := repository.CreateAuditLogEntry(ctx, &entry); err != nil {
 		t.Fatal(err)
 	}
-	second := model.AuditLogEntry{GuildID: moderator.Guild.ID, ActorDiscordUserID: "actor", Source: model.AuditSourceHoneypot, Action: string(model.AuditActionHoneypotTrigger), ResourceType: "case", ResourceID: "case-2", Result: model.AuditResultSuccess, MetadataJSON: `{"case_id":"case-2","target_discord_user_id":"member-2"}`}
+	second := model.AuditLogEntry{GuildID: moderator.Guild.ID, ActorDiscordUserID: "actor", Source: model.AuditSourceHoneypot, Action: string(model.AuditActionCaseCreate), ResourceType: "case", ResourceID: "case-2", Result: model.AuditResultSuccess, MetadataJSON: `{"case_id":"case-2","target_discord_user_id":"member-2"}`}
 	if err := repository.CreateAuditLogEntry(ctx, &second); err != nil {
 		t.Fatal(err)
 	}
@@ -79,25 +79,17 @@ func TestAuditServiceRedactsAndFiltersCompleteContract(t *testing.T) {
 	if strings.Contains(metadata, "secret") || !strings.Contains(metadata, model.AuditMetadataRedactedValue) {
 		t.Fatalf("metadata was not recursively redacted: %s", metadata)
 	}
-	firstPage, err := service.List(ctx, moderator, quack.AuditListInput{Action: string(model.AuditActionHoneypotTrigger), Limit: "1"})
+	firstPage, err := service.List(ctx, moderator, quack.AuditListInput{Action: string(model.AuditActionCaseCreate), Limit: "1"})
 	if err != nil || len(firstPage.Entries) != 1 || firstPage.NextCursor == "" {
 		t.Fatalf("missing stable first audit page: %+v err=%v", firstPage, err)
 	}
-	secondPage, err := service.List(ctx, moderator, quack.AuditListInput{Action: string(model.AuditActionHoneypotTrigger), Limit: "1", BeforeID: firstPage.NextCursor})
+	secondPage, err := service.List(ctx, moderator, quack.AuditListInput{Action: string(model.AuditActionCaseCreate), Limit: "1", BeforeID: firstPage.NextCursor})
 	if err != nil || len(secondPage.Entries) != 1 || secondPage.Entries[0].ID == firstPage.Entries[0].ID {
 		t.Fatalf("cursor repeated or skipped page: first=%+v second=%+v err=%v", firstPage, secondPage, err)
 	}
 	audits, err := repository.ListAuditLogEntriesFiltered(ctx, model.ListAuditLogEntriesParams{GuildID: moderator.Guild.ID, Action: string(model.AuditActionAuditRead), Limit: 10})
-	foundDiscordRead := false
-	if err == nil {
-		for _, audit := range audits.Entries {
-			if audit.Source == model.AuditSourceDiscord && audit.RequestID == "request-1" && audit.CorrelationID == "trace-1" {
-				foundDiscordRead = true
-			}
-		}
-	}
-	if !foundDiscordRead {
-		t.Fatalf("missing trace-linked Discord read audit: %+v err=%v", audits, err)
+	if err != nil || audits.Total != 0 {
+		t.Fatalf("reading audit history must not add events: %+v err=%v", audits, err)
 	}
 
 	ordinary := templateGuildContext(t, repository, "audit-guild", "ordinary", uint64(discordgo.PermissionSendMessages))

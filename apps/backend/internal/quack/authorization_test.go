@@ -85,12 +85,10 @@ func TestFormerStaffLosesAccessWithoutLosingAttribution(t *testing.T) {
 		t.Fatalf("expected former staff denial, got %v", err)
 	}
 	audits, err := repositories.ListAuditLogEntries(ctx, current.Guild.ID)
-	if err != nil || len(audits) != 1 {
-		t.Fatalf("expected one denial audit, audits=%+v err=%v", audits, err)
+	if err != nil || len(audits) != 0 {
+		t.Fatalf("permission checks must not enter staff history: audits=%+v err=%v", audits, err)
 	}
-	if audits[0].ActorDiscordUserID != "mod" || audits[0].ResourceID != string(model.PermissionActionCaseCreate) || audits[0].RequestID != "req-former" || audits[0].CorrelationID != "corr-former" || audits[0].Result != model.AuditResultDenied {
-		t.Fatalf("unexpected denial audit: %+v", audits[0])
-	}
+
 }
 
 func TestCasePreflightMatrixAndNoPartialCommit(t *testing.T) {
@@ -181,12 +179,10 @@ func TestCasePreflightMatrixAndNoPartialCommit(t *testing.T) {
 				t.Fatalf("denial committed a case: cases=%+v err=%v", cases, listErr)
 			}
 			audits, auditErr := repositories.ListAuditLogEntries(ctx, guildContext.Guild.ID)
-			if auditErr != nil || len(audits) != 1 {
-				t.Fatalf("expected exactly one denial audit, audits=%+v err=%v", audits, auditErr)
+			if auditErr != nil || len(audits) != 0 {
+				t.Fatalf("denial created a staff event: audits=%+v err=%v", audits, auditErr)
 			}
-			if audits[0].Action != "authorization.denied" || audits[0].Result != model.AuditResultDenied || audits[0].FailureReason != tt.wantReason || audits[0].RequestID != "req-case" || audits[0].CorrelationID != "corr-case" || audits[0].Source != model.AuditSourceWeb {
-				t.Fatalf("unexpected denial audit: %+v", audits[0])
-			}
+
 		})
 	}
 }

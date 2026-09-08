@@ -11,27 +11,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// ListPendingAuditMirrorEntries returns important immutable entries without a successful mirror outcome.
-func (s *Store) ListPendingAuditMirrorEntries(ctx context.Context, limit int) ([]model.AuditLogEntry, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
-	if limit <= 0 || limit > 100 {
-		limit = 50
-	}
-	var entries []model.AuditLogEntry
-	retryAfter := time.Now().UTC().Add(-time.Minute)
-	err := s.db.WithContext(ctx).
-		Where("action IN ?", model.ImportantAuditActions()).
-		Where("NOT EXISTS (SELECT 1 FROM audit_log_entries outcomes WHERE outcomes.guild_id = audit_log_entries.guild_id AND outcomes.action IN ? AND outcomes.resource_type = ? AND outcomes.resource_id = audit_log_entries.id AND outcomes.result = ?)", []string{string(model.AuditActionMirrorDelivered), string(model.AuditActionMirrorSkipped)}, "audit_entry", model.AuditResultSuccess).
-		Where("NOT EXISTS (SELECT 1 FROM audit_log_entries failures WHERE failures.guild_id = audit_log_entries.guild_id AND failures.action = ? AND failures.resource_type = ? AND failures.resource_id = audit_log_entries.id AND failures.created_at > ?)", string(model.AuditActionMirrorFailed), "audit_entry", retryAfter).
-		Order("created_at ASC, id ASC").Limit(limit).Find(&entries).Error
-	if err != nil {
-		return nil, fmt.Errorf("list pending audit mirror entries: %w", err)
-	}
-	return entries, nil
-}
-
 // DeriveStaffStatistics calculates operational counts directly from immutable source records.
 func (s *Store) DeriveStaffStatistics(ctx context.Context, params model.StaffStatisticsParams) (*model.StaffStatistics, error) {
 	if s == nil || s.db == nil {
@@ -54,7 +33,7 @@ func (s *Store) DeriveStaffStatistics(ctx context.Context, params model.StaffSta
 		return nil, fmt.Errorf("derive appeal statistics: %w", err)
 	}
 	var audits []model.AuditLogEntry
-	if err := timeRange(s.db.WithContext(ctx).Where("guild_id = ?", params.GuildID), params).Find(&audits).Error; err != nil {
+	if err := timeRange(s.db.WithContext(ctx).Where("guild_id = ?", params.GuildID).Where("action IN ?", model.ImportantAuditActions()), params).Find(&audits).Error; err != nil {
 		return nil, fmt.Errorf("derive audit statistics: %w", err)
 	}
 

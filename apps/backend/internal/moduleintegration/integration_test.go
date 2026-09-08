@@ -67,13 +67,13 @@ func TestModuleAuditAdapterWritesImmutableCoreEntry(t *testing.T) {
 		t.Fatalf("unexpected module audit: %+v", entries[0])
 	}
 	if err := auditor.RecordModuleAudit(quack.ContextWithAuditSource(context.Background(), model.AuditSourceDiscord), modules.AuditEvent{
-		GuildID: guild.ID, ActorDiscordUserID: "actor", Action: "ticket.close",
+		GuildID: guild.ID, ActorDiscordUserID: "actor", Action: "ticket.resolve",
 		ResourceType: "ticket", ResourceID: "ticket-1", Result: "success", MetadataJSON: "{}",
 	}); err != nil {
 		t.Fatalf("record Discord module audit: %v", err)
 	}
 	if err := auditor.RecordModuleAudit(context.Background(), modules.AuditEvent{
-		GuildID: guild.ID, Action: "honeypot.trigger.accepted", ResourceType: "honeypot_trigger", Result: "success", MetadataJSON: "{}",
+		GuildID: guild.ID, Action: "honeypot.trigger.failed", ResourceType: "honeypot_trigger", Result: "failure", MetadataJSON: "{}",
 	}); err != nil {
 		t.Fatalf("record honeypot module audit: %v", err)
 	}

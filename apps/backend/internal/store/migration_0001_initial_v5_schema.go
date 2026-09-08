@@ -301,7 +301,7 @@ func migration0001SchemaModels() []any {
 		&migration0001CaseTemplateLevel{}, &migration0001CaseTemplateLevelAction{}, &migration0001Case{},
 		&migration0001CaseActionExecution{}, &migration0001CaseActionAttempt{}, &migration0001CaseEvent{},
 		&migration0001Appeal{}, &migration0001AppealEvent{}, &migration0001Ticket{},
-		&migration0001TicketEvent{}, &migration0001AuditLogEntry{},
+		&migration0001TicketEvent{}, &migration0001AuditLogEntry{}, &auditMirrorDelivery{},
 	}
 }
 

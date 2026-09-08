@@ -33,7 +33,7 @@ func (s *Store) ListAuditLogEntries(ctx context.Context, guildID string) ([]mode
 	}
 
 	var entries []model.AuditLogEntry
-	if err := s.db.WithContext(ctx).Where("guild_id = ?", guildID).Order("created_at ASC").Find(&entries).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("guild_id = ?", guildID).Where("action IN ?", model.ImportantAuditActions()).Order("created_at ASC").Find(&entries).Error; err != nil {
 		return nil, fmt.Errorf("list audit log entries: %w", err)
 	}
 
@@ -86,7 +86,7 @@ func (s *Store) ListAuditLogEntriesFiltered(ctx context.Context, params ListAudi
 
 // filteredAuditQuery encapsulates the filtered audit query rule so callers share one consistent package implementation.
 func filteredAuditQuery(query *gorm.DB, params ListAuditLogEntriesParams) *gorm.DB {
-	query = query.Where("guild_id = ?", params.GuildID)
+	query = query.Where("guild_id = ?", params.GuildID).Where("action IN ?", model.ImportantAuditActions())
 	if params.ActorDiscordUserID != "" {
 		query = query.Where("actor_discord_user_id = ?", params.ActorDiscordUserID)
 	}
@@ -129,7 +129,7 @@ func filteredAuditQuery(query *gorm.DB, params ListAuditLogEntriesParams) *gorm.
 
 // createAuditLogEntry creates audit log entry while preserving validation, authorization, and persistence invariants.
 func createAuditLogEntry(db *gorm.DB, entry *model.AuditLogEntry, now time.Time) error {
-	if entry == nil {
+	if entry == nil || !model.IsAuditEvent(entry.Action) {
 		return nil
 	}
 	if entry.ResourceID == "" {

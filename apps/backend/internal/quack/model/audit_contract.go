@@ -26,6 +26,7 @@ const (
 	AuditActionCaseSearch                 AuditAction = "case.search"
 	AuditActionCaseHistoryRead            AuditAction = "case.history.read"
 	AuditActionCaseVoid                   AuditAction = "case.void"
+	AuditActionCaseUpdate                 AuditAction = "case.update"
 	AuditActionEvidenceCapture            AuditAction = "evidence.capture"
 	AuditActionTemplateCreate             AuditAction = "case_template.create"
 	AuditActionTemplateUpdate             AuditAction = "case_template.update"
@@ -78,6 +79,7 @@ type AuditActionContract struct {
 }
 
 var auditActionContracts = map[AuditAction]AuditActionContract{
+	AuditActionCaseUpdate:                                     {AuditActionCaseUpdate, "case", true},
 	AuditActionAuthorizationDenied:                            {AuditActionAuthorizationDenied, "permission", false},
 	AuditActionAuditRead:                                      {AuditActionAuditRead, "audit_log", false},
 	AuditActionStatisticsRead:                                 {AuditActionStatisticsRead, "statistics", false},
@@ -105,16 +107,16 @@ var auditActionContracts = map[AuditAction]AuditActionContract{
 	AuditActionActionDismiss:                                  {AuditActionActionDismiss, "case_action_execution", true},
 	AuditActionActionReverse:                                  {AuditActionActionReverse, "case_action_execution", true},
 	AuditActionActionFailureRead:                              {AuditActionActionFailureRead, "case_action_execution", false},
-	AuditActionActionRecovered:                                {AuditActionActionRecovered, "case_action_execution", true},
+	AuditActionActionRecovered:                                {AuditActionActionRecovered, "case_action_execution", false},
 	AuditActionNotificationSent:                               {AuditActionNotificationSent, "case_notification", false},
-	AuditActionNotificationFailed:                             {AuditActionNotificationFailed, "case_notification", true},
+	AuditActionNotificationFailed:                             {AuditActionNotificationFailed, "case_notification", false},
 	AuditActionAppealRead:                                     {AuditActionAppealRead, "appeal", false},
 	AuditActionAppealSettingsUpdate:                           {AuditActionAppealSettingsUpdate, "guild_settings", true},
 	AuditActionAppealSubmit:                                   {AuditActionAppealSubmit, "appeal", true},
-	AuditActionAppealInformationSubmit:                        {AuditActionAppealInformationSubmit, "appeal", true},
+	AuditActionAppealInformationSubmit:                        {AuditActionAppealInformationSubmit, "appeal", false},
 	AuditActionAppealQueueRead:                                {AuditActionAppealQueueRead, "appeal", false},
-	AuditActionAppealInformationRequested:                     {AuditActionAppealInformationRequested, "appeal", true},
-	AuditActionAppealReopened:                                 {AuditActionAppealReopened, "appeal", true},
+	AuditActionAppealInformationRequested:                     {AuditActionAppealInformationRequested, "appeal", false},
+	AuditActionAppealReopened:                                 {AuditActionAppealReopened, "appeal", false},
 	AuditActionAppealAccepted:                                 {AuditActionAppealAccepted, "appeal", true},
 	AuditActionAppealRejected:                                 {AuditActionAppealRejected, "appeal", true},
 	AuditActionAppealClose:                                    {AuditActionAppealClose, "appeal", true},
@@ -125,13 +127,13 @@ var auditActionContracts = map[AuditAction]AuditActionContract{
 	AuditActionMirrorRepaired:                                 {AuditActionMirrorRepaired, "guild_settings", false},
 	AuditActionMirrorSkipped:                                  {AuditActionMirrorSkipped, "audit_entry", false},
 	AuditActionImportBatch:                                    {AuditActionImportBatch, "import_batch", true},
-	AuditActionHoneypotTrigger:                                {AuditActionHoneypotTrigger, "case", true},
-	AuditAction("guild.lifecycle.bootstrap"):                  {AuditAction("guild.lifecycle.bootstrap"), "guild", true},
-	AuditAction("guild.lifecycle.leave"):                      {AuditAction("guild.lifecycle.leave"), "guild", true},
-	AuditAction("guild_settings.channel_reference.cleared"):   {AuditAction("guild_settings.channel_reference.cleared"), "guild_settings", true},
-	AuditAction("guild_settings.channel_references.repaired"): {AuditAction("guild_settings.channel_references.repaired"), "guild_settings", true},
-	AuditAction("case_template.bootstrap"):                    {AuditAction("case_template.bootstrap"), "case_template", true},
-	AuditAction("evidence_channel.ensure"):                    {AuditAction("evidence_channel.ensure"), "guild_settings", true},
+	AuditActionHoneypotTrigger:                                {AuditActionHoneypotTrigger, "case", false},
+	AuditAction("guild.lifecycle.bootstrap"):                  {AuditAction("guild.lifecycle.bootstrap"), "guild", false},
+	AuditAction("guild.lifecycle.leave"):                      {AuditAction("guild.lifecycle.leave"), "guild", false},
+	AuditAction("guild_settings.channel_reference.cleared"):   {AuditAction("guild_settings.channel_reference.cleared"), "guild_settings", false},
+	AuditAction("guild_settings.channel_references.repaired"): {AuditAction("guild_settings.channel_references.repaired"), "guild_settings", false},
+	AuditAction("case_template.bootstrap"):                    {AuditAction("case_template.bootstrap"), "case_template", false},
+	AuditAction("evidence_channel.ensure"):                    {AuditAction("evidence_channel.ensure"), "guild_settings", false},
 	AuditAction("member_case.list"):                           {AuditAction("member_case.list"), "guild", false},
 	AuditAction("member_case.read"):                           {AuditAction("member_case.read"), "case", false},
 	AuditAction("ticket.settings.read"):                       {AuditAction("ticket.settings.read"), "ticket", false},
@@ -139,18 +141,18 @@ var auditActionContracts = map[AuditAction]AuditActionContract{
 	AuditAction("ticket.open"):                                {AuditAction("ticket.open"), "ticket", true},
 	AuditAction("ticket.resolve"):                             {AuditAction("ticket.resolve"), "ticket", true},
 	AuditAction("ticket.cancel"):                              {AuditAction("ticket.cancel"), "ticket", true},
-	AuditAction("ticket.reopen"):                              {AuditAction("ticket.reopen"), "ticket", true},
+	AuditAction("ticket.reopen"):                              {AuditAction("ticket.reopen"), "ticket", false},
 	AuditAction("ticket.reply"):                               {AuditAction("ticket.reply"), "ticket", false},
-	AuditAction("ticket.entry_channel_repair"):                {AuditAction("ticket.entry_channel_repair"), "ticket", true},
+	AuditAction("ticket.entry_channel_repair"):                {AuditAction("ticket.entry_channel_repair"), "ticket", false},
 	AuditAction("ticket.v4_import"):                           {AuditAction("ticket.v4_import"), "ticket_import", true},
 	AuditAction("general_logging.settings.update"):            {AuditAction("general_logging.settings.update"), "general_logging_settings", true},
-	AuditAction("general_logging.channel_repair"):             {AuditAction("general_logging.channel_repair"), "general_logging_settings", true},
+	AuditAction("general_logging.channel_repair"):             {AuditAction("general_logging.channel_repair"), "general_logging_settings", false},
 	AuditAction("general_logging.v4_settings_import"):         {AuditAction("general_logging.v4_settings_import"), "general_logging_settings_import", true},
 	AuditAction("honeypot.settings.read"):                     {AuditAction("honeypot.settings.read"), "honeypot_settings", false},
 	AuditAction("honeypot.settings.update"):                   {AuditAction("honeypot.settings.update"), "honeypot_settings", true},
 	AuditAction("honeypot.trigger.detected"):                  {AuditAction("honeypot.trigger.detected"), "honeypot_trigger", false},
 	AuditAction("honeypot.trigger.failed"):                    {AuditAction("honeypot.trigger.failed"), "honeypot_trigger", true},
-	AuditAction("honeypot.case.created"):                      {AuditAction("honeypot.case.created"), "case", true},
+	AuditAction("honeypot.case.created"):                      {AuditAction("honeypot.case.created"), "case", false},
 	AuditAction("honeypot.configuration.disabled"):            {AuditAction("honeypot.configuration.disabled"), "honeypot_settings", true},
 	AuditAction("honeypot.v4_settings_import"):                {AuditAction("honeypot.v4_settings_import"), "honeypot_settings_import", true},
 }
@@ -165,7 +167,13 @@ func AuditContract(action string, resourceType string) AuditActionContract {
 	return AuditActionContract{Action: key, ResourceType: strings.TrimSpace(resourceType)}
 }
 
-// ImportantAuditActions returns the deterministic action set eligible for the optional staff-channel mirror.
+// IsAuditEvent reports whether an action belongs in staff history. Reads, worker
+// bookkeeping, and unknown service events never become product audit entries.
+func IsAuditEvent(action string) bool {
+	return AuditContract(action, "").Important
+}
+
+// ImportantAuditActions returns the deterministic event set used by history and its Discord mirror.
 func ImportantAuditActions() []string {
 	actions := make([]string, 0, len(auditActionContracts))
 	for action, contract := range auditActionContracts {

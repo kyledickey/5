@@ -481,8 +481,8 @@ func TestCaseActionStateMachineClaimCompleteAndSkip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list audits: %v", err)
 	}
-	if len(audits) != 3 || audits[0].Action != string(model.AuditActionActionAttempt) || audits[1].Action != "case_action.failed" || audits[2].Action != "case_action.skipped" {
-		t.Fatalf("expected action attempt, failure, and skip audits, got %+v", audits)
+	if len(audits) != 2 || audits[0].Action != "case_action.failed" || audits[1].Action != "case_action.skipped" {
+		t.Fatalf("expected failure and skip events without worker attempts, got %+v", audits)
 	}
 
 	cases, err := store.ListCases(ctx, guildID)

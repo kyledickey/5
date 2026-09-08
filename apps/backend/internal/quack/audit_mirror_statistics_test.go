@@ -97,8 +97,8 @@ func TestAuditMirrorWorkerIsNonBlockingRedactedAndRepairable(t *testing.T) {
 	}
 	failures, _ := repository.ListAuditLogEntriesFiltered(ctx, model.ListAuditLogEntriesParams{GuildID: moderator.Guild.ID, Action: string(model.AuditActionMirrorFailed), Limit: 10})
 	repairs, _ := repository.ListAuditLogEntriesFiltered(ctx, model.ListAuditLogEntriesParams{GuildID: moderator.Guild.ID, Action: string(model.AuditActionMirrorRepaired), Limit: 10})
-	if failures.Total != 1 || repairs.Total != 1 {
-		t.Fatalf("expected durable mirror failure and repair history, failures=%+v repairs=%+v", failures, repairs)
+	if failures.Total != 0 || repairs.Total != 0 {
+		t.Fatalf("mirror bookkeeping leaked into staff history, failures=%+v repairs=%+v", failures, repairs)
 	}
 }
 

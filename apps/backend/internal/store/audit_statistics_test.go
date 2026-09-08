@@ -4,10 +4,55 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/quackdiscord/bot/internal/quack/model"
 	storage "github.com/quackdiscord/bot/internal/store"
 )
+
+// TestAuditRejectsServiceEvents checks raw storage, so a display-only filter
+// cannot accidentally satisfy the product's no-technical-history requirement.
+func TestAuditRejectsServiceEvents(t *testing.T) {
+	repository, guildID := templateTestStore(t)
+	ctx := context.Background()
+	for _, action := range []string{"case_template.read", "audit.read", "audit_mirror.skipped", "audit_mirror.failed", "case_action.attempt", "unknown.service"} {
+		if err := repository.CreateAuditLogEntry(ctx, &model.AuditLogEntry{GuildID: guildID, Action: action}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var count int64
+	if err := repository.DB().Model(&model.AuditLogEntry{}).Where("guild_id = ?", guildID).Count(&count).Error; err != nil || count != 0 {
+		t.Fatalf("technical rows persisted: count=%d err=%v", count, err)
+	}
+	entry := model.AuditLogEntry{GuildID: guildID, Action: "case.create", Source: model.AuditSourceDiscord, Result: model.AuditResultSuccess}
+	if err := repository.CreateAuditLogEntry(ctx, &entry); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.SaveAuditMirrorDelivery(ctx, entry.ID, false, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := repository.ListPendingAuditMirrorEntries(ctx, 10)
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("failed delivery ignored backoff: %+v err=%v", pending, err)
+	}
+	if err := repository.SaveAuditMirrorDelivery(ctx, entry.ID, false, time.Now().Add(-time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	pending, err = repository.ListPendingAuditMirrorEntries(ctx, 10)
+	if err != nil || len(pending) != 1 || pending[0].ID != entry.ID {
+		t.Fatalf("failed delivery did not become retryable: %+v err=%v", pending, err)
+	}
+	if err := repository.SaveAuditMirrorDelivery(ctx, entry.ID, true, time.Now().Add(-time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	pending, err = repository.ListPendingAuditMirrorEntries(ctx, 10)
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("completed delivery became retryable: %+v err=%v", pending, err)
+	}
+	if err := repository.DB().Model(&model.AuditLogEntry{}).Where("guild_id = ?", guildID).Count(&count).Error; err != nil || count != 1 {
+		t.Fatalf("delivery bookkeeping added staff events: count=%d err=%v", count, err)
+	}
+}
 
 func TestAuditRowsAreAppendOnlyAndRedactedAtStorageBoundary(t *testing.T) {
 	repository, guildID := templateTestStore(t)

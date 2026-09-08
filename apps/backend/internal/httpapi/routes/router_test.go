@@ -589,8 +589,8 @@ func TestGuildSettingsRoutesReadWriteAcknowledgeAndAuditDenied(t *testing.T) {
 			foundDenied = true
 		}
 	}
-	if !foundDenied {
-		t.Fatalf("missing denied settings audit: %+v", audits)
+	if foundDenied {
+		t.Fatalf("permission denial leaked into staff history: %+v", audits)
 	}
 }
 
