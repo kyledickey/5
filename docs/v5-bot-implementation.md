@@ -714,3 +714,14 @@ means further work is required, not completion.
   for Quack's pond. The beta bot is running. Remaining live findings: 21 obsolete
   guild commands (pruning is still disabled) and a general-logging startup error.
   Full feature journeys, schema-code simplification and broader acceptance remain.
+
+- General logging now treats disabled logging and events without a destination as
+  normal queue outcomes, keeping them out of developer error logs. Actual delivery
+  failures still report an error and increment failure status. Regression coverage
+  verifies both quiet outcomes and real failures without adding audit entries;
+  the focused and full MySQL-enabled backend suites pass. Loaded
+  `/tmp/quack-v5-logging-fix` in the approved beta pane; the false startup error no
+  longer recurs. Live Helium rehearsal as dickey successfully created `Rehearsal
+  rule` through the native Discord modal and displayed its private confirmation
+  (warning, DM enabled, appeals enabled). Discord's native app remains the monkey
+  tester account. Command pruning still awaits separate explicit approval.

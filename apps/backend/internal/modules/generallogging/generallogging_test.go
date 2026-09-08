@@ -1,9 +1,11 @@
 package generallogging_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"testing"
@@ -298,5 +300,49 @@ func TestAttachmentOnlyEditsKeepPreviousFiles(t *testing.T) {
 	removed, err := service.PrepareMessageEdit(ctx, current, nil)
 	if err != nil || removed == nil || len(removed.BeforeAttachments) != 1 || len(removed.Attachments) != 0 {
 		t.Fatalf("file removal missed: %+v %v", removed, err)
+	}
+}
+
+// TestDeliveryQueueSkipsUnconfiguredEventsButReportsFailures distinguishes
+// ordinary disabled/unrouted gateway traffic from a real delivery failure.
+func TestDeliveryQueueSkipsUnconfiguredEventsButReportsFailures(t *testing.T) {
+	for _, scenario := range []struct {
+		name, guild string
+		event       logmodule.EventType
+		fail        bool
+	}{
+		{"disabled", "guild-b", logmodule.MemberJoin, false},
+		{"unrouted", "guild-a", logmodule.GuildChange, false},
+		{"delivery failure", "guild-a", logmodule.MemberJoin, true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			_, service, client, audit := setup(t)
+			if scenario.fail {
+				client.failUntil = 100
+			}
+			auditCount := len(audit.events)
+			var output bytes.Buffer
+			previous := slog.Default()
+			slog.SetDefault(slog.New(slog.NewTextHandler(&output, nil)))
+			defer slog.SetDefault(previous)
+			queue := logmodule.NewDeliveryQueue(context.Background(), service, 1, 1)
+			if err := queue.Submit(logmodule.Event{GuildID: scenario.guild, Type: scenario.event}); err != nil {
+				t.Fatal(err)
+			}
+			queue.Close()
+			reported := strings.Contains(output.String(), "General logging delivery failed")
+			if reported != scenario.fail {
+				t.Fatalf("wrong failure classification: %s", output.String())
+			}
+			if !scenario.fail && client.attempts != 0 {
+				t.Fatal("unconfigured event attempted delivery")
+			}
+			if len(audit.events) != auditCount {
+				t.Fatal("delivery bookkeeping polluted moderation audit")
+			}
+			if scenario.fail && service.Status(scenario.guild).Failed != 1 {
+				t.Fatal("real failure disappeared from module status")
+			}
+		})
 	}
 }

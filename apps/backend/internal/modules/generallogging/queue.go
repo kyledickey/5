@@ -57,6 +57,7 @@ func (q *DeliveryQueue) Submit(event Event) error {
 	}
 }
 
+// cloneEvent copies mutable payload fields before handing them to another goroutine.
 func cloneEvent(event Event) Event {
 	event.Attachments = append([]AttachmentMetadata(nil), event.Attachments...)
 	event.EmbedTypes = append([]string(nil), event.EmbedTypes...)
@@ -91,6 +92,9 @@ func (q *DeliveryQueue) process(ctx context.Context, event Event) {
 		}
 	}()
 	if err := q.service.Handle(ctx, event); err != nil {
+		if errors.Is(err, ErrDisabled) || errors.Is(err, ErrNoDestination) || (ctx.Err() != nil && errors.Is(err, ctx.Err())) {
+			return
+		}
 		slog.ErrorContext(ctx, "General logging delivery failed", "guild_id", event.GuildID, "error_type", fmt.Sprintf("%T", err))
 	}
 }
