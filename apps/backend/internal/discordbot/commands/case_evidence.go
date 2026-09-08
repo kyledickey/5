@@ -21,11 +21,11 @@ func handleCaseEvidenceComponent(ctx ui.Context) ui.HandlerResult {
 		if err != nil {
 			return err
 		}
-		detail, err := ctx.Services.Cases.GetEvidenceView(taskCtx, guild, parsed.Payload)
+		detail, err := ctx.Services.Cases.GetEvidencePage(taskCtx, guild, parsed.Payload, 1)
 		if err != nil {
 			return err
 		}
-		_, err = responder.EditOriginal(ui.EditMessage(caseWebLink(views.CaseEvidencePage(detail, 1, ui.SessionApplicationID(ctx.Session)), ctx.Services.Config.ApplicationBaseURL, guild.Guild.DiscordGuildID, "cases", detail.ID)))
+		_, err = responder.EditOriginal(ui.EditMessage(caseWebLink(views.CaseEvidenceSnapshotPage(detail, 1, ui.SessionApplicationID(ctx.Session)), ctx.Services.Config.ApplicationBaseURL, guild.Guild.DiscordGuildID, "cases", detail.ID)))
 		return err
 	})
 }
@@ -33,7 +33,57 @@ func handleCaseEvidenceComponent(ctx ui.Context) ui.HandlerResult {
 // pageEvidence reloads the case through live staff authorization on every click;
 // component payloads carry navigation only, never captured content or authority.
 func pageEvidence(delta int) ui.Handler {
-	return pageCaseRecordWithLoader(delta, views.CaseEvidencePage, (*quack.CaseService).GetEvidenceView)
+	return func(ctx ui.Context) ui.HandlerResult {
+		parsed, err := ui.DecodeCustomID(ctx.Interaction.MessageComponentData().CustomID)
+		if err != nil {
+			return ui.Immediate(ui.Error("That case page is no longer available."))
+		}
+		parts := strings.SplitN(parsed.Payload, "|", 2)
+		if len(parts) != 2 || parts[1] == "" {
+			return ui.Immediate(ui.Error("That case page is no longer available."))
+		}
+		coordinates := strings.SplitN(parts[0], ":", 2)
+		position, page := 1, 1
+		if len(coordinates) == 1 {
+			page, err = strconv.Atoi(coordinates[0])
+		} else {
+			position, err = strconv.Atoi(coordinates[0])
+			if err == nil {
+				page, err = strconv.Atoi(coordinates[1])
+			}
+		}
+		if err != nil || position < 1 || position > 1000000 || page < 1 || page > 1000000 {
+			return ui.Immediate(ui.Error("That case page is no longer available."))
+		}
+		return ui.Async(ui.DeferUpdate(), func(taskCtx context.Context, responder ui.Responder) error {
+			guild, err := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
+			if err != nil {
+				return err
+			}
+			detail, err := ctx.Services.Cases.GetEvidencePage(taskCtx, guild, parts[1], position)
+			if err != nil {
+				return err
+			}
+			applicationID := ui.SessionApplicationID(ctx.Session)
+			last := len(views.CaseEvidenceSnapshotPages(detail, applicationID))
+			if page > last {
+				page = last
+			}
+			page += delta
+			if page < 1 && detail.Position > 1 {
+				detail, err = ctx.Services.Cases.GetEvidencePage(taskCtx, guild, parts[1], detail.Position-1)
+				page = 1000000
+			} else if page > last && int64(detail.Position) < detail.Total {
+				detail, err = ctx.Services.Cases.GetEvidencePage(taskCtx, guild, parts[1], detail.Position+1)
+				page = 1
+			}
+			if err != nil {
+				return err
+			}
+			_, err = responder.UpdateMessage(ui.EditMessage(caseWebLink(views.CaseEvidenceSnapshotPage(detail, page, applicationID), ctx.Services.Config.ApplicationBaseURL, guild.Guild.DiscordGuildID, "cases", detail.ID)))
+			return err
+		})
+	}
 }
 
 // pageCaseRecord shares navigation and authorization for private case record views.

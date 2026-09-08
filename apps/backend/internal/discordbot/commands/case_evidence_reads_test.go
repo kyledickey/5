@@ -10,12 +10,13 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/discordbot/ui/views"
+	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/quackdiscord/bot/internal/quack/model"
 	"gorm.io/gorm"
 )
 
 // TestNativeEvidenceReadsPreservePages verifies initial and subsequent evidence
-// pages match the existing renderer without loading unrelated case histories.
+// pages match the bounded snapshot renderer without unrelated case histories.
 func TestNativeEvidenceReadsPreservePages(t *testing.T) {
 	repository, services, _ := newCaseCommandHarness(t)
 	guild := caseCommandGuildContext(t, services)
@@ -58,9 +59,35 @@ func TestNativeEvidenceReadsPreservePages(t *testing.T) {
 		if page == 2 {
 			actual = responder.updated
 		}
-		want := ui.EditMessage(views.CaseEvidencePage(full, page, ""))
+		want := ui.EditMessage(views.CaseEvidenceSnapshotPage(&quack.CaseEvidencePageResponse{CaseDetailResponse: *full, Position: 1, Total: 1}, page, ""))
 		if !reflect.DeepEqual(actual, want) {
 			t.Fatalf("page %d output changed: %+v %+v", page, actual, want)
 		}
 	}
+	second := model.CaseEvidenceSnapshot{ULIDModel: model.ULIDModel{ID: "second-snapshot"}, CaseID: item.ID, GuildID: item.GuildID, CaptureOutcome: "uploaded", EmbedsJSON: "[]"}
+	if err := repository.DB().Create(&second).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, scenario := range []struct {
+		payload               string
+		delta, position, page int
+	}{{"1:1000000|" + item.ID, 1, 2, 1}, {"2:1|" + item.ID, -1, 1, 1000000}} {
+		interaction := caseAddInteraction("", "target", uint64(discordgo.PermissionModerateMembers))
+		interaction.Type = discordgo.InteractionMessageComponent
+		interaction.Data = discordgo.MessageComponentInteractionData{CustomID: ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "evidence", Version: "v1", Payload: scenario.payload})}
+		result := pageEvidence(scenario.delta)(ui.Context{Context: context.Background(), Services: services, Interaction: interaction})
+		responder := &fakeResponder{}
+		if err := result.Task(context.Background(), responder); err != nil {
+			t.Fatal(err)
+		}
+		selected, err := services.Cases.GetEvidencePage(context.Background(), guild, item.ID, scenario.position)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := ui.EditMessage(views.CaseEvidenceSnapshotPage(selected, scenario.page, ""))
+		if !reflect.DeepEqual(responder.updated, want) {
+			t.Fatalf("cross-snapshot navigation changed content: %+v", scenario)
+		}
+	}
+
 }
