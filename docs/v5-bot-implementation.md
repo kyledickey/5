@@ -815,3 +815,19 @@ means further work is required, not completion.
   storage/service and route/readiness tests pass, followed by the full MySQL-enabled
   backend suite. Existing nonempty databases retain the old compatibility runner;
   deleting it and switching the live rehearsal database remain outstanding.
+
+- Added `quack-migrate adopt` for the fully migrated pre-release database. It
+  validates the complete unchanged ledger and required preserved tables before
+  adding the current-schema marker; it does not delete the ledger or rewrite
+  application rows. SQLite/MySQL regressions compare recovery manifests and case
+  numbering before adoption and after startup, and reject partial histories.
+  Focused adoption checks and the full MySQL-enabled backend suite pass.
+- Backed up the local rehearsal database to mode-0600
+  `/tmp/quack-before-schema-adoption.sql`, stopped the approved beta pane `%1`,
+  adopted its schema without resetting data, and started
+  `/tmp/quack-v5-current-schema` there with command pruning still disabled. Live
+  `/readyz` is green (current schema version 1), and `/status` reports Beta Bot,
+  MySQL and Redis connected. A database read confirms tester case #1 remains voided
+  and its appeal accepted. This binary includes the accumulated warning and native
+  pagination changes. Old runner deletion and remaining feature rehearsals are
+  still pending; the dashboard pane was not changed.
