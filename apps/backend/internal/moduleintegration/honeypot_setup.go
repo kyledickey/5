@@ -70,6 +70,9 @@ func (r *Runtime) SetupHoneypot(ctx ui.Context) ui.HandlerResult {
 		if channel.GuildID != ctx.Interaction.GuildID || channel.Type != discordgo.ChannelTypeGuildText {
 			return fail("The honeypot must be a text channel in this server.")
 		}
+		if err := (honeypotChannelValidator{session: r.session, resolver: r.resolver}).ValidateHoneypotChannel(taskCtx, actor.GuildID, channel.ID); err != nil {
+			return fail("Quack needs View Channel, Send Messages, Read Message History and Manage Messages in the honeypot channel. Update its permissions and run setup again.")
+		}
 		if strings.TrimSpace(warning) != "" {
 			settings.WarningText = strings.ReplaceAll(warning, `\n`, "\n")
 		}

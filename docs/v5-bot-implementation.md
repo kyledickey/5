@@ -361,3 +361,12 @@ means further work is required, not completion.
   tests verify ordering and denied cleanup isolation; focused and full backend
   suites pass. Cleanup of additional debounced messages, durable deletion retries,
   missing warning repair and end-to-end live evidence/cleanup rehearsal remain pending.
+
+- Honeypot validation now requires a same-guild text channel and effective View
+  Channel, Send Messages, Read Message History and Manage Messages permissions.
+  Setup performs this check before warning delivery/enabling, with repair guidance.
+  Fresh bot membership/guild reads now use the caller's context and explicit no-
+  retry request options. Transport tests cover missing history/cleanup permissions
+  and invalid channel types. Focused and full backend suites pass. Permission drift
+  during an already accepted incident, cleanup recovery and live rehearsal remain
+  pending along with the rest of the tracked bot rewrite.

@@ -116,7 +116,7 @@ type honeypotChannelValidator struct {
 }
 
 // ValidateHoneypotChannel requires an exact live guild/channel match and bot
-// visibility; it never accepts request-supplied permission claims.
+// access for warning delivery, evidence reads and trigger cleanup.
 func (v honeypotChannelValidator) ValidateHoneypotChannel(ctx context.Context, guildID, channelID string) error {
 	if v.session == nil {
 		return errors.New("honeypot Discord session is not configured")
@@ -126,39 +126,53 @@ func (v honeypotChannelValidator) ValidateHoneypotChannel(ctx context.Context, g
 		return err
 	}
 	channel, err := v.session.Channel(strings.TrimSpace(channelID), discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
-	if err != nil || channel == nil || channel.GuildID != discordGuildID {
+	if err != nil || channel == nil || channel.GuildID != discordGuildID || channel.Type != discordgo.ChannelTypeGuildText {
 		return honeypot.ErrChannelUnavailable
 	}
-	guild, member, err := currentBotMember(v.session, discordGuildID)
+	guild, member, err := currentBotMember(ctx, v.session, discordGuildID)
 	if err != nil {
 		return err
 	}
 	permissions := channelPermissions(guild, channel, member)
-	if permissions&discordgo.PermissionViewChannel == 0 {
-		return honeypot.ErrChannelUnavailable
+	var missing []string
+	for _, required := range []struct {
+		bit  int64
+		name string
+	}{
+		{discordgo.PermissionViewChannel, "View Channel"},
+		{discordgo.PermissionSendMessages, "Send Messages"},
+		{discordgo.PermissionReadMessageHistory, "Read Message History"},
+		{discordgo.PermissionManageMessages, "Manage Messages"},
+	} {
+		if permissions&required.bit == 0 {
+			missing = append(missing, required.name)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("%w: Quack needs %s in the honeypot channel", honeypot.ErrChannelUnavailable, strings.Join(missing, ", "))
 	}
 	return nil
 }
 
 // currentBotMember loads current bot membership rather than trusting gateway
 // message fields or stale optional-module configuration.
-func currentBotMember(session *discordgo.Session, discordGuildID string) (*discordgo.Guild, *discordgo.Member, error) {
+func currentBotMember(ctx context.Context, session *discordgo.Session, discordGuildID string) (*discordgo.Guild, *discordgo.Member, error) {
 	if session == nil {
 		return nil, nil, errors.New("Discord session is not configured")
 	}
 	botID := currentBotID(session)
 	if botID == "" {
-		user, err := session.User("@me")
+		user, err := session.User("@me", discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 		if err != nil || user == nil {
 			return nil, nil, errors.New("current Discord bot identity is unavailable")
 		}
 		botID = user.ID
 	}
-	guild, err := session.Guild(discordGuildID)
+	guild, err := session.Guild(discordGuildID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 	if err != nil || guild == nil {
 		return nil, nil, errors.New("current Discord guild is unavailable")
 	}
-	member, err := session.GuildMember(discordGuildID, botID)
+	member, err := session.GuildMember(discordGuildID, botID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 	if err != nil || member == nil || member.User == nil || member.User.ID != botID {
 		return nil, nil, errors.New("current Discord bot membership is unavailable")
 	}
