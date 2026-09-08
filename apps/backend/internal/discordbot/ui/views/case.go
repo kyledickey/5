@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/quackdiscord/bot/internal/quack/model"
@@ -46,7 +47,9 @@ func CaseCreatedMessage(result CaseCreated) ui.Message {
 	if created.EvidenceIncomplete {
 		status += "\n{{quack:warn}} Some evidence could not be saved."
 	}
-	return ui.Conversation(icon, FormatCaseCreated(result), "", status, strings.Join(meta, " · "), false)
+	message := ui.Conversation(icon, FormatCaseCreated(result), "", status, strings.Join(meta, " · "), false)
+	message.Components = []discordgo.MessageComponent{ui.Row(ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "edit_context", Version: "v1", Payload: created.ID}), "Add context", discordgo.SecondaryButton, false))}
+	return message
 }
 
 // FormatCaseCreated puts the affected member and rule in a single natural sentence.

@@ -2,7 +2,6 @@ package commands
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -49,15 +48,8 @@ func HandleMessageCaseInteraction(ctx ui.Context) ui.HandlerResult {
 		return ui.Immediate(ui.Ephemeral(ui.Message{Content: "{{quack:case}} Choose the template that matches this message.", Components: []discordgo.MessageComponent{ui.Row(selectMenu)}, Ephemeral: true}))
 	}
 	template := templates[0]
-	if len(template.ContextFields) > 1 || (len(template.ContextFields) == 1 && template.ContextFields[0].FieldType != model.ContextFieldMessageLink) {
-		return ui.Immediate(ui.Error("Use `/case add` to complete this template's visible context."))
-	}
 	link := fmt.Sprintf("https://discord.com/channels/%s/%s/%s", interaction.GuildID, message.ChannelID, message.ID)
-	values := []quack.CaseContextValueInput{}
-	if len(template.ContextFields) == 1 {
-		raw, _ := json.Marshal(link)
-		values = append(values, quack.CaseContextValueInput{Key: template.ContextFields[0].Key, Value: raw})
-	}
+	values := messageLinkContext(&template, link)
 	return ui.Async(ui.DeferPublic(), func(taskCtx context.Context, responder ui.Responder) error {
 		created, createErr := ctx.Services.Cases.Create(taskCtx, guildContext, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: message.Author.ID, Source: model.CaseSourceDiscord, ContextChannelDiscordID: message.ChannelID, ContextMessageDiscordID: message.ID, ContextValues: values, EvidenceLinks: []string{link}, IdempotencyKey: interaction.ID})
 		if createErr != nil {
@@ -90,23 +82,6 @@ func HandleCaseInteraction(ctx ui.Context) ui.HandlerResult {
 
 	if err := validateCaseInteraction(ctx.Context, ctx.Services, interaction, add); err != nil {
 		return ui.Immediate(ui.Error(caseCommandErrorMessage(err)))
-	}
-	if contextOption := add.GetOption("context"); contextOption == nil || strings.TrimSpace(contextOption.StringValue()) == "" {
-		guildContext, resolveErr := resolveInteractionGuildContext(ctx.Context, ctx.Services, interaction)
-		if resolveErr != nil {
-			return ui.Immediate(ui.Error(caseCommandErrorMessage(resolveErr)))
-		}
-		_, template, templateErr := resolveTemplate(ctx.Context, ctx.Services, guildContext, optionStringValue(add.GetOption("template")))
-		if templateErr != nil {
-			return ui.Immediate(ui.Error(caseCommandErrorMessage(templateErr)))
-		}
-		if template != nil && len(template.ContextFields) > 0 {
-			modal, modalErr := contextModal(interaction, template, optionStringValue(add.GetOption("user")), optionStringValue(add.GetOption("message_link")))
-			if modalErr != nil {
-				return ui.Immediate(ui.Error(modalErr.Error()))
-			}
-			return ui.Immediate(modal)
-		}
 	}
 
 	return ui.Async(ui.DeferPublic(), func(taskCtx context.Context, responder ui.Responder) error {

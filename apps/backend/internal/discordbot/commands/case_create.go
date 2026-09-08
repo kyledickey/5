@@ -2,7 +2,6 @@ package commands
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 
@@ -45,8 +44,10 @@ func createCaseFromInteraction(ctx context.Context, services *quack.Services, in
 		return nil, err
 	}
 
-	contextValues := contextValuesFromOption(add.GetOption("context"), template)
-	contextValues = mergeMessageLinkContext(contextValues, add.GetOption("message_link"), template)
+	contextValues := []quack.CaseContextValueInput{}
+	if link := optionStringValue(add.GetOption("message_link")); link != "" {
+		contextValues = messageLinkContext(template, link)
+	}
 	created, err := services.Cases.Create(ctx, guildContext, quack.CaseInput{
 		TemplateID:              templateID,
 		TargetDiscordUserID:     optionStringValue(userOption),
@@ -59,43 +60,6 @@ func createCaseFromInteraction(ctx context.Context, services *quack.Services, in
 	}
 
 	return &caseCommandCreateResult{Case: created, Template: template}, nil
-}
-
-// mergeMessageLinkContext binds a pasted link to the first Discord-message-link definition when not already supplied.
-func mergeMessageLinkContext(values []quack.CaseContextValueInput, option *discordgo.ApplicationCommandInteractionDataOption, template *quack.TemplateResponse) []quack.CaseContextValueInput {
-	if option == nil || template == nil || strings.TrimSpace(option.StringValue()) == "" {
-		return values
-	}
-	existing := map[string]struct{}{}
-	for _, value := range values {
-		existing[value.Key] = struct{}{}
-	}
-	for _, field := range template.ContextFields {
-		if field.FieldType == model.ContextFieldMessageLink {
-			if _, ok := existing[field.Key]; !ok {
-				raw, _ := json.Marshal(strings.TrimSpace(option.StringValue()))
-				values = append(values, quack.CaseContextValueInput{Key: field.Key, Value: raw})
-			}
-			break
-		}
-	}
-	return values
-}
-
-// contextValuesFromOption decodes visible template context without accepting a reason override.
-func contextValuesFromOption(option *discordgo.ApplicationCommandInteractionDataOption, template *quack.TemplateResponse) []quack.CaseContextValueInput {
-	if option == nil || template == nil {
-		return nil
-	}
-	var values map[string]json.RawMessage
-	if json.Unmarshal([]byte(option.StringValue()), &values) != nil {
-		return []quack.CaseContextValueInput{{Key: "__invalid__", Value: json.RawMessage(`null`)}}
-	}
-	out := make([]quack.CaseContextValueInput, 0, len(values))
-	for key, value := range values {
-		out = append(out, quack.CaseContextValueInput{Key: key, Value: value})
-	}
-	return out
 }
 
 // evidenceLinksFromOption forwards pasted links into the shared capture service.

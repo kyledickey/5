@@ -23,32 +23,24 @@ func TestCaseComponentRegistrarInstallsRealRecoveryAndPaginationHandlers(t *test
 			t.Fatalf("component %s not registered: ok=%v err=%v", action, ok, err)
 		}
 	}
-	for _, action := range []string{"void_submit", "reverse_submit", "context_submit"} {
+	for _, action := range []string{"void_submit", "reverse_submit", "edit_context_submit"} {
 		if _, ok, err := registry.LookupModal(ui.MustCustomID(ui.CustomID{Namespace: "case", Action: action, Version: "v1", Payload: "payload"})); err != nil || !ok {
 			t.Fatalf("modal %s not registered: ok=%v err=%v", action, ok, err)
 		}
 	}
 }
 
-func TestCaseAddUsesStructuredModalAndKeepsPublicSummaryLimited(t *testing.T) {
+func TestCaseAddActsImmediatelyWithOptionalContext(t *testing.T) {
 	_, services, _ := newCaseCommandHarness(t)
 	guildContext := caseCommandGuildContext(t, services)
 	template := createCaseCommandTemplate(t, services, guildContext, quack.TemplateInput{Slug: "abuse", Name: "Abuse", ReasonTemplate: "Abusive behavior", ContextFields: []quack.TemplateContextFieldInput{{Key: "details", Label: "What happened?", FieldType: model.ContextFieldLongText, Position: 1, Required: true}}, Levels: []quack.TemplateLevelInput{{Name: "Default", Position: 1, IsDefault: true}}})
 
 	result := HandleCaseInteraction(ui.Context{Context: context.Background(), Services: services, Interaction: caseAddInteraction(template.ID, "target-2", uint64(discordgo.PermissionModerateMembers))})
-	if result.Response == nil || result.Response.Type != discordgo.InteractionResponseModal || len(result.Response.Data.Components) != 1 {
-		t.Fatalf("expected structured context modal, got %+v", result.Response)
-	}
-	customID := result.Response.Data.CustomID
-	modal := interaction(discordgo.InteractionModalSubmit, uint64(discordgo.PermissionModerateMembers), nil)
-	modal.ID = "modal-interaction-2"
-	modal.Data = discordgo.ModalSubmitInteractionData{CustomID: customID, Components: []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{discordgo.TextInput{CustomID: "context_details", Value: "Repeated abusive replies"}}}}}
-	modalResult := handleContextModal(ui.Context{Context: context.Background(), Services: services, Interaction: modal})
-	if modalResult.Response == nil || modalResult.Task == nil || (modalResult.Response.Data != nil && modalResult.Response.Data.Flags&discordgo.MessageFlagsEphemeral != 0) {
-		t.Fatalf("expected public deferred result, got %+v", modalResult)
+	if result.Response == nil || result.Response.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource || result.Task == nil {
+		t.Fatalf("case creation must not wait for context: %+v", result)
 	}
 	responder := &fakeResponder{}
-	if err := modalResult.Task(context.Background(), responder); err != nil {
+	if err := result.Task(context.Background(), responder); err != nil {
 		t.Fatal(err)
 	}
 	if responder.deleted || responder.followup.Content != "" || responder.edit.Content == nil || responder.edit.Embeds == nil || len(*responder.edit.Embeds) != 0 || responder.editCount != 1 {
@@ -83,50 +75,22 @@ func TestMessageContextActionOffersActiveTemplateSelection(t *testing.T) {
 	}
 }
 
-func TestCaseContextWizardSupportsMoreThanFiveStructuredFields(t *testing.T) {
+// TestCaseCreationDoesNotDependOnContextFieldCount protects immediate creation
+// for imported policies containing multiple formerly required fields.
+func TestCaseCreationDoesNotDependOnContextFieldCount(t *testing.T) {
 	_, services, _ := newCaseCommandHarness(t)
-	guildContext := caseCommandGuildContext(t, services)
-	fields := make([]quack.TemplateContextFieldInput, 0, 6)
-	for index := 1; index <= 6; index++ {
-		fields = append(fields, quack.TemplateContextFieldInput{Key: fmt.Sprintf("field_%d", index), Label: fmt.Sprintf("Field %d", index), FieldType: model.ContextFieldShortText, Position: index, Required: true})
+	guild := caseCommandGuildContext(t, services)
+	fields := []quack.TemplateContextFieldInput{}
+	for i := 1; i <= 6; i++ {
+		fields = append(fields, quack.TemplateContextFieldInput{Key: fmt.Sprintf("field_%d", i), Label: fmt.Sprintf("Field %d", i), FieldType: model.ContextFieldShortText, Position: i, Required: true})
 	}
-	template := createCaseCommandTemplate(t, services, guildContext, quack.TemplateInput{Slug: "many-fields", Name: "Many Fields", ReasonTemplate: "Many fields", ContextFields: fields, Levels: []quack.TemplateLevelInput{{Name: "Default", Position: 1, IsDefault: true}}})
-	command := caseAddInteraction(template.ID, "target-many", uint64(discordgo.PermissionModerateMembers))
-	command.ID = "interaction-many"
-	first := HandleCaseInteraction(ui.Context{Context: context.Background(), Services: services, Interaction: command})
-	if first.Response == nil || first.Response.Type != discordgo.InteractionResponseModal || len(first.Response.Data.Components) != 5 {
-		t.Fatalf("expected first five-field modal page, got %+v", first.Response)
+	template := createCaseCommandTemplate(t, services, guild, quack.TemplateInput{Slug: "many-fields", Name: "Many fields", ReasonTemplate: "Rule", ContextFields: fields, Levels: []quack.TemplateLevelInput{{Name: "Warning", Position: 1, IsDefault: true}}})
+	result := HandleCaseInteraction(ui.Context{Context: context.Background(), Services: services, Interaction: caseAddInteraction(template.ID, "target-many", uint64(discordgo.PermissionModerateMembers))})
+	if result.Task == nil || result.Response.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource {
+		t.Fatalf("unexpected form: %+v", result)
 	}
-	firstComponents := make([]discordgo.MessageComponent, 0, 5)
-	for index := 1; index <= 5; index++ {
-		firstComponents = append(firstComponents, discordgo.ActionsRow{Components: []discordgo.MessageComponent{discordgo.TextInput{CustomID: fmt.Sprintf("context_field_%d", index), Value: fmt.Sprintf("value-%d", index)}}})
-	}
-	firstSubmit := interaction(discordgo.InteractionModalSubmit, uint64(discordgo.PermissionModerateMembers), nil)
-	firstSubmit.ID = "modal-many-1"
-	firstSubmit.Data = discordgo.ModalSubmitInteractionData{CustomID: first.Response.Data.CustomID, Components: firstComponents}
-	continued := handleContextModal(ui.Context{Context: context.Background(), Services: services, Interaction: firstSubmit})
-	if continued.Response == nil || continued.Response.Type != discordgo.InteractionResponseChannelMessageWithSource || len(continued.Response.Data.Components) != 1 {
-		t.Fatalf("expected private continuation component, got %+v", continued.Response)
-	}
-	row := continued.Response.Data.Components[0].(discordgo.ActionsRow)
-	nextID := row.Components[0].(discordgo.Button).CustomID
-	nextInteraction := interaction(discordgo.InteractionMessageComponent, uint64(discordgo.PermissionModerateMembers), nil)
-	nextInteraction.ID = "component-many"
-	nextInteraction.Data = discordgo.MessageComponentInteractionData{CustomID: nextID}
-	next := handleContextNextComponent(ui.Context{Context: context.Background(), Services: services, Interaction: nextInteraction})
-	if next.Response == nil || next.Response.Type != discordgo.InteractionResponseModal || len(next.Response.Data.Components) != 1 {
-		t.Fatalf("expected final context modal page, got %+v", next.Response)
-	}
-	finalSubmit := interaction(discordgo.InteractionModalSubmit, uint64(discordgo.PermissionModerateMembers), nil)
-	finalSubmit.ID = "modal-many-2"
-	finalSubmit.Data = discordgo.ModalSubmitInteractionData{CustomID: next.Response.Data.CustomID, Components: []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{discordgo.TextInput{CustomID: "context_field_6", Value: "value-6"}}}}}
-	final := handleContextModal(ui.Context{Context: context.Background(), Services: services, Interaction: finalSubmit})
-	if final.Task == nil {
-		t.Fatalf("expected completed wizard to create case, got %+v", final)
-	}
-	responder := &fakeResponder{}
-	if err := final.Task(context.Background(), responder); err != nil || responder.deleted || responder.editCount != 1 {
-		t.Fatalf("wizard did not create public case result: responder=%+v err=%v", responder, err)
+	if err := result.Task(context.Background(), &fakeResponder{}); err != nil {
+		t.Fatal(err)
 	}
 }
 

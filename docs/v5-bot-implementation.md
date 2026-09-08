@@ -70,3 +70,38 @@ is deferred; shared Go services and HTTP contracts still need the agreed behavio
   correction notes and notification diagnostics. They include the template name
   and a small enforcement outcome. DMs no longer render staff context; a case
   without punishment is called a warning. Focused and full Go tests pass.
+
+## Review finding coverage
+
+The requested interview is present as `docs/v5-product-interview.md` (there is
+no `docs/v5-interview.md` in this checkout). All 76 answers remain part of the
+acceptance scope. Review findings map to implementation as follows; partial
+means further work is required, not completion.
+
+| Finding | Status / remaining work |
+| --- | --- |
+| 1 Audit noise | Storage fixed; readable enriched mirror and recovery buttons pending. |
+| 2 Module switches | Pending single effective configuration source. |
+| 3 Forbidden settings field | Pending Go contract correction; dashboard UI deferred. |
+| 4 Missing appeal UI | Discord submission pending; web UI explicitly deferred. |
+| 5 Disconnected Discord appeals | Pending submission, queue and decision wiring. |
+| 6 CORS-based appeal URL | Pending explicit product URL configuration. |
+| 7 Unpublished ticket entry | Pending setup and entry panel publishing. |
+| 8 Ticket lifecycle mismatch | Pending open/close-only implementation and owner permission. |
+| 9 Ticket transcripts | Pending native message capture and close/delete ordering. |
+| 10 Honeypot intents | Pending startup/runtime intent correction. |
+| 11 Honeypot recovery | Pending setup, debounce and incident recovery. |
+| 12 Direct evidence uploads | Pending screenshot/file attachment flow. |
+| 13 Evidence feedback | Saved text/warnings and initial failure flag fixed; dedicated view/upload controls pending. |
+| 14 Evidence preservation | Nonblocking capture and preserving channel customizations fixed; durable-copy links, orphan handling and live checks pending. |
+| 15 Inconsistent case entry | Immediate slash/message creation implemented; user context entry and selector pagination pending. |
+| 16 Fragile case drafts | Creation wizard/draft map removed; current saved context can be reopened and edited. |
+| 17 Public deferred errors | Pending acknowledgment/privacy correction. |
+| 18 Stale result messages | Pending durable result refresh. |
+| 19 Noisy process errors | Pending module non-event classification. |
+| 20 Maintainability | Creation wizard removed; service composition, schema and stale docs still pending. |
+
+- Immediate slash/message case creation and post-creation text context editing are
+  implemented. Context edits are guild-scoped, require moderation permission,
+  preserve enforcement and policy snapshots, and write a `case.update` event.
+  The unused draft map, creation wizard and JSON slash option were removed.

@@ -93,6 +93,7 @@ type TemplateRepository interface {
 // CaseRepository supplies case creation, authorized reads, and immutable corrections.
 // Consumers depend only on the persistence operations their use cases need.
 type CaseRepository interface {
+	UpdateCaseContext(context.Context, string, string, string, *model.AuditLogEntry) (*model.Case, error)
 	ListCaseActionsForCases(context.Context, []string) ([]model.CaseActionExecution, error)
 	CountTemplateCasesForTarget(context.Context, model.CountTemplateCasesForTargetParams) (int64, error)
 	CreateAuditLogEntry(context.Context, *model.AuditLogEntry) error

@@ -28,7 +28,7 @@ func MessageCaseCommandSpec() CommandSpec {
 func CaseCommandDefinition() *discordgo.ApplicationCommand {
 	defaultPermissions := int64(discordgo.PermissionModerateMembers)
 	dmPermission := false
-	add := &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "add", Description: "Create a moderation case from a template.", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionString, Name: "template", Description: "Case template to apply.", Required: true, Autocomplete: true}, {Type: discordgo.ApplicationCommandOptionUser, Name: "user", Description: "User to moderate.", Required: true}, {Type: discordgo.ApplicationCommandOptionString, Name: "context", Description: "Visible context values as a JSON object."}, {Type: discordgo.ApplicationCommandOptionString, Name: "message_link", Description: "Discord message link to capture as evidence."}}}
+	add := &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "add", Description: "Create a moderation case from a template.", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionString, Name: "template", Description: "Case template to apply.", Required: true, Autocomplete: true}, {Type: discordgo.ApplicationCommandOptionUser, Name: "user", Description: "User to moderate.", Required: true}, {Type: discordgo.ApplicationCommandOptionString, Name: "message_link", Description: "Discord message link to capture as evidence."}}}
 	options := append([]*discordgo.ApplicationCommandOption{add}, caseStaffCommandOptions()...)
 	return &discordgo.ApplicationCommand{
 		Name:                     caseCommandName,

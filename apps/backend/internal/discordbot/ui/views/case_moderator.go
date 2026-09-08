@@ -174,7 +174,7 @@ func FailedActionMessage(result *model.FailedCaseActionResult, page int) ui.Mess
 
 // caseDetailComponents retains explicit recovery controls for authorized staff.
 func caseDetailComponents(detail *quack.CaseDetailResponse) []discordgo.MessageComponent {
-	buttons := []discordgo.MessageComponent{ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "void", Version: "v1", Payload: detail.ID}), "Void case", discordgo.DangerButton, detail.Validity == model.CaseValidityVoided)}
+	buttons := []discordgo.MessageComponent{ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "edit_context", Version: "v1", Payload: detail.ID}), "Edit context", discordgo.SecondaryButton, false), ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "void", Version: "v1", Payload: detail.ID}), "Void case", discordgo.DangerButton, detail.Validity == model.CaseValidityVoided)}
 	for _, action := range detail.Actions {
 		if action.Status == model.ActionExecutionFailed {
 			buttons = append(buttons, ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "retry", Version: "v1", Payload: action.ID}), "Retry", discordgo.SecondaryButton, false), ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "dismiss", Version: "v1", Payload: action.ID}), "Dismiss", discordgo.SecondaryButton, false))
