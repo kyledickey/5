@@ -28,7 +28,7 @@ type CaseContextValueInput struct {
 	Value json.RawMessage `json:"value" swaggertype:"object"`
 }
 
-// CaseContextValueResponse is the immutable member-visible definition/value pair stored with the case.
+// CaseContextValueResponse is the staff-only definition/value pair stored with the case.
 type CaseContextValueResponse struct {
 	Key       string                 `json:"key"`
 	Label     string                 `json:"label"`

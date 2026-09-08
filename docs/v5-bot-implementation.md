@@ -65,3 +65,8 @@ is deferred; shared Go services and HTTP contracts still need the agreed behavio
   Existing evidence channels are reused without edits. Saved text and capture
   warnings appear in staff detail. Direct uploads and post-creation editing are
   still pending; Discord creation still needs its mandatory form removed.
+
+- Member case responses now omit staff context, evidence, events, level labels,
+  correction notes and notification diagnostics. They include the template name
+  and a small enforcement outcome. DMs no longer render staff context; a case
+  without punishment is called a warning. Focused and full Go tests pass.

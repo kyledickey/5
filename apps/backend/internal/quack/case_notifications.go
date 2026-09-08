@@ -127,15 +127,15 @@ func (s *ActionService) processNotification(ctx context.Context, workerID, caseI
 	return nil
 }
 
-// renderCaseNotification describes recorded enforcement, member-visible context,
-// and next steps. The transport preserves long messages in a same-destination file.
+// renderCaseNotification describes the rule and recorded outcome without staff
+// context, evidence or moderator identity.
 func renderCaseNotification(item model.Case, guild *model.Guild, settings *model.GuildSettings, actions []model.CaseActionExecution, attempts ...model.CaseActionAttempt) string {
 	guildName := "this server"
 	if guild != nil && strings.TrimSpace(guild.Name) != "" {
 		guildName = guild.Name
 	}
 	server := "**" + notificationPlain(guildName) + "**"
-	icon, lead := "case", "A case was added for you in "+server
+	icon, lead := "warn", "You received a warning in "+server
 	primary := -1
 	removed := false
 	for i, action := range actions {
@@ -171,11 +171,6 @@ func renderCaseNotification(item model.Case, guild *model.Guild, settings *model
 	}
 	if settings != nil && strings.TrimSpace(settings.NotificationIntroduction) != "" {
 		parts = append(parts, notificationPlain(strings.TrimSpace(settings.NotificationIntroduction)))
-	}
-	for _, value := range parseCaseContextValues(item.ContextValuesJSON) {
-		if value.Value != nil {
-			parts = append(parts, discordtext.Quote(notificationPlain(value.Label)+" — "+notificationPlain(fmt.Sprint(value.Value))))
-		}
 	}
 	for i, action := range actions {
 		if action.Status == model.ActionExecutionFailed && primary == -1 {

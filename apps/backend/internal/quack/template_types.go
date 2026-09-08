@@ -17,7 +17,7 @@ type TemplateInput struct {
 	Levels         []TemplateLevelInput        `json:"levels"`
 }
 
-// TemplateContextFieldInput defines an ordered member-visible field collected during case creation.
+// TemplateContextFieldInput defines an ordered optional staff context field.
 type TemplateContextFieldInput struct {
 	Key       string                 `json:"key"`
 	Label     string                 `json:"label"`

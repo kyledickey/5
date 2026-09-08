@@ -123,8 +123,21 @@ func TestCaseContextEvidenceVoidReplacementAndMemberProjection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("member detail: %v", err)
 	}
-	if member.Reason != "No spam" || len(member.ContextValues) != 3 || len(member.Evidence) != 1 {
+	if member.Reason != "No spam" || member.TemplateName != "Spam" {
 		t.Fatalf("member projection incomplete: %+v", member)
+	}
+	memberJSON, err := json.Marshal(member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var memberFields map[string]any
+	if err := json.Unmarshal(memberJSON, &memberFields); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"context", "evidence", "history", "selected_outcome", "moderator_discord_user_id", "voided_reason", "notification"} {
+		if _, exposed := memberFields[field]; exposed {
+			t.Fatalf("staff field %s exposed to member: %s", field, memberJSON)
+		}
 	}
 	if _, err := service.GetMemberCase(ctx, replacement.ID, "other-user"); err != quack.ErrCaseNotFound {
 		t.Fatalf("cross-user enumeration was not hidden: %v", err)

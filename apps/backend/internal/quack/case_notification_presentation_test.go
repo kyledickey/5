@@ -34,3 +34,20 @@ func TestNotificationUsesRecordedExpiryAndHonestOutcomes(t *testing.T) {
 		t.Fatal("expiry was invented without a recorded response")
 	}
 }
+
+// TestNotificationNeverIncludesStaffContext protects the member boundary even
+// when a case carries sensitive material from a moderator's evidence workflow.
+func TestNotificationNeverIncludesStaffContext(t *testing.T) {
+	item := model.Case{CaseNumber: 7, ModeratorDiscordUserID: "private-moderator", Reason: "Please keep chat on topic.", ContextValuesJSON: `[{"key":"note","label":"Staff note","value":"confidential investigation"}]`, TemplateSnapshotJSON: `{"template":{"id":"rule","name":"Off topic","appealable":true}}`}
+	body := renderCaseNotification(item, &model.Guild{Name: "The Pond"}, nil, nil)
+	for _, secret := range []string{"private-moderator", "Staff note", "confidential investigation"} {
+		if strings.Contains(body, secret) {
+			t.Fatalf("member DM exposed %q: %s", secret, body)
+		}
+	}
+	for _, required := range []string{"warning", "Off topic", "Case #7", item.Reason} {
+		if !strings.Contains(body, required) {
+			t.Fatalf("member DM omitted %q: %s", required, body)
+		}
+	}
+}

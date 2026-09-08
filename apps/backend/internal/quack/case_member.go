@@ -2,7 +2,6 @@ package quack
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -12,38 +11,33 @@ import (
 
 // MemberCaseDetail is the privacy-safe projection available only to the target Discord identity.
 type MemberCaseDetail struct {
-	ID                string                     `json:"id"`
-	GuildID           string                     `json:"guild_id"`
-	CaseNumber        uint64                     `json:"case_number"`
-	TemplateID        *string                    `json:"template_id"`
-	Reason            string                     `json:"official_reason"`
-	Validity          model.CaseValidity         `json:"validity"`
-	VoidedReason      string                     `json:"voided_reason,omitempty"`
-	ReplacementCaseID *string                    `json:"replacement_case_id,omitempty"`
-	CreatedAt         time.Time                  `json:"created_at"`
-	ContextValues     []CaseContextValueResponse `json:"context"`
-	SelectedLevel     *CaseSelectedLevel         `json:"selected_outcome"`
-	Enforcement       *MemberEnforcementOutcome  `json:"enforcement,omitempty"`
-	Evidence          []CaseEvidenceResponse     `json:"evidence"`
-	Events            []CaseEventResponse        `json:"history"`
-	Notification      *CaseNotificationResponse  `json:"notification,omitempty"`
-	Appealable        bool                       `json:"appealable"`
-	AppealID          string                     `json:"appeal_id,omitempty"`
-	AppealStatus      model.AppealStatus         `json:"appeal_status,omitempty"`
+	TemplateName string                    `json:"template_name"`
+	ID           string                    `json:"id"`
+	GuildID      string                    `json:"guild_id"`
+	CaseNumber   uint64                    `json:"case_number"`
+	TemplateID   *string                   `json:"template_id"`
+	Reason       string                    `json:"official_reason"`
+	Validity     model.CaseValidity        `json:"validity"`
+	CreatedAt    time.Time                 `json:"created_at"`
+	Enforcement  *MemberEnforcementOutcome `json:"enforcement,omitempty"`
+	Appealable   bool                      `json:"appealable"`
+	AppealID     string                    `json:"appeal_id,omitempty"`
+	AppealStatus model.AppealStatus        `json:"appeal_status,omitempty"`
 }
 
 // MemberCaseSummary is the deliberately small list projection that cannot expose moderator or adapter internals.
 type MemberCaseSummary struct {
-	ID            string             `json:"id"`
-	GuildID       string             `json:"guild_id"`
-	CaseNumber    uint64             `json:"case_number"`
-	Reason        string             `json:"official_reason"`
-	Validity      model.CaseValidity `json:"validity"`
-	CreatedAt     time.Time          `json:"created_at"`
-	SelectedLevel *CaseSelectedLevel `json:"selected_outcome,omitempty"`
-	Appealable    bool               `json:"appealable"`
-	AppealID      string             `json:"appeal_id,omitempty"`
-	AppealStatus  model.AppealStatus `json:"appeal_status,omitempty"`
+	TemplateName string                    `json:"template_name"`
+	Enforcement  *MemberEnforcementOutcome `json:"enforcement,omitempty"`
+	ID           string                    `json:"id"`
+	GuildID      string                    `json:"guild_id"`
+	CaseNumber   uint64                    `json:"case_number"`
+	Reason       string                    `json:"official_reason"`
+	Validity     model.CaseValidity        `json:"validity"`
+	CreatedAt    time.Time                 `json:"created_at"`
+	Appealable   bool                      `json:"appealable"`
+	AppealID     string                    `json:"appeal_id,omitempty"`
+	AppealStatus model.AppealStatus        `json:"appeal_status,omitempty"`
 }
 
 // MemberCaseListResponse returns only target-owned privacy-safe summaries.
@@ -78,6 +72,18 @@ func (s *CaseService) ListMemberCases(ctx context.Context, guildID, memberDiscor
 	if err != nil {
 		return nil, err
 	}
+	caseIDs := make([]string, 0, len(result.Cases))
+	for _, item := range result.Cases {
+		caseIDs = append(caseIDs, item.ID)
+	}
+	actions, err := s.store.ListCaseActionsForCases(ctx, caseIDs)
+	if err != nil {
+		return nil, err
+	}
+	byCase := make(map[string][]model.CaseActionExecution)
+	for _, action := range actions {
+		byCase[action.CaseID] = append(byCase[action.CaseID], action)
+	}
 	responses := make([]MemberCaseSummary, 0, len(result.Cases))
 	for _, item := range result.Cases {
 		appeal, appealErr := s.store.GetAppealByCaseID(ctx, item.ID)
@@ -88,82 +94,57 @@ func (s *CaseService) ListMemberCases(ctx context.Context, guildID, memberDiscor
 		if appeal != nil {
 			appealID, appealStatus = appeal.ID, appeal.Status
 		}
-		responses = append(responses, MemberCaseSummary{ID: item.ID, GuildID: item.GuildID, CaseNumber: item.CaseNumber, Reason: item.Reason, Validity: item.Validity, CreatedAt: item.CreatedAt, SelectedLevel: selectedLevelResponse(item.TemplateSnapshotJSON), Appealable: caseSnapshotAppealable(item.TemplateSnapshotJSON) && item.Validity == model.CaseValidityValid && appeal == nil, AppealID: appealID, AppealStatus: appealStatus})
-	}
-	if err := s.memberReadAudit(ctx, guildID, memberDiscordUserID, "member_case.list", "guild", guildID); err != nil {
-		return nil, err
+		responses = append(responses, MemberCaseSummary{ID: item.ID, GuildID: item.GuildID, CaseNumber: item.CaseNumber, Reason: item.Reason, Validity: item.Validity, CreatedAt: item.CreatedAt, TemplateName: memberTemplateName(item), Enforcement: memberEnforcement(byCase[item.ID]), Appealable: caseSnapshotAppealable(item.TemplateSnapshotJSON) && item.Validity == model.CaseValidityValid && appeal == nil, AppealID: appealID, AppealStatus: appealStatus})
 	}
 	return &MemberCaseListResponse{Cases: responses, Total: result.Total, Limit: limit, Offset: offset}, nil
 }
 
 // GetMemberCase returns a privacy-safe case detail only when the authenticated identity owns the case.
 func (s *CaseService) GetMemberCase(ctx context.Context, caseID, memberDiscordUserID string) (*MemberCaseDetail, error) {
+	if s == nil || s.store == nil {
+		return nil, errors.New("case service is not configured")
+	}
 	item, err := s.store.GetCaseByID(ctx, strings.TrimSpace(caseID))
 	if err != nil {
 		return nil, err
 	}
-	if item == nil {
+	if item == nil || item.TargetDiscordUserID != strings.TrimSpace(memberDiscordUserID) {
 		return nil, ErrCaseNotFound
-	}
-	if item.TargetDiscordUserID != strings.TrimSpace(memberDiscordUserID) {
-		requestID, correlationID := TraceIDsFromContext(ctx)
-		_ = recordAudit(ctx, s.store, &model.AuditLogEntry{GuildID: item.GuildID, ActorDiscordUserID: strings.TrimSpace(memberDiscordUserID), Source: model.AuditSourceWeb, Action: "member_case.read", ResourceType: "case", ResourceID: item.ID, Result: model.AuditResultDenied, FailureReason: "not_case_target", RequestID: requestID, CorrelationID: correlationID, MetadataJSON: "{}"})
-		return nil, ErrCaseNotFound
-	}
-	if err := s.memberReadAudit(ctx, item.GuildID, memberDiscordUserID, "member_case.read", "case", item.ID); err != nil {
-		return nil, err
-	}
-	evidence, attachments, err := s.store.ListCaseEvidence(ctx, item.ID)
-	if err != nil {
-		return nil, err
-	}
-	events, err := s.store.ListCaseEvents(ctx, item.ID)
-	if err != nil {
-		return nil, err
-	}
-	publicEvents := make([]model.CaseEvent, 0, len(events))
-	for _, event := range events {
-		if event.Visibility == model.EventVisibilityPublic {
-			event.ActorDiscordUserID = ""
-			event.MetadataJSON = "{}"
-			publicEvents = append(publicEvents, event)
-		}
-	}
-	notification, err := s.store.GetCaseNotification(ctx, item.ID)
-	if err != nil {
-		return nil, err
-	}
-	appealable := false
-	if snapshot := templateSnapshotResponse(item.TemplateSnapshotJSON); snapshot != nil {
-		var raw struct {
-			Template struct {
-				Appealable bool `json:"appealable"`
-			} `json:"template"`
-		}
-		_ = json.Unmarshal([]byte(item.TemplateSnapshotJSON), &raw)
-		appealable = raw.Template.Appealable
 	}
 	actions, err := s.store.ListCaseActionExecutions(ctx, item.ID)
 	if err != nil {
 		return nil, err
 	}
-	var enforcement *MemberEnforcementOutcome
-	if len(actions) > 0 {
-		enforcement = &MemberEnforcementOutcome{ActionType: actions[0].ActionType, Status: actions[0].Status}
-	}
 	appeal, err := s.store.GetAppealByCaseID(ctx, item.ID)
 	if err != nil {
 		return nil, err
 	}
-	appealID, appealStatus := "", model.AppealStatus("")
-	if appeal != nil {
-		appealID, appealStatus = appeal.ID, appeal.Status
+	result := &MemberCaseDetail{
+		ID: item.ID, GuildID: item.GuildID, CaseNumber: item.CaseNumber, TemplateID: item.TemplateID,
+		TemplateName: memberTemplateName(*item), Reason: item.Reason, Validity: item.Validity, CreatedAt: item.CreatedAt,
+		Enforcement: memberEnforcement(actions),
+		Appealable:  caseSnapshotAppealable(item.TemplateSnapshotJSON) && item.Validity == model.CaseValidityValid && appeal == nil,
 	}
-	return &MemberCaseDetail{ID: item.ID, GuildID: item.GuildID, CaseNumber: item.CaseNumber, TemplateID: item.TemplateID, Reason: item.Reason, Validity: item.Validity, VoidedReason: item.VoidedReason, ReplacementCaseID: item.ReplacementCaseID, CreatedAt: item.CreatedAt, ContextValues: parseCaseContextValues(item.ContextValuesJSON), SelectedLevel: selectedLevelResponse(item.TemplateSnapshotJSON), Enforcement: enforcement, Evidence: caseEvidenceResponses(evidence, attachments, true), Events: caseEventResponses(publicEvents), Notification: caseNotificationResponse(notification, true), Appealable: appealable && item.Validity == model.CaseValidityValid && appeal == nil, AppealID: appealID, AppealStatus: appealStatus}, nil
+	if appeal != nil {
+		result.AppealID, result.AppealStatus = appeal.ID, appeal.Status
+	}
+	return result, nil
 }
 
-// memberReadAudit records target-owned reads without requiring a current staff or guild membership cache.
-func (s *CaseService) memberReadAudit(ctx context.Context, guildID, actorID, action, resourceType, resourceID string) error {
-	requestID, correlationID := TraceIDsFromContext(ctx)
-	return recordAudit(ctx, s.store, &model.AuditLogEntry{GuildID: guildID, ActorDiscordUserID: actorID, Source: model.AuditSourceWeb, Action: action, ResourceType: resourceType, ResourceID: resourceID, Result: model.AuditResultSuccess, RequestID: requestID, CorrelationID: correlationID, MetadataJSON: "{}"})
+// memberTemplateName exposes the rule name fixed at creation, never a staff level label.
+func memberTemplateName(item model.Case) string {
+	if snapshot := templateSnapshotResponse(item.TemplateSnapshotJSON); snapshot != nil {
+		return snapshot.Template.Name
+	}
+	return ""
+}
+
+// memberEnforcement excludes execution identifiers, attempts, errors and staff actors.
+func memberEnforcement(actions []model.CaseActionExecution) *MemberEnforcementOutcome {
+	for _, action := range actions {
+		if action.ReversalOfExecutionID == nil && action.ActionType != model.ActionSendDM {
+			return &MemberEnforcementOutcome{ActionType: action.ActionType, Status: action.Status}
+		}
+	}
+	return nil
 }
