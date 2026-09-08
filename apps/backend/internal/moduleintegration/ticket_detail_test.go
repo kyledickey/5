@@ -81,15 +81,16 @@ func TestTicketDetailHistoryPages(t *testing.T) {
 	}
 }
 
-// TestTicketHistoryUpdatesOnlyPrivateViews prevents pagination from stacking
-// responses or replacing a public queue message with private ticket contents.
+// TestTicketHistoryUpdatesOnlyPrivateViews refreshes stale entry receipts and
+// pages without replacing public controls with private ticket contents.
 func TestTicketHistoryUpdatesOnlyPrivateViews(t *testing.T) {
 	for _, scenario := range []struct {
 		payload  string
 		flags    discordgo.MessageFlags
 		response discordgo.InteractionResponseType
 	}{
-		{"ticket", discordgo.MessageFlagsEphemeral, discordgo.InteractionResponseDeferredChannelMessageWithSource},
+		{"ticket", discordgo.MessageFlagsEphemeral, discordgo.InteractionResponseDeferredMessageUpdate},
+		{"ticket", 0, discordgo.InteractionResponseDeferredChannelMessageWithSource},
 		{"ticket~1", discordgo.MessageFlagsEphemeral, discordgo.InteractionResponseDeferredMessageUpdate},
 		{"ticket~1", 0, discordgo.InteractionResponseDeferredChannelMessageWithSource},
 	} {

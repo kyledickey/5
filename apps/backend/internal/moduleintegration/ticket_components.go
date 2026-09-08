@@ -91,11 +91,12 @@ func (r *Runtime) viewTicketComponent(ctx ui.Context) ui.HandlerResult {
 		return ui.Immediate(ui.Error("That ticket is unavailable."))
 	}
 	ticketID, page := ticketDetailPayload(payload)
-	// Only our ephemeral detail messages may be updated in place. A routed button
-	// on a public queue must always receive a new private response.
-	pagination := strings.Contains(payload, "~") && ctx.Interaction.Message != nil && ctx.Interaction.Message.Flags&discordgo.MessageFlagsEphemeral != 0
+	// Refresh private entry receipts in place, replacing stale thread mentions
+	// after closure. Public queue and thread controls always get a private reply.
+	privateView := ctx.Interaction.Message != nil && ctx.Interaction.Message.Flags&discordgo.MessageFlagsEphemeral != 0
+	pagination := strings.Contains(payload, "~") && privateView
 	acknowledgement := ui.DeferEphemeral()
-	if pagination {
+	if privateView {
 		acknowledgement = ui.DeferUpdate()
 	}
 	return r.ticketTaskWithResponse(ctx, acknowledgement, func(taskCtx context.Context, responder ui.Responder, actor tickets.Actor) error {
@@ -124,7 +125,7 @@ func (r *Runtime) viewTicketComponent(ctx ui.Context) ui.HandlerResult {
 			}
 		}
 		edit := ui.EditMessage(ticketDetailMessage(ticket, events, actor, pending, transcript, page))
-		if pagination {
+		if privateView {
 			_, err = responder.UpdateMessage(edit)
 		} else {
 			_, err = responder.EditOriginal(edit)
