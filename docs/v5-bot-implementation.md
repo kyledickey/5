@@ -305,3 +305,12 @@ means further work is required, not completion.
   subscriptions before/after enablement and channel changes taking effect on the
   next event without unrelated REST calls. Focused and full backend suites pass.
   Actual privileged-intent availability and live gateway rehearsal remain pending.
+
+- Honeypot moderator exemption now follows guild-level Moderate Members,
+  Administrator and server ownership. Channel overwrites cannot manufacture a
+  bypass or strip a moderator exemption; Manage Server, Kick or Ban alone no
+  longer grant the moderation baseline. Projection rejects absent/mismatched
+  guild state. Tests cover the authority combinations and channel grant/denial
+  cases; focused and full backend suites pass. Existing custom role-exemption
+  configuration and trap setup/counter still need reconciliation with the final
+  simple workflow, followed by live verification.

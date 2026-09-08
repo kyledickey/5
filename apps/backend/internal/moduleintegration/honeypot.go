@@ -159,15 +159,16 @@ func currentBotID(session *discordgo.Session) string {
 // projectHoneypotMessage combines a gateway identity with freshly loaded
 // member, guild, channel, and permission state.
 func projectHoneypotMessage(internalGuildID string, event *discordgo.MessageCreate, guild *discordgo.Guild, channel *discordgo.Channel, member *discordgo.Member, botID string) (honeypot.Message, error) {
-	if strings.TrimSpace(internalGuildID) == "" || event == nil || event.Message == nil || event.GuildID == "" || channel == nil || channel.GuildID != event.GuildID || member == nil || member.User == nil || member.User.ID == "" {
+	if strings.TrimSpace(internalGuildID) == "" || event == nil || event.Message == nil || event.GuildID == "" || guild == nil || guild.ID != event.GuildID || channel == nil || channel.GuildID != event.GuildID || member == nil || member.User == nil || member.User.ID == "" {
 		return honeypot.Message{}, errors.New("honeypot message projection is incomplete")
 	}
 	if event.Author == nil || event.Author.ID != member.User.ID {
 		return honeypot.Message{}, errors.New("honeypot message author does not match current member")
 	}
-	permissions := channelPermissions(guild, channel, member)
-	administrator := permissions&discordgo.PermissionAdministrator != 0
-	staffPermissions := int64(discordgo.PermissionModerateMembers | discordgo.PermissionKickMembers | discordgo.PermissionBanMembers | discordgo.PermissionManageServer)
+	// Guild moderation authority is independent of trap-channel overwrites.
+	// An overwrite must neither exempt an ordinary member nor remove a moderator's exemption.
+	permissions := channelPermissions(guild, &discordgo.Channel{GuildID: guild.ID}, member)
+	staffPermissions := int64(discordgo.PermissionAdministrator | discordgo.PermissionModerateMembers)
 	return honeypot.Message{
 		GuildID: strings.TrimSpace(internalGuildID), ChannelDiscordID: channel.ID,
 		MessageDiscordID: event.ID, AuthorDiscordUserID: member.User.ID,
@@ -175,7 +176,7 @@ func projectHoneypotMessage(internalGuildID string, event *discordgo.MessageCrea
 		AuthorRoleDiscordIDs: append([]string(nil), member.Roles...),
 		IsBot:                member.User.Bot, IsQuack: member.User.ID == botID,
 		IsWebhook:         event.WebhookID != "",
-		AuthorCanModerate: administrator || permissions&staffPermissions != 0,
+		AuthorCanModerate: permissions&staffPermissions != 0,
 	}, nil
 }
 
