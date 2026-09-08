@@ -11,6 +11,10 @@ import (
 // The module retains its structured JSON contract and controls which content may be included.
 func StaffLogMessage(payload string) ui.Message {
 	var event struct {
+		BeforeKnown       *bool `json:"before_known"`
+		BeforeAttachments []struct {
+			Filename string `json:"filename"`
+		} `json:"before_attachments"`
 		Type        string `json:"event"`
 		ChannelID   string `json:"channel_id"`
 		MessageID   string `json:"message_id"`
@@ -82,15 +86,39 @@ func StaffLogMessage(payload string) ui.Message {
 		}
 		parts = append(parts, before)
 	}
+	if event.Type == "message_edit" && event.Before == "" && event.BeforeKnown != nil {
+		if *event.BeforeKnown {
+			parts = append(parts, "Before: no text.")
+		} else {
+			parts = append(parts, "Previous text was not available.")
+		}
+	}
 	if event.After != "" {
 		parts = append(parts, "After:\n"+ui.Quote(ui.PlainText(event.After)))
+	}
+	if event.Type == "message_edit" && event.After == "" && event.BeforeKnown != nil {
+		parts = append(parts, "After: no text.")
+	}
+	if event.Type == "message_edit" && len(event.BeforeAttachments) > 0 {
+		var names []string
+		for _, attachment := range event.BeforeAttachments {
+			names = append(names, ui.PlainText(attachment.Filename))
+		}
+		parts = append(parts, "Files before: "+strings.Join(names, ", "))
+		if len(event.Attachments) == 0 {
+			parts = append(parts, "Files after: none.")
+		}
 	}
 	if len(event.Attachments) > 0 {
 		names := []string{}
 		for _, attachment := range event.Attachments {
 			names = append(names, ui.PlainText(attachment.Filename))
 		}
-		parts = append(parts, "Files: "+strings.Join(names, ", "))
+		label := "Files: "
+		if event.Type == "message_edit" {
+			label = "Files after: "
+		}
+		parts = append(parts, label+strings.Join(names, ", "))
 	}
 	if len(event.EmbedTypes) > 0 {
 		parts = append(parts, "Included embeds: "+ui.PlainText(strings.Join(event.EmbedTypes, ", "))+".")

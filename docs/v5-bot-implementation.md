@@ -418,3 +418,11 @@ means further work is required, not completion.
   and verify exact before/after text. Focused and full backend suites pass. Attachment-
   only edit coverage, unknown-versus-empty display and live event rehearsal remain
   pending with the other tracked feature work.
+
+- Edit snapshots now compare attachment identity as well as text, retaining both
+  previous and current file metadata. Same-name replacements and file removal no
+  longer disappear as unchanged-text updates. Staff logs show files before/after
+  and distinguish known empty original text from unavailable history. Tests cover
+  replacements, removal and display states; focused and full backend suites pass.
+  Raw partial gateway payload behavior and live attachment edit/delete rehearsal
+  still need verification; attachment bytes are not archived by general logging.

@@ -56,12 +56,15 @@ type Actor struct {
 
 // AttachmentMetadata is non-content file context allowed by module privacy settings.
 type AttachmentMetadata struct {
+	DiscordID             string
 	Filename, ContentType string
 	Size                  int64
 }
 
 // Event is an ephemeral Discord event delivered to configured staff channels.
 type Event struct {
+	BeforeKnown       bool
+	BeforeAttachments []AttachmentMetadata
 	// SnapshotComplete prevents queued edits from consulting a newer cache version.
 	SnapshotComplete                                                bool
 	GuildID, ChannelDiscordID, MessageDiscordID, ActorDiscordUserID string

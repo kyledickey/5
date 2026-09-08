@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -256,10 +257,14 @@ func formatEvent(event Event, settings Settings) string {
 	payload := map[string]any{"event": event.Type, "channel_id": event.ChannelDiscordID, "message_id": event.MessageDiscordID, "actor_id": event.ActorDiscordUserID}
 	if settings.IncludeMessageContent {
 		payload["before"] = redact(event.Before)
+		if event.SnapshotComplete {
+			payload["before_known"] = event.BeforeKnown
+		}
 		payload["after"] = redact(event.After)
 	}
 	if settings.IncludeAttachmentMetadata {
 		payload["attachments"] = event.Attachments
+		payload["before_attachments"] = event.BeforeAttachments
 	}
 	if settings.IncludeEmbedMetadata {
 		payload["embed_types"] = event.EmbedTypes
@@ -338,12 +343,12 @@ func (s *Service) PrepareMessageEdit(ctx context.Context, current CachedMessage,
 		previous = *before
 		known = true
 	}
-	if known && previous.Content == current.Content {
+	if known && previous.Content == current.Content && slices.Equal(previous.Attachments, current.Attachments) {
 		return nil, nil
 	}
 	actor := current.AuthorDiscordUserID
 	if actor == "" {
 		actor = previous.AuthorDiscordUserID
 	}
-	return &Event{GuildID: current.GuildID, ChannelDiscordID: current.ChannelDiscordID, MessageDiscordID: current.MessageDiscordID, ActorDiscordUserID: actor, Type: MessageEdit, Before: previous.Content, After: current.Content, Attachments: current.Attachments, EmbedTypes: current.EmbedTypes, SnapshotComplete: true}, nil
+	return &Event{BeforeKnown: known, BeforeAttachments: previous.Attachments, GuildID: current.GuildID, ChannelDiscordID: current.ChannelDiscordID, MessageDiscordID: current.MessageDiscordID, ActorDiscordUserID: actor, Type: MessageEdit, Before: previous.Content, After: current.Content, Attachments: current.Attachments, EmbedTypes: current.EmbedTypes, SnapshotComplete: true}, nil
 }

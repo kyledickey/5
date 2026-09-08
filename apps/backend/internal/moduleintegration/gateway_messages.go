@@ -134,7 +134,7 @@ func (r *Runtime) onMessageDeleteBulk(_ *discordgo.Session, event *discordgo.Mes
 func cachedMessage(guildID string, message *discordgo.Message) generallogging.CachedMessage {
 	cached := generallogging.CachedMessage{GuildID: guildID, ChannelDiscordID: message.ChannelID, MessageDiscordID: message.ID, Content: message.Content}
 	for _, attachment := range message.Attachments {
-		cached.Attachments = append(cached.Attachments, generallogging.AttachmentMetadata{Filename: attachment.Filename, ContentType: attachment.ContentType, Size: int64(attachment.Size)})
+		cached.Attachments = append(cached.Attachments, generallogging.AttachmentMetadata{DiscordID: attachment.ID, Filename: attachment.Filename, ContentType: attachment.ContentType, Size: int64(attachment.Size)})
 	}
 	for _, embed := range message.Embeds {
 		cached.EmbedTypes = append(cached.EmbedTypes, string(embed.Type))

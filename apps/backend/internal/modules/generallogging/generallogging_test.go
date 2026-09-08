@@ -281,3 +281,22 @@ func TestQueuedEditsKeepTheirOriginalSnapshots(t *testing.T) {
 		t.Fatalf("queued edits read newer cache state: %v", client.payloads)
 	}
 }
+
+func TestAttachmentOnlyEditsKeepPreviousFiles(t *testing.T) {
+	_, service, _, _ := setup(t)
+	ctx := context.Background()
+	current := logmodule.CachedMessage{GuildID: "guild-a", MessageDiscordID: "files", Content: "same", Attachments: []logmodule.AttachmentMetadata{{DiscordID: "old", Filename: "proof.png"}}}
+	if err := service.CacheMessage(ctx, current); err != nil {
+		t.Fatal(err)
+	}
+	current.Attachments = []logmodule.AttachmentMetadata{{DiscordID: "replacement", Filename: "proof.png"}}
+	replaced, err := service.PrepareMessageEdit(ctx, current, nil)
+	if err != nil || replaced == nil || replaced.BeforeAttachments[0].DiscordID != "old" {
+		t.Fatalf("same-name replacement missed: %+v %v", replaced, err)
+	}
+	current.Attachments = nil
+	removed, err := service.PrepareMessageEdit(ctx, current, nil)
+	if err != nil || removed == nil || len(removed.BeforeAttachments) != 1 || len(removed.Attachments) != 0 {
+		t.Fatalf("file removal missed: %+v %v", removed, err)
+	}
+}

@@ -29,3 +29,14 @@ func TestStaffLogUsesReadableChannelAndBulkDeleteDetails(t *testing.T) {
 		t.Fatalf("missing bulk context: %s", bulk.Content)
 	}
 }
+
+func TestEditLogDistinguishesEmptyTextAndRemovedFiles(t *testing.T) {
+	message := StaffLogMessage(`{"event":"message_edit","before":"","before_known":true,"after":"new","before_attachments":[{"Filename":"proof.png"}],"attachments":[]}`)
+	if !strings.Contains(message.Content, "Before: no text.") || !strings.Contains(message.Content, "Files before: proof.png") || !strings.Contains(message.Content, "Files after: none.") {
+		t.Fatalf("missing edit details: %s", message.Content)
+	}
+	unknown := StaffLogMessage(`{"event":"message_edit","before_known":false,"after":"new"}`)
+	if !strings.Contains(unknown.Content, "Previous text was not available.") {
+		t.Fatalf("unknown text presented as empty: %s", unknown.Content)
+	}
+}
