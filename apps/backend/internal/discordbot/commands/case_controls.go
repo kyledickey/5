@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -10,20 +11,31 @@ import (
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
+// handleRetryComponent retries an authorized failed action without replacing its source.
 func handleRetryComponent(ctx ui.Context) ui.HandlerResult {
 	return actionControlComponent(ctx, "retry")
 }
 
+// handleDismissComponent records staff dismissal with private feedback.
 func handleDismissComponent(ctx ui.Context) ui.HandlerResult {
 	return actionControlComponent(ctx, "dismiss")
 }
 
+// actionControlComponent keeps recovery feedback private even when invoked from
+// a public audit mirror, while existing ephemeral views refresh in place.
+// Once mutation succeeds, read or delivery failures must
+// not replace its committed outcome with a generic operation failure.
 func actionControlComponent(ctx ui.Context, operation string) ui.HandlerResult {
 	parsed, err := ui.DecodeCustomID(ctx.Interaction.MessageComponentData().CustomID)
 	if err != nil {
 		return ui.Immediate(ui.Error("That action control is invalid."))
 	}
-	return ui.Async(ui.DeferUpdate(), func(taskCtx context.Context, responder ui.Responder) error {
+	privateSource := ctx.Interaction.Message != nil && ctx.Interaction.Message.Flags&discordgo.MessageFlagsEphemeral != 0
+	acknowledgement := ui.DeferEphemeral()
+	if privateSource {
+		acknowledgement = ui.DeferUpdate()
+	}
+	return ui.Async(acknowledgement, func(taskCtx context.Context, responder ui.Responder) error {
 		guildContext, resolveErr := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
 		if resolveErr != nil {
 			return resolveErr
@@ -37,15 +49,31 @@ func actionControlComponent(ctx ui.Context, operation string) ui.HandlerResult {
 		if controlErr != nil {
 			return controlErr
 		}
-		result, listErr := ctx.Services.Actions.ListFailures(taskCtx, guildContext, 10, 0)
-		if listErr != nil {
-			return listErr
+		message := "The action retry is queued."
+		if operation == "dismiss" {
+			message = "The action failure was dismissed."
 		}
-		_, editErr := responder.UpdateMessage(ui.EditMessage(views.FailedActionMessage(result, 1)))
-		return editErr
+		receipt := ui.Conversation("retry", message, "", "Use `/case failures` to review remaining failures.", "", true)
+		result, listErr := ctx.Services.Actions.ListFailures(taskCtx, guildContext, 10, 0)
+		if listErr == nil {
+			receipt = views.FailedActionMessage(result, 1)
+			receipt.Content = message + "\n\n" + receipt.Content
+		}
+		if privateSource {
+			if _, err := responder.UpdateMessage(ui.EditMessage(receipt)); err != nil {
+				// The action already committed. Keep its success in a private
+				// fallback rather than returning a generic operation failure.
+				receipt.Ephemeral = true
+				_, _ = responder.Followup(receipt)
+			}
+		} else {
+			retainRecoveryReceipt(taskCtx, responder, receipt, false)
+		}
+		return nil
 	})
 }
 
+// handleVoidComponent opens the required correction reason form.
 func handleVoidComponent(ctx ui.Context) ui.HandlerResult {
 	parsed, err := ui.DecodeCustomID(ctx.Interaction.MessageComponentData().CustomID)
 	if err != nil || strings.TrimSpace(parsed.Payload) == "" {
@@ -55,13 +83,14 @@ func handleVoidComponent(ctx ui.Context) ui.HandlerResult {
 	return ui.Immediate(ui.Modal("Void case", customID, []discordgo.MessageComponent{ui.Row(discordgo.TextInput{CustomID: "reason", Label: "Required correction reason", Style: discordgo.TextInputParagraph, Required: true, MinLength: 3, MaxLength: 500})}))
 }
 
+// handleVoidModal authorizes and saves a void before publishing its success.
 func handleVoidModal(ctx ui.Context) ui.HandlerResult {
 	parsed, err := ui.DecodeCustomID(ctx.Interaction.ModalSubmitData().CustomID)
 	if err != nil {
 		return ui.Immediate(ui.Error("That case control is invalid."))
 	}
 	reason := modalTextValue(ctx.Interaction.ModalSubmitData(), "reason")
-	return ui.Async(ui.DeferPublic(), func(taskCtx context.Context, responder ui.Responder) error {
+	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
 		guildContext, resolveErr := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
 		if resolveErr != nil {
 			return resolveErr
@@ -71,11 +100,12 @@ func handleVoidModal(ctx ui.Context) ui.HandlerResult {
 			_, editErr := responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(voidErr)))
 			return editErr
 		}
-		_, editErr := ui.Publish(responder, views.CaseVoidedMessage(item))
-		return editErr
+		retainRecoveryReceipt(taskCtx, responder, views.CaseVoidedMessage(item), true)
+		return nil
 	})
 }
 
+// handleReverseComponent opens an explicit reversal confirmation.
 func handleReverseComponent(ctx ui.Context) ui.HandlerResult {
 	parsed, err := ui.DecodeCustomID(ctx.Interaction.MessageComponentData().CustomID)
 	if err != nil || len(strings.Split(parsed.Payload, "|")) != 3 {
@@ -85,13 +115,14 @@ func handleReverseComponent(ctx ui.Context) ui.HandlerResult {
 	return ui.Immediate(ui.Modal("Confirm reversal", customID, []discordgo.MessageComponent{ui.Row(discordgo.TextInput{CustomID: "confirm", Label: "Type REVERSE to confirm", Style: discordgo.TextInputShort, Required: true, MinLength: 7, MaxLength: 7})}))
 }
 
+// handleReverseModal checks current authority and keeps rejected reversal requests private.
 func handleReverseModal(ctx ui.Context) ui.HandlerResult {
 	parsed, err := ui.DecodeCustomID(ctx.Interaction.ModalSubmitData().CustomID)
 	parts := strings.Split(parsed.Payload, "|")
 	if err != nil || len(parts) != 3 || modalTextValue(ctx.Interaction.ModalSubmitData(), "confirm") != "REVERSE" {
 		return ui.Immediate(ui.Error("Reversal confirmation did not match."))
 	}
-	return ui.Async(ui.DeferPublic(), func(taskCtx context.Context, responder ui.Responder) error {
+	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
 		guildContext, resolveErr := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
 		if resolveErr != nil {
 			return resolveErr
@@ -101,7 +132,26 @@ func handleReverseModal(ctx ui.Context) ui.HandlerResult {
 			_, editErr := responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(reverseErr)))
 			return editErr
 		}
-		_, editErr := ui.Publish(responder, ui.Conversation("retry", "The reversal is queued.", "", "The original action stays in the case history.", "", false))
-		return editErr
+		retainRecoveryReceipt(taskCtx, responder, ui.Conversation("retry", "The reversal is queued.", "", "The original action stays in the case history.", "", false), true)
+		return nil
 	})
+}
+
+// retainRecoveryReceipt delivers a committed result without surfacing publication
+// failures as failed moderation. The private original stays available; a public
+// followup is attempted only after its visibility has been established by editing
+// the deferred original. No cleanup can erase the moderator's success receipt.
+func retainRecoveryReceipt(ctx context.Context, responder ui.Responder, receipt ui.Message, publish bool) {
+	if _, err := establishPrivateCaseReceipt(ctx, responder, receipt); err != nil {
+		slog.WarnContext(ctx, "Could not edit committed recovery receipt", "error_type", "discord_response")
+		receipt.Ephemeral = true
+		_, _ = responder.Followup(receipt)
+		return
+	}
+	if publish {
+		receipt.Ephemeral = false
+		if _, err := responder.Followup(receipt); err != nil {
+			slog.WarnContext(ctx, "Could not publish committed recovery receipt", "error_type", "discord_response")
+		}
+	}
 }
