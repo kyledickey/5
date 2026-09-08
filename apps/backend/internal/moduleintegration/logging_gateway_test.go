@@ -38,6 +38,14 @@ func (r *gatewayLogRecorder) SendStaffLog(_ context.Context, _, _ string, payloa
 func TestLoggingGatewayRetainsBotAuthorsAndDeletionContext(t *testing.T) {
 	ctx := context.Background()
 	repository := testutil.NewSQLiteStore(t)
+	// A :memory: database belongs to one connection. The delivery worker and
+	// gateway projection must share it rather than open an empty second database.
+	sqlDB, err := repository.DB().DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	if err := repository.Migrate(); err != nil {
 		t.Fatal(err)
 	}
