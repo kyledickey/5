@@ -25,7 +25,7 @@ func handleCaseEvidenceComponent(ctx ui.Context) ui.HandlerResult {
 		if err != nil {
 			return err
 		}
-		_, err = responder.EditOriginal(ui.EditMessage(views.CaseEvidencePage(detail, 1, ui.SessionApplicationID(ctx.Session))))
+		_, err = responder.EditOriginal(ui.EditMessage(caseWebLink(views.CaseEvidencePage(detail, 1, ui.SessionApplicationID(ctx.Session)), ctx.Services.Config.ApplicationBaseURL, guild.Guild.DiscordGuildID, "cases", detail.ID)))
 		return err
 	})
 }
@@ -60,7 +60,7 @@ func pageCaseRecord(delta int, render func(*quack.CaseDetailResponse, int, strin
 			if err != nil {
 				return err
 			}
-			_, err = responder.UpdateMessage(ui.EditMessage(render(detail, page+delta, ui.SessionApplicationID(ctx.Session))))
+			_, err = responder.UpdateMessage(ui.EditMessage(caseWebLink(render(detail, page+delta, ui.SessionApplicationID(ctx.Session)), ctx.Services.Config.ApplicationBaseURL, guild.Guild.DiscordGuildID, "cases", detail.ID)))
 			return err
 		})
 	}
@@ -81,7 +81,7 @@ func handleCaseUserComponent(ctx ui.Context) ui.HandlerResult {
 		if err != nil {
 			return err
 		}
-		_, err = responder.EditOriginal(ui.EditMessage(views.CaseProfileMessage(profile, 1, parsed.Payload)))
+		_, err = responder.EditOriginal(ui.EditMessage(caseWebLink(views.CaseProfileMessage(profile, 1, parsed.Payload), ctx.Services.Config.ApplicationBaseURL, guild.Guild.DiscordGuildID, "members", parsed.Payload)))
 		return err
 	})
 }

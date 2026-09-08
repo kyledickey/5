@@ -39,13 +39,13 @@ func pageCases(delta int, user bool) ui.Handler {
 				if listErr != nil {
 					return listErr
 				}
-				response = views.CaseProfileMessage(profile, page, targetID)
+				response = caseWebLink(views.CaseProfileMessage(profile, page, targetID), ctx.Services.Config.ApplicationBaseURL, guildContext.Guild.DiscordGuildID, "members", targetID)
 			} else {
 				list, err = ctx.Services.Cases.List(taskCtx, guildContext, input)
 				if err != nil {
 					return err
 				}
-				response = views.CaseListMessage(list, page, targetID)
+				response = caseWebLink(views.CaseListMessage(list, page, targetID), ctx.Services.Config.ApplicationBaseURL, guildContext.Guild.DiscordGuildID, "cases", "")
 			}
 			_, editErr := responder.UpdateMessage(ui.EditMessage(response))
 			return editErr

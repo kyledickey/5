@@ -14,6 +14,7 @@ import (
 // private evidence message from retaining access after a moderator loses roles.
 func TestEvidenceNavigationRechecksAuthority(t *testing.T) {
 	_, services, _ := newCaseCommandHarnessWithLivePermissions(t, 0)
+	services.Config.ApplicationBaseURL = "https://dashboard.example"
 	interaction := caseAddInteraction("", "target", uint64(discordgo.PermissionModerateMembers))
 	interaction.Type = discordgo.InteractionMessageComponent
 	interaction.Data = discordgo.MessageComponentInteractionData{CustomID: ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "evidence_next", Version: "v1", Payload: "1|case-1"})}

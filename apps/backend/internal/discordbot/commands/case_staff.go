@@ -34,26 +34,26 @@ func handleCaseStaffSubcommand(ctx ui.Context, data discordgo.ApplicationCommand
 			detail, addErr := ctx.Services.Cases.AddEvidence(taskCtx, guildContext, optionStringValue(selected.GetOption("case")), evidenceLinksFromOption(selected.GetOption("message_link")), interactionEvidenceFiles(ctx.Interaction, selected.GetOption("file")))
 			err = addErr
 			if detail != nil {
-				response = views.CaseDetailPage(detail, 1, ui.SessionApplicationID(ctx.Session))
+				response = caseWebLink(views.CaseDetailPage(detail, 1, ui.SessionApplicationID(ctx.Session)), ctx.Services.Config.ApplicationBaseURL, guildContext.Guild.DiscordGuildID, "cases", detail.ID)
 			}
 		case "view":
 			detail, getErr := ctx.Services.Cases.Get(taskCtx, guildContext, optionStringValue(selected.GetOption("case")))
 			err = getErr
 			if detail != nil {
-				response = views.CaseDetailPage(detail, 1, ui.SessionApplicationID(ctx.Session))
+				response = caseWebLink(views.CaseDetailPage(detail, 1, ui.SessionApplicationID(ctx.Session)), ctx.Services.Config.ApplicationBaseURL, guildContext.Guild.DiscordGuildID, "cases", detail.ID)
 			}
 		case "list":
 			list, listErr := ctx.Services.Cases.List(taskCtx, guildContext, quack.CaseListInput{Limit: "10"})
 			err = listErr
 			if list != nil {
-				response = views.CaseListMessage(list, 1, "")
+				response = caseWebLink(views.CaseListMessage(list, 1, ""), ctx.Services.Config.ApplicationBaseURL, guildContext.Guild.DiscordGuildID, "cases", "")
 			}
 		case "user":
 			targetID := optionStringValue(selected.GetOption("user"))
 			profile, profileErr := ctx.Services.Cases.UserHistory(taskCtx, guildContext, targetID, quack.CaseListInput{Limit: "10"})
 			err = profileErr
 			if profile != nil {
-				response = views.CaseProfileMessage(profile, 1, targetID)
+				response = caseWebLink(views.CaseProfileMessage(profile, 1, targetID), ctx.Services.Config.ApplicationBaseURL, guildContext.Guild.DiscordGuildID, "members", targetID)
 			}
 		case "failures":
 			failed, failedErr := ctx.Services.Actions.ListFailures(taskCtx, guildContext, 10, 0)

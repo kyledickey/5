@@ -17,6 +17,7 @@ func TestCaseProfileSummarySurvivesEveryNativeEntryPoint(t *testing.T) {
 	ctx := context.Background()
 	repository, services, _ := newCaseCommandHarness(t)
 	guild := caseCommandGuildContext(t, services)
+	services.Config.ApplicationBaseURL = "https://dashboard.example/base"
 	for i := 1; i <= 11; i++ {
 		item := model.Case{ULIDModel: model.ULIDModel{ID: fmt.Sprintf("profile-case-%d", i)}, GuildID: guild.Guild.ID, CaseNumber: uint64(i), TargetDiscordUserID: "target-1", Validity: model.CaseValidityValid, Source: model.CaseSourceDiscord, TemplateSnapshotJSON: "{}", MetadataJSON: "{}", ContextValuesJSON: "[]"}
 		if i == 1 {
@@ -52,6 +53,24 @@ func TestCaseProfileSummarySurvivesEveryNativeEntryPoint(t *testing.T) {
 			}
 			if err := result.Task(ctx, responder); err != nil {
 				t.Fatal(err)
+			}
+			components := responder.edit.Components
+			if entry == "page" {
+				components = responder.updated.Components
+			}
+			if components == nil {
+				t.Fatal("missing web navigation")
+			}
+			found := false
+			for _, component := range *components {
+				for _, control := range component.(discordgo.ActionsRow).Components {
+					if button, ok := control.(discordgo.Button); ok && button.Style == discordgo.LinkButton {
+						found = button.URL == "https://dashboard.example/base/guilds/"+guild.Guild.DiscordGuildID+"/members/target-1"
+					}
+				}
+			}
+			if !found {
+				t.Fatalf("profile web destination absent on %s", entry)
 			}
 			content := responder.edit.Content
 			if entry == "page" {
