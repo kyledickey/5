@@ -6,18 +6,22 @@ This matrix maps all 76 answers in [the product interview](v5-product-interview.
 
 ## Work in progress and acceptance gates
 
-- Live ticket acceptance passed for member open, duplicate-open protection, staff join/reply, member close, new ticket after closure, and admin queue close. Both closed tickets retained queue transcripts and released the member slot. See the implementation ledger; deleted-message retention remains implementation work.
+- Live ticket acceptance passed for member open, duplicate-open protection, staff join/reply, member close, new ticket after closure, and admin queue close. Both closed tickets retained queue transcripts and released the member slot. See the [implementation ledger](v5-bot-implementation.md). Original-message journaling is committed in `c6e21ed`; deleted-message/restart live acceptance passed: the published queue transcript retained the tester text deleted before a clean beta restart.
 - Native history totals/import labels and bounded Unicode pages are committed in `b8be3c8`; command/view regression packages pass. Live profile acceptance remains open.
 - Honeypot interrupted primary-incident recovery and legacy bot exemptions are committed in `bad4bb3`; race and MySQL-enabled backend tests pass. Live acceptance remains open.
 - Canonical module enablement is committed in `02d6616`, including live configuration validation and atomic updates. Full backend tests pass; live acceptance remains open.
 - Explicit application URL configuration is committed in `4827cae`; focused tests pass. Live configuration validation remains open. See the configuration contract below.
-- Bot-message logging parity still requires resolution against Q63–65.
+- Core appeal/audit delivery and case/appeal registration are independent of optional modules in `f1e1eb7`; worker lifecycle and route regressions pass.
+- Bot-message caching, cached author identity and per-message bulk-delete attribution are restored in `d90a771`; live logging acceptance remains open.
+- Actual v4 SQL export and all six historical types are supported in `8e3a64b`; deterministic bounded pages are supported in `11ad055`. Disposable MySQL extraction/import passed; an authorized real-backup rehearsal remains open.
+- Administrator direct upload/copy/view passed live with a synthetic text attachment and warning-only case #2. This does not establish restricted-role access, original deletion, ban-plus-screenshot preservation, or long-term access. The ledger records the notification as sent.
+- `/tmp/quack-v5-retention-review` was loaded into the authorized beta pane with the existing database; live readiness passed. Startup readiness does not close feature-level gates.
 
 Before release, record live results for template creation → case creation → evidence inspection, denied/failed action → audit retry, void/reversal, appeal acceptance/rejection, ticket open/close/transcript, honeypot and logging. Also rehearse an actual v4 export/import and assess realistic guild/member load. Passing unit tests does not close these gates.
 
 ## Production and test evidence map
 
-All paths below are backend paths; the production runtime registers native commands, gateway handlers, workers and dependencies in [runtime.go](../apps/backend/internal/runtime/runtime.go), [command registry](../apps/backend/internal/discordbot/commands/registry.go) and [module runtime](../apps/backend/internal/moduleintegration/runtime.go).
+All paths below are backend paths; the production runtime registers native commands, gateway handlers, workers and dependencies in [runtime.go](../apps/backend/internal/runtime/runtime.go), [command registry](../apps/backend/internal/discordbot/commands/registry.go) and [module runtime](../apps/backend/internal/moduleintegration/runtime.go). Core appeal/audit worker ownership is in [core_workers.go](../apps/backend/internal/runtime/core_workers.go); optional-module composition no longer owns those workers or core API/component registration.
 
 | Key | Production evidence | Regression evidence |
 | --- | --- | --- |
@@ -27,11 +31,11 @@ All paths below are backend paths; the production runtime registers native comma
 | A | [Recovery controls](../apps/backend/internal/quack/action_recovery.go), [native controls](../apps/backend/internal/discordbot/commands/case_staff.go), [void reversals](../apps/backend/internal/store/case_reversals.go), [live authorization](../apps/backend/internal/quack/authorization.go) | `TestCasePreflightMatrixAndNoPartialCommit`, `TestRetryUnbanRefreshesPermissionsForDepartedMember`, `TestRetryCannotResurrectVoidedPunishment`, `TestVoidQueuesReversalAcrossCompletionRace` |
 | N | [Member notifications](../apps/backend/internal/quack/case_notifications.go), [public receipt worker](../apps/backend/internal/discordbot/case_publications.go) | `TestNotificationUsesRecordedExpiryAndHonestOutcomes`, `TestNotificationNeverIncludesStaffContext`, `TestCasePublicationReconcilesTerminalAndVoid`, `TestCasePublicationRetriesOutagesAndRetiresUnknownMessage` |
 | P | [Appeal submission](../apps/backend/internal/discordbot/appeal_submission.go), [decisions](../apps/backend/internal/discordbot/appeal_decisions.go), [form contract](../apps/backend/internal/quack/appeal_settings.go), [outbox](../apps/backend/internal/quack/appeal_notifications.go), [native queue](../apps/backend/internal/discordbot/commands/appeals.go) | `TestAppealDMFormOwnershipAndSingleSubmission`, `TestAppealQueueDecisionChecksLivePermissions`, `TestAppealDecisionsAreTerminal`, `TestAppealQueueRefreshEditsOrRecreatesOnlyMissingMessages`, `TestAppealsCommandFindsUndeliveredSubmissions` |
-| K | [Ticket setup](../apps/backend/internal/moduleintegration/ticket_setup.go), [adapter lifecycle](../apps/backend/internal/modules/tickets/discord.go), [controls](../apps/backend/internal/moduleintegration/ticket_components.go), [transcript capture](../apps/backend/internal/moduleintegration/discord_clients.go), [HTTP lifecycle](../apps/backend/internal/modules/tickets/routes.go) | `TestOwnerCanCloseExistingTicketAfterModuleDisabled`, `TestTicketDeletionWaitsForTranscriptPublication`, `TestConcurrentCloseReusesCapturedTranscript`, `TestEveryTicketCloseRoutePreservesDiscordTranscript`, `TestTicketTranscriptKeepsStableOrderAndAttachmentContext` |
+| K | [Ticket setup](../apps/backend/internal/moduleintegration/ticket_setup.go), [adapter lifecycle](../apps/backend/internal/modules/tickets/discord.go), [controls](../apps/backend/internal/moduleintegration/ticket_components.go), [transcript capture](../apps/backend/internal/moduleintegration/discord_clients.go), [original-message journal](../apps/backend/internal/modules/tickets/message_journal.go), [HTTP lifecycle](../apps/backend/internal/modules/tickets/routes.go) | `TestOwnerCanCloseExistingTicketAfterModuleDisabled`, `TestTicketDeletionWaitsForTranscriptPublication`, `TestConcurrentCloseReusesCapturedTranscript`, `TestEveryTicketCloseRoutePreservesDiscordTranscript`, `TestTicketTranscriptKeepsStableOrderAndAttachmentContext`, `TestJournalPreservesDeletedOriginalTextAcrossRestart`, `TestJournalFailureBlocksDeletionAndRetryFlushesOriginal`, `TestJournalCloseWaitsForReceivedWrite` |
 | H | [Honeypot setup](../apps/backend/internal/moduleintegration/honeypot_setup.go), [gateway projection](../apps/backend/internal/moduleintegration/honeypot.go), [incident service](../apps/backend/internal/modules/honeypot/service.go) | `TestHoneypotTemplateIsEditableAndReused`, `TestMemberBurstCreatesOneIncident`, `TestBurstCleanupRetainsOneCaseAndEveryMessage`, `TestObsoleteRoleExemptionsDoNotBypassTrap`; primary recovery is committed; live recovery acceptance remains open |
-| L | [Logging setup](../apps/backend/internal/moduleintegration/logging_setup.go), [delivery](../apps/backend/internal/modules/generallogging/service.go), [gateway events](../apps/backend/internal/moduleintegration/gateway_guilds.go) | `TestNativeSetupPersistsOneChannelAndDeliversMessageDetails`, `TestExternalBanLoggingSeparatesActorAndTarget`, `TestPrivacyRedactionRetryAndAuditIsolation`, `TestDeliveryQueueSkipsUnconfiguredEventsButReportsFailures` |
+| L | [Logging setup](../apps/backend/internal/moduleintegration/logging_setup.go), [delivery](../apps/backend/internal/modules/generallogging/service.go), [gateway events](../apps/backend/internal/moduleintegration/gateway_guilds.go) | `TestNativeSetupPersistsOneChannelAndDeliversMessageDetails`, `TestExternalBanLoggingSeparatesActorAndTarget`, `TestPrivacyRedactionRetryAndAuditIsolation`, `TestDeliveryQueueSkipsUnconfiguredEventsButReportsFailures`, `TestBulkDeleteKeepsPerMessageAttributionAndPrivacy`; gateway bot-message lifecycle regression |
 | U | [Audit persistence](../apps/backend/internal/store/audit.go), [audit mirror](../apps/backend/internal/quack/audit_mirror.go), [case enrichment](../apps/backend/internal/quack/audit_mirror_case.go), [audit rendering](../apps/backend/internal/discordbot/ui/views/audit.go) | `TestAuditRejectsServiceEvents`, `TestAuditServiceRedactsAndFiltersCompleteContract`, `TestCaseCreatedAuditPreservesSelectedOutcome`, `TestStaffStatisticsAreGuildScopedDerivedAndUnranked` |
-| M | [Current schema](../apps/backend/internal/store/schema_init.go), [adoption](../apps/backend/internal/store/schema_adopt.go), [historical import CLI](../apps/backend/cmd/quack-v4-import/main.go), [importer](../apps/backend/internal/v4import/import.go) | `TestInitializeCurrentSchema`, `TestAdoptCurrentSchemaPreservesHistory`, `TestV4ImportDryRunIdempotencyIsolationCollisionAndRollback`, `TestEscalationExcludesImportedV4HistoryAcrossTemplateVersions` |
+| M | [Current schema](../apps/backend/internal/store/schema_init.go), [adoption](../apps/backend/internal/store/schema_adopt.go), [historical import CLI](../apps/backend/cmd/quack-v4-import/main.go), [importer](../apps/backend/internal/v4import/import.go), [SQL exporter](../apps/backend/internal/v4import/export.go), [operator procedure](v4-historical-import.md) | `TestInitializeCurrentSchema`, `TestAdoptCurrentSchemaPreservesHistory`, `TestV4ImportDryRunIdempotencyIsolationCollisionAndRollback`, `TestEscalationExcludesImportedV4HistoryAcrossTemplateVersions`, `TestMySQLV4SQLExportImportRehearsal`, `TestExportPagesPreserveEverySourceIdentity` |
 
 ## All interview answers
 
@@ -47,7 +51,7 @@ All paths below are backend paths; the production runtime registers native comma
 | 16 | Policy for departed members/historical no-action cases | D/U: answer leaves product policy unresolved; existing authorization behavior is not a new agreed requirement. |
 | 17 | Discord-derived authority; Moderate Members baseline | P: live permission refresh and actor/action checks, A. |
 | 21 | Result includes selected outcome, errors, notification/appeal information | P/U: C/N, durable refresh wired; delayed/restarted live demonstration outstanding. |
-| 22 | Evidence, user history and reasoned void controls | P/I: evidence/void are covered; native profile totals and imported labels are implemented, C/E/A. |
+| 22 | Evidence, user history and reasoned void controls | P/U: evidence/void are covered; native profile totals and imported labels are implemented, C/E/A. |
 | 23 | Context/evidence updates without new punishment; audit actor | P: E/U; context link capture and visible failure tests added. |
 | 24 | Recover forms only if simple; blank reopening acceptable | D/P: no durable draft system required. Immediate creation plus independent context form removes old mandatory draft dependency. |
 | 25 | Staff resolve their own semantic duplicate incidents | P: independent cases remain possible; request replay protection is distinct, C. |
@@ -58,17 +62,17 @@ All paths below are backend paths; the production runtime registers native comma
 | 37–40 | Permission block; failure queue/retry; automatic reversal on void | P/U: A. Real Discord denial, failure, retry and reversal demonstrations remain outstanding. |
 | 41–42 | Notifications default on; concise outcome/reason; hidden staff identity; failed DM recorded | P/U: T/N. Actual blocked-DM/ban behavior needs rehearsal. |
 | 43 | No member self-history Discord command | D/P: staff history is gated; dashboard self-history deferred. |
-| 44 | Pagination and web-equivalent link | P/I: native case/evidence/appeal paging exists; consistent web links and explicit application URL integration are unfinished. Dashboard UI remains D. |
+| 44 | Pagination and web-equivalent link | P/U: native paging and configured case/history/evidence web links are implemented (`1c3fa74`); command regression tests pass. Live configured-link acceptance remains open. Dashboard UI remains D. |
 | 45–47 | DM appeal form; one case, one statement, once; no conversation/deadline | P/D: P evidence. Lost-DM website journey is deferred dashboard work. |
 | 48–52 | Actionable appeal queue; terminal accept/reject; void/reversal; hidden identity and optional rejoin link | P/U: P/A. End-to-end decision/rejoin rehearsal outstanding. |
-| 53–59 | Private thread, natural chat, only open/close, owner/staff close, transcript before deletion, one open ticket | P/U: K. Root live acceptance active. Transcript captures available history at closure, unlike v4's continuously cached text; deleted-message behavior needs acceptance. |
-| 60–63 | Trap setup/warning/counter; editable template; staff exemption; one incident and cleanup/recovery | P/I/U: H. Primary incident recovery active. Current all-bot exemption exceeds Q61 and legacy's Quack/staff exclusion. |
-| 64–65 | Single general-log channel, near-v4 detail, omit Quack's own bans | P/U: L. v5 skips bot-message cache entries whereas legacy cached all; parity needs explicit resolution. |
+| 53–59 | Private thread, natural chat, only open/close, owner/staff close, transcript before deletion, one open ticket | P/U: K. Member/staff close and retained transcript passed live. Original received text now survives edits/deletions through a persisted journal merged with final history; deleted-message/restart live acceptance passed: the published queue transcript retained the tester text deleted before a clean beta restart. See the bounded retention guarantee below. |
+| 60–63 | Trap setup/warning/counter; editable template; staff exemption; one incident and cleanup/recovery | P/U: H. Primary incident recovery and legacy Quack/staff exemptions are implemented in `bad4bb3`; live trap/recovery acceptance remains open. |
+| 64–65 | Single general-log channel, near-v4 detail, omit Quack's own bans | P/U: L. Bot-message caching and per-message author/text/file attribution are restored; actual Discord event acceptance remains open. |
 | 66–69 | Meaningful audit only; separate case/action entries; actor/member/rule/level/time | P: U. Storage allowlist and separate delivery state; selected outcome comes from immutable snapshot. |
-| 70 | Statistics derived from real moderation activity | P/I: derived backend evidence U; native user/profile surface implemented. |
-| 71 | Disposable prerelease schema; import actual v4 history; translate settings where practical | P/I/U: M. Real-data extraction/import and distributed v4 settings translation are not demonstrated by JSONL fixtures or standalone helper importers. |
+| 70 | Statistics derived from real moderation activity | P/U: derived backend evidence U; native user/profile totals and imported-history labels implemented. Live profile acceptance remains open; Q70 does not require a separate statistics subsystem. |
+| 71 | Disposable prerelease schema; import actual v4 history; translate settings where practical | P/U/D: M. Read-only SQL export, all six v4 types, bounded paging and historical-only import passed disposable MySQL rehearsal. Real-backup rehearsal remains open. Native module resetup is the documented cutover path, allowed by Q71; automatic settings translation is not a release requirement. |
 | 72 | Clean cutover except historical cases | D/P/U: scope-check/import tools exist, M; production cutover not performed. |
-| 73 | Cohesive purpose-built architecture | I: broad repository exposure, worker composition ownership and presentation/persistence coupling remain; not a completed maintainability rewrite. |
+| 73 | Cohesive purpose-built architecture | P/I: core worker/API/component ownership is corrected. Broad repository exposure and Discord presentation in core services remain concrete boundary cleanup; not a completed maintainability rewrite. |
 | 74 | Single binary, MySQL/Redis | P: runtime composition establishes this shape; distributed operation is not an acceptance requirement. |
 | 75–76 | Named test guild/accounts and extensive journeys before replacing v4 | U: targets/authorization are not outcome evidence. Record actual rehearsals separately below. |
 
@@ -77,17 +81,17 @@ All paths below are backend paths; the production runtime registers native comma
 | Finding | Current disposition |
 | --- | --- |
 | 1 Audit noise | P: storage allowlist rejects service events; mirror delivery state is separate, U evidence. |
-| 2 Disconnected module switches | I: core settings accepts/saves shadow booleans while runtime modules read the registry. Backend correction in progress, not deferred UI. |
+| 2 Disconnected module switches | P/U: `02d6616` uses canonical registry reads and atomic explicit toggles, preserving configuration and rejecting invalid enablement before core/audit writes. Native/API parity and conflict tests pass; live toggle acceptance remains open. |
 | 3 Dashboard always submits forbidden evidence field | D: existing dashboard form remains broken; do not claim it functional. Native evidence journey is separate. |
 | 4 Missing new web appeal form | D: web UI deferred; native DM form is implemented. |
 | 5 Missing native appeals | P/U: production handlers/outbox/queue wired; live acceptance outstanding. |
-| 6 CORS-derived application URL | P/U: explicit backend configuration implemented in this slice, awaiting root integration; native DM modal already avoids depending on a website URL. |
+| 6 CORS-derived application URL | P/U: explicit backend configuration committed in `4827cae`; native DM modal already avoids depending on a website URL. |
 | 7 Unpublished ticket buttons | P: native setup and persistent entry receipt now publish them. |
-| 8 Ticket lifecycle/control mismatch | P/U: shared close adapter, owner authority and removed reopen route; live acceptance active. |
-| 9 Competing conversation/transcript models | P/U: native chat is canonical; available-history capture replaces continuous cache. Deleted text and attachment longevity need explicit acceptance. |
+| 8 Ticket lifecycle/control mismatch | P/U: shared close adapter, owner authority and removed reopen route; member/staff closure and transcript retrieval passed live; journal-specific live acceptance remains open. |
+| 9 Competing conversation/transcript models | P/U: native chat is canonical; committed original-message journaling supplements final history and blocks deletion on failed capture. Deleted text/restart and attachment longevity need live acceptance. |
 | 10 Honeypot restart requirement | P/U: gateway subscriptions remain stable across live setup; privileged intent availability still needs live verification. |
-| 11 Honeypot opacity/recovery | I: primary recovery active; bot-author exemption mismatch remains. Setup/counter/template editing are implemented. |
-| 12 No direct evidence uploads | P: slash attachment options and add-evidence use case. |
+| 11 Honeypot opacity/recovery | P/U: interrupted primary recovery and legacy bot/staff exemptions are committed. Setup/counter/template editing are implemented; live trap/recovery acceptance remains open. |
+| 12 No direct evidence uploads | P/U: slash attachment options and add-evidence use case; administrator synthetic-file upload/copy/view passed live. Restricted-role and deletion access remain unverified. |
 | 13 Missing evidence feedback/inspection | P: captured text, warnings, file results and private pages. |
 | 14 Evidence lifecycle rough edges | P/U: stable message links and admin-preserving ACL lifecycle. Precommit upload failures can leave orphan copies; long-term live access unverified. |
 | 15 Different case entry flows | P: immediate common creation, paginated picker, no required context/JSON input. |
@@ -95,7 +99,7 @@ All paths below are backend paths; the production runtime registers native comma
 | 17 Public deferred errors | P/U: safer private acknowledgement/public publication paths with regression tests; live visibility acceptance remains necessary. |
 | 18 Stale results after restart | P/U: durable public receipt worker wired into runtime; restart/outage tests exist, live rehearsal outstanding. |
 | 19 Expected events logged as failures | P: logging queue distinguishes disabled/unrouted events; old logs do not establish present health. |
-| 20 Architecture/documentation mismatch | I: more real callers and explicit services, but repository exposure, ownership and stale documentation remain. This matrix supersedes broad completion claims, not the user's requirements. |
+| 20 Architecture/documentation mismatch | P/I: core worker and registration ownership is corrected; combined repository exposure and core/presentation coupling remain. This matrix supersedes broad completion claims, not the user's requirements. |
 
 ## Application URL configuration
 
@@ -103,4 +107,14 @@ All paths below are backend paths; the production runtime registers native comma
 
 ## Live acceptance record
 
-No new live acceptance result is claimed by this audit. Root's current ticket rehearsal and the other authorized scenarios must record actual outcome, test identity, relevant configuration, failures and follow-up. Do not replace U with P solely because the implementation tracker or unit suite is green.
+The [implementation ledger](v5-bot-implementation.md), specifically “September 8 parallel integration and live ticket acceptance” and “Ticket journal integration and direct evidence upload”, records the live outcomes summarized above. The later deletion/restart rehearsal verified the new journal through the actual queue transcript. The administrator direct-upload result remains narrower than full evidence acceptance. Do not replace U with P solely because a tracker or unit suite is green.
+
+## Remaining concrete implementation gaps and boundaries
+
+1. **Q44 configured-link acceptance:** native case/history/evidence web buttons are committed and tested; live configuration/link inspection remains open.
+2. **Q73 / review 20 boundaries:** `quack.Services.Store` still exposes the combined repository, case publication commands access it directly, and `quack/case_notifications.go` plus `quack/appeals.go` construct Discord-formatted copy through `discordtext`; appeal outbox rows persist rendered bodies. Core worker ownership is now corrected; narrower use-case ports and rendering at the adapter boundary remain concrete cleanup.
+3. **Ticket closure feedback:** `5848e7c` acknowledges saved progress before deleting the source thread and avoids the impossible final edit. Focused/full tests pass; live verification remains open. Old ephemeral receipts can retain deleted-thread mentions until refreshed; no perpetual refresh infrastructure is added.
+
+Known limits are kept separate from new feature scope: Discord public-send/receipt-storage and evidence-upload/storage are not atomic; a crash can leave an untracked public receipt or orphan copy. Concurrent context submissions lack a durable evidence reservation. The ticket journal retains received messages admitted before final capture; delayed deleted events first delivered afterward and buffered writes lost during a database outage plus hard crash are outside its guarantee. These are documented recovery boundaries, not claims of exactly-once Discord effects.
+
+Remaining release gates are live journeys, restricted-role/privacy and failure/restart checks, an authorized real-backup import rehearsal, and realistic load assessment. Dashboard review findings 3–4 remain deferred; module resetup is allowed rather than a missing mandatory migration subsystem.

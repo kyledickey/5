@@ -999,3 +999,23 @@ means further work is required, not completion.
   clean shutdown. Existing database retained; no reset or command pruning. Live
   readiness passed database, Redis, Discord, queue, action capabilities and schema.
   New journal deletion/restart acceptance remains to be exercised in Discord.
+
+### Live deleted-message retention and interaction refinements
+
+- The tester opened a private ticket, sent synthetic original text, then deleted
+  that message in Discord. SQL showed its journal row before a clean beta restart.
+  After restart/readiness, the tester closed the ticket. The staff queue's attached
+  transcript visibly contained the deleted original text; SQL also confirmed the
+  resolved state and retained content. This is live deletion/restart evidence,
+  distinct from only testing surviving close-time history.
+- `8e2ee63` registers the durable ticket before inviting the member, closing an
+  opening window where immediate replies could be missed. Failed permission sync
+  preserves the ticket and exposes repair rather than deleting possible evidence.
+  Focused/race tests and a MySQL-enabled full suite passed.
+- `1c3fa74` adds optional configured web buttons to private case/history/evidence
+  views and pages, using existing route shapes and retaining native controls.
+  Root command tests pass. `5848e7c` acknowledges saved closure progress before
+  source-thread deletion and skips impossible post-deletion edits; focused and
+  full-suite tests pass. Neither change edits dashboard source.
+- Running beta is still `/tmp/quack-v5-retention-review`; these latest interaction
+  refinements require the next build/reload before live acceptance.
