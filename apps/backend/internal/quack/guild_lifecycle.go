@@ -18,6 +18,20 @@ type GuildOperationalHealth struct {
 	ManagedChannels map[string]bool `json:"managed_channels"`
 }
 
+// OperationalGuildID resolves a stored guild identity for an already authorized
+// operator. It does not require live Discord access, so diagnostics remain usable
+// during an outage. An unknown guild returns an empty ID without creating it.
+func (s *GuildService) OperationalGuildID(ctx context.Context, discordGuildID string) (string, error) {
+	if s == nil || s.store == nil {
+		return "", errors.New("guild service is not configured")
+	}
+	guild, err := s.store.GetGuildByDiscordID(ctx, strings.TrimSpace(discordGuildID))
+	if err != nil || guild == nil {
+		return "", err
+	}
+	return guild.ID, nil
+}
+
 // OperationalGuildHealth refreshes the bot's current guild permissions and
 // combines them with managed-channel configuration. Deleted channel gateway
 // reconciliation clears stale references, so missing required references are

@@ -74,7 +74,8 @@ func guildOpsStatus(c *gin.Context, services *quack.Services) {
 	c.JSON(http.StatusOK, gin.H{"operations": status, "guild_health": health})
 }
 
-// guildOpsAuthorized encapsulates the guild ops authorized rule so callers share one consistent package implementation.
+// guildOpsAuthorized accepts a process operations key or a current guild
+// administrator session before returning the internal guild identity.
 func guildOpsAuthorized(c *gin.Context, services *quack.Services) (string, bool) {
 	discordGuildID := strings.TrimSpace(c.Param("discordGuildID"))
 	if discordGuildID == "" {
@@ -83,16 +84,16 @@ func guildOpsAuthorized(c *gin.Context, services *quack.Services) (string, bool)
 	}
 
 	if validOpsKey(c, services) {
-		guild, err := services.Store.GetGuildByDiscordID(c.Request.Context(), discordGuildID)
+		guildID, err := services.Guilds.OperationalGuildID(c.Request.Context(), discordGuildID)
 		if err != nil {
 			apierror.Write(c, http.StatusInternalServerError, apierror.CodeInternal, "guild lookup failed")
 			return "", false
 		}
-		if guild == nil {
+		if guildID == "" {
 			apierror.Write(c, http.StatusNotFound, apierror.CodeNotFound, "guild not found")
 			return "", false
 		}
-		return guild.ID, true
+		return guildID, true
 	}
 
 	sessionID := middleware.ExtractSessionID(c, services.Config.Auth.SessionCookieName)

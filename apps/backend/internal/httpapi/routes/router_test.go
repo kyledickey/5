@@ -229,6 +229,13 @@ func TestGuildOpsStatusAllowsAdminOrOpsKey(t *testing.T) {
 	if keyResponse.Code != http.StatusOK {
 		t.Fatalf("expected ops key status %d, got %d body=%s", http.StatusOK, keyResponse.Code, keyResponse.Body.String())
 	}
+	missingRequest := httptest.NewRequest(http.MethodGet, "/guilds/unknown-guild/ops/status", nil)
+	missingRequest.Header.Set("X-Quack-Ops-Key", "secret")
+	missingResponse := httptest.NewRecorder()
+	keyRouter.ServeHTTP(missingResponse, missingRequest)
+	if missingResponse.Code != http.StatusNotFound {
+		t.Fatalf("unknown guild status = %d, body=%s", missingResponse.Code, missingResponse.Body.String())
+	}
 }
 
 func TestGuildMeRouteAuthenticated(t *testing.T) {
