@@ -148,7 +148,7 @@ func cachedMessage(guildID string, message *discordgo.Message) generallogging.Ca
 		cached.AuthorDiscordUserID = message.Author.ID
 	}
 	for _, attachment := range message.Attachments {
-		cached.Attachments = append(cached.Attachments, generallogging.AttachmentMetadata{DiscordID: attachment.ID, Filename: attachment.Filename, ContentType: attachment.ContentType, Size: int64(attachment.Size)})
+		cached.Attachments = append(cached.Attachments, generallogging.AttachmentMetadata{DiscordID: attachment.ID, Filename: attachment.Filename, ContentType: attachment.ContentType, Size: int64(attachment.Size), URL: attachment.URL})
 	}
 	for _, embed := range message.Embeds {
 		cached.EmbedTypes = append(cached.EmbedTypes, string(embed.Type))

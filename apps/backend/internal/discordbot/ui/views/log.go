@@ -2,39 +2,52 @@ package views
 
 import (
 	"encoding/json"
+	"net/url"
 	"strings"
 
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 )
+
+// logAttachment renders available HTTPS download links without implying that
+// the logging module archives binaries or extends Discord's URL lifetime.
+type logAttachment struct {
+	Filename string `json:"filename"`
+	URL      string `json:"url"`
+}
+
+// label keeps missing or malformed URLs as plain filenames and prevents URL or
+// filename content from escaping the intended Markdown link.
+func (a logAttachment) label() string {
+	name := ui.PlainText(a.Filename)
+	parsed, err := url.Parse(a.URL)
+	if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil || strings.ContainsAny(a.URL, "<>\r\n\t ") {
+		return name
+	}
+	return "[" + name + "](<" + parsed.String() + ">)"
+}
 
 // StaffLogMessage presents the logging module's already-redacted payload at the Discord boundary.
 // The module retains its structured JSON contract and controls which content may be included.
 func StaffLogMessage(payload string) ui.Message {
 	var event struct {
 		Messages []struct {
-			MessageID   string `json:"message_id"`
-			ActorID     string `json:"actor_id"`
-			Content     string `json:"content"`
-			Attachments []struct {
-				Filename string `json:"filename"`
-			} `json:"attachments"`
-			EmbedTypes []string `json:"embed_types"`
+			MessageID   string          `json:"message_id"`
+			ActorID     string          `json:"actor_id"`
+			Content     string          `json:"content"`
+			Attachments []logAttachment `json:"attachments"`
+			EmbedTypes  []string        `json:"embed_types"`
 		} `json:"messages"`
-		BeforeKnown       *bool `json:"before_known"`
-		BeforeAttachments []struct {
-			Filename string `json:"filename"`
-		} `json:"before_attachments"`
-		Type        string `json:"event"`
-		ChannelID   string `json:"channel_id"`
-		MessageID   string `json:"message_id"`
-		ActorID     string `json:"actor_id"`
-		Before      string `json:"before"`
-		After       string `json:"after"`
-		Attachments []struct {
-			Filename string `json:"filename"`
-		} `json:"attachments"`
-		EmbedTypes []string          `json:"embed_types"`
-		Metadata   map[string]string `json:"metadata"`
+		BeforeKnown       *bool             `json:"before_known"`
+		BeforeAttachments []logAttachment   `json:"before_attachments"`
+		Type              string            `json:"event"`
+		ChannelID         string            `json:"channel_id"`
+		MessageID         string            `json:"message_id"`
+		ActorID           string            `json:"actor_id"`
+		Before            string            `json:"before"`
+		After             string            `json:"after"`
+		Attachments       []logAttachment   `json:"attachments"`
+		EmbedTypes        []string          `json:"embed_types"`
+		Metadata          map[string]string `json:"metadata"`
 	}
 	if json.Unmarshal([]byte(payload), &event) != nil {
 		return ui.Signal("info", "An event was recorded, but its details are unavailable.", false)
@@ -111,7 +124,7 @@ func StaffLogMessage(payload string) ui.Message {
 	if event.Type == "message_edit" && len(event.BeforeAttachments) > 0 {
 		var names []string
 		for _, attachment := range event.BeforeAttachments {
-			names = append(names, ui.PlainText(attachment.Filename))
+			names = append(names, attachment.label())
 		}
 		parts = append(parts, "Files before: "+strings.Join(names, ", "))
 		if len(event.Attachments) == 0 {
@@ -121,7 +134,7 @@ func StaffLogMessage(payload string) ui.Message {
 	if len(event.Attachments) > 0 && len(event.Messages) == 0 {
 		names := []string{}
 		for _, attachment := range event.Attachments {
-			names = append(names, ui.PlainText(attachment.Filename))
+			names = append(names, attachment.label())
 		}
 		label := "Files: "
 		if event.Type == "message_edit" {
@@ -144,7 +157,7 @@ func StaffLogMessage(payload string) ui.Message {
 		if len(message.Attachments) > 0 {
 			names := make([]string, 0, len(message.Attachments))
 			for _, attachment := range message.Attachments {
-				names = append(names, ui.PlainText(attachment.Filename))
+				names = append(names, attachment.label())
 			}
 			record += "\nFiles: " + strings.Join(names, ", ")
 		}

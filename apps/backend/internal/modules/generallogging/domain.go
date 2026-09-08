@@ -59,6 +59,8 @@ type AttachmentMetadata struct {
 	DiscordID             string
 	Filename, ContentType string
 	Size                  int64
+	// URL retains the available Discord download link, not an archived file.
+	URL string `json:"url,omitempty"`
 }
 
 // Event is an ephemeral Discord event delivered to configured staff channels.

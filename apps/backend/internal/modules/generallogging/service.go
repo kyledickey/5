@@ -369,7 +369,7 @@ func (s *Service) PrepareMessageEdit(ctx context.Context, current CachedMessage,
 		previous = *before
 		known = true
 	}
-	if known && previous.Content == current.Content && slices.Equal(previous.Attachments, current.Attachments) {
+	if known && previous.Content == current.Content && slices.EqualFunc(previous.Attachments, current.Attachments, sameAttachmentContent) {
 		return nil, nil
 	}
 	actor := current.AuthorDiscordUserID
@@ -377,4 +377,12 @@ func (s *Service) PrepareMessageEdit(ctx context.Context, current CachedMessage,
 		actor = previous.AuthorDiscordUserID
 	}
 	return &Event{BeforeKnown: known, BeforeAttachments: previous.Attachments, GuildID: current.GuildID, ChannelDiscordID: current.ChannelDiscordID, MessageDiscordID: current.MessageDiscordID, ActorDiscordUserID: actor, Type: MessageEdit, Before: previous.Content, After: current.Content, Attachments: current.Attachments, EmbedTypes: current.EmbedTypes, SnapshotComplete: true}, nil
+}
+
+// sameAttachmentContent ignores the expiring download coordinate when deciding
+// whether a gateway update changed a file. Cache replacement still happens first
+// so a later deletion log uses the newest available signed URL.
+func sameAttachmentContent(left, right AttachmentMetadata) bool {
+	left.URL, right.URL = "", ""
+	return left == right
 }

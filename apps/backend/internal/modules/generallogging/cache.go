@@ -258,7 +258,7 @@ func (c *MessageCache) trim() {
 func messageBytes(m CachedMessage) int64 {
 	total := int64(640 + 2*len(m.GuildID) + len(m.ChannelDiscordID) + 2*len(m.MessageDiscordID) + len(m.AuthorDiscordUserID) + len(m.Content))
 	for _, attachment := range m.Attachments {
-		total += 80 + int64(len(attachment.DiscordID)+len(attachment.Filename)+len(attachment.ContentType))
+		total += 96 + int64(len(attachment.DiscordID)+len(attachment.Filename)+len(attachment.ContentType)+len(attachment.URL))
 	}
 	for _, embed := range m.EmbedTypes {
 		total += 16 + int64(len(embed))
@@ -279,6 +279,7 @@ func ownMessage(m CachedMessage) CachedMessage {
 		a.DiscordID = strings.Clone(a.DiscordID)
 		a.Filename = strings.Clone(a.Filename)
 		a.ContentType = strings.Clone(a.ContentType)
+		a.URL = strings.Clone(a.URL)
 	}
 	for i := range m.EmbedTypes {
 		m.EmbedTypes[i] = strings.Clone(m.EmbedTypes[i])

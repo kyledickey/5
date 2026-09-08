@@ -7,6 +7,18 @@ import (
 	"testing"
 )
 
+// TestAttachmentURLsCannotBypassCacheBudget covers long signed CDN URLs, whose
+// retained bytes must count even when the message has no text content.
+func TestAttachmentURLsCannotBypassCacheBudget(t *testing.T) {
+	c := NewMessageCache(10)
+	c.byteBudget = 1024
+	c.Put(CachedMessage{GuildID: "guild", MessageDiscordID: "message", Attachments: []AttachmentMetadata{{Filename: "proof.png", URL: "https://cdn.discordapp.com/" + strings.Repeat("x", 2048)}}})
+	if _, ok := c.Get("guild", "message"); ok {
+		t.Fatal("oversized attachment URL bypassed cache budget")
+	}
+	assertCacheAccounting(t, c)
+}
+
 // budgetMessage creates distinct identities with equally sized retained content.
 func budgetMessage(guild, id string) CachedMessage {
 	return CachedMessage{GuildID: guild, MessageDiscordID: id, ChannelDiscordID: "channel", AuthorDiscordUserID: "author", Content: strings.Repeat("x", 100)}
