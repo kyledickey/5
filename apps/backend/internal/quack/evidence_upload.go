@@ -17,6 +17,9 @@ func (s *EvidenceService) CaptureUploads(ctx context.Context, guildID, actorID, 
 	if truncated {
 		files = files[:maxEvidenceAttachments]
 	}
+	if len(files) > 0 {
+		channelID = s.captureStorage(ctx, guildID, channelID)
+	}
 	for _, file := range files {
 		if err := ctx.Err(); err != nil {
 			return nil, err

@@ -82,8 +82,9 @@ type CapturedEvidence struct {
 
 // EvidenceService implements shared HTTP and Discord message-link capture.
 type EvidenceService struct {
-	client DiscordEvidenceClient
-	store  EvidenceRepository
+	client       DiscordEvidenceClient
+	store        EvidenceRepository
+	storageLocks evidenceStorageLocks
 }
 
 // NewEvidenceService constructs the shared capture boundary.
@@ -95,21 +96,30 @@ func NewEvidenceService(client DiscordEvidenceClient, stores ...EvidenceReposito
 	return service
 }
 
-// EnsureGuildEvidenceChannel creates missing evidence storage and persists its current reference.
-func (s *EvidenceService) EnsureGuildEvidenceChannel(ctx context.Context, guild model.Guild, settings model.GuildSettings) (string, error) {
+// EnsureGuildEvidenceChannel creates missing storage and saves only its receipt.
+// The lifecycle snapshot is intentionally ignored: settings are reloaded after
+// acquiring the guild creation lock so overlapping repairs use the winning ID.
+func (s *EvidenceService) EnsureGuildEvidenceChannel(ctx context.Context, guild model.Guild, _ model.GuildSettings) (string, error) {
 	if s == nil || s.client == nil || s.store == nil {
 		return "", errors.New("evidence service is not configured")
 	}
-	channelID, err := s.client.EnsureEvidenceChannel(ctx, guild.DiscordGuildID, settings.ManagedEvidenceChannelDiscordID)
+	release, err := s.storageLocks.acquire(ctx, guild.ID)
 	if err != nil {
 		return "", err
 	}
-	if channelID == settings.ManagedEvidenceChannelDiscordID {
-		return channelID, nil
+	defer release()
+	current, err := s.store.GetGuildSettings(ctx, guild.ID)
+	if err != nil {
+		return "", err
 	}
-	settings.ManagedEvidenceChannelDiscordID = channelID
-	_, err = s.store.UpdateGuildSettings(ctx, model.UpdateGuildSettingsParams{Settings: settings, Audit: &model.AuditLogEntry{GuildID: guild.ID, Source: model.AuditSourceSystem, Action: "evidence_channel.ensure", ResourceType: "guild_settings", ResourceID: settings.ID, Result: model.AuditResultSuccess, MetadataJSON: "{}"}})
-	return channelID, err
+	if current == nil {
+		return "", errors.New("evidence settings unavailable")
+	}
+	channelID, err := s.client.EnsureEvidenceChannel(ctx, guild.DiscordGuildID, current.ManagedEvidenceChannelDiscordID)
+	if err != nil {
+		return "", err
+	}
+	return s.store.CompareAndSetEvidenceChannel(ctx, guild.ID, current.ManagedEvidenceChannelDiscordID, channelID)
 }
 
 // RepairDiscordGuildEvidenceChannel reloads durable channel state and recreates storage after Discord deletes the channel.
@@ -155,6 +165,7 @@ func (s *EvidenceService) capture(ctx context.Context, guildID, actorDiscordUser
 		return nil, fmt.Errorf("%w: at most %d message links can be captured", ErrEvidenceValidation, maxEvidenceMessages)
 	}
 	result := &CapturedEvidence{}
+	storageChecked := false
 	seen := map[string]struct{}{}
 	totalAttachments := 0
 	for _, raw := range links {
@@ -205,6 +216,10 @@ func (s *EvidenceService) capture(ctx context.Context, guildID, actorDiscordUser
 		}
 		if strings.TrimSpace(targetDiscordUserID) != "" && message.AuthorDiscordUserID != targetDiscordUserID {
 			return nil, fmt.Errorf("%w: captured message author does not match case target", ErrEvidenceValidation)
+		}
+		if len(message.Attachments) > 0 && !storageChecked {
+			evidenceChannelID = s.captureStorage(ctx, guildID, evidenceChannelID)
+			storageChecked = true
 		}
 		content := truncateRunes(message.Content, maxEvidenceContentRunes)
 		snapshotWarnings := []string{}

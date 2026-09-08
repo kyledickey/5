@@ -148,7 +148,7 @@ type ActionRepository interface {
 type EvidenceRepository interface {
 	GetGuildByDiscordID(context.Context, string) (*model.Guild, error)
 	GetGuildSettings(context.Context, string) (*model.GuildSettings, error)
-	UpdateGuildSettings(context.Context, model.UpdateGuildSettingsParams) (*model.GuildSettings, error)
+	CompareAndSetEvidenceChannel(context.Context, string, string, string) (string, error)
 }
 
 // AuditRepository supplies append-only audit writes and filtered reads.
