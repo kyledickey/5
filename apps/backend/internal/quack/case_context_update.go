@@ -10,6 +10,8 @@ import (
 
 // UpdateContext replaces staff context without changing the snapshotted rule,
 // escalation count, validity, or enforcement. An empty value clears context.
+// Valid pasted message links are preserved after text commits; optional capture
+// failures return the saved detail with EvidenceIncomplete instead of losing text.
 func (s *CaseService) UpdateContext(ctx context.Context, guild *GuildStaffContext, caseRef, text string) (*CaseDetailResponse, error) {
 	if s == nil || s.store == nil || guild == nil || guild.Guild == nil || !guild.Can(model.PermissionActionCaseCreate) {
 		return nil, ErrCasePermissionDenied
@@ -34,5 +36,9 @@ func (s *CaseService) UpdateContext(ctx context.Context, guild *GuildStaffContex
 	if item == nil {
 		return nil, ErrCaseNotFound
 	}
-	return s.Get(ctx, guild, item.ID)
+	detail, err := s.Get(ctx, guild, item.ID)
+	if err != nil {
+		return nil, err
+	}
+	return s.captureContextLinks(ctx, guild, detail, text), nil
 }

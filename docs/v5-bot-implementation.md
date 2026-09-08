@@ -900,3 +900,11 @@ means further work is required, not completion.
   interview Q34. Root independently passed evidence adapter tests after reviewing
   creation/recreation, effective role permissions and existing-channel preservation.
   Previously created bot-only channels retain their configured permissions.
+- Edit context now captures valid pasted Discord message links after saving the
+  freeform text. The shared evidence boundary checks source visibility, guild and
+  target; optional failures keep context and show the exact `/case evidence` retry
+  command. URL aliases and previously recorded sources are deduplicated on later
+  edits without changing enforcement or deleting historical evidence. Root reviewed
+  this flow and independently passed context/evidence tests in services and commands.
+  Concurrent submissions and upload-before-storage crashes still lack a durable
+  capture reservation; this is not a claim of exactly-once external uploads.

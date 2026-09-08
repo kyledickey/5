@@ -7,6 +7,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
+	"github.com/quackdiscord/bot/internal/quack"
 )
 
 // handleEditContextComponent loads current staff context for a small edit form.
@@ -35,7 +36,7 @@ func handleEditContextComponent(ctx ui.Context) ui.HandlerResult {
 		return ui.Immediate(ui.Error("This case has too much context for one Discord form."))
 	}
 	id := ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "edit_context_submit", Version: "v1", Payload: detail.ID})
-	return ui.Immediate(ui.Modal(fmt.Sprintf("Context for case #%d", detail.CaseNumber), id, []discordgo.MessageComponent{ui.Row(discordgo.TextInput{CustomID: "context", Label: "What happened?", Style: discordgo.TextInputParagraph, MaxLength: 4000, Required: false, Value: text})}))
+	return ui.Immediate(ui.Modal(fmt.Sprintf("Context for case #%d", detail.CaseNumber), id, []discordgo.MessageComponent{ui.Row(discordgo.TextInput{CustomID: "context", Label: "What happened?", Placeholder: "Describe what happened or paste a Discord message link.", Style: discordgo.TextInputParagraph, MaxLength: 4000, Required: false, Value: text})}))
 }
 
 // handleEditContextModal updates context privately without re-running moderation.
@@ -54,7 +55,11 @@ func handleEditContextModal(ctx ui.Context) ui.HandlerResult {
 		if err != nil {
 			return err
 		}
-		_, err = responder.EditOriginal(ui.EditMessage(ui.Signal("edit", fmt.Sprintf("Context saved for case #%d.", item.CaseNumber), true)))
+		message := fmt.Sprintf("Context saved for case #%d.", item.CaseNumber)
+		if item.EvidenceIncomplete && quack.ContextContainsMessageLinks(text) {
+			message += fmt.Sprintf(" Some evidence could not be saved. Use `/case evidence case:%d` with the message link to try again.", item.CaseNumber)
+		}
+		_, err = responder.EditOriginal(ui.EditMessage(ui.Signal("edit", message, true)))
 		return err
 	})
 }
