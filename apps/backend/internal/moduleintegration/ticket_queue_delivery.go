@@ -43,11 +43,7 @@ func (c ticketDiscordClient) PublishTicketQueue(ctx context.Context, ticket *tic
 	}
 	var rest *discordgo.RESTError
 	if errors.As(err, &rest) && rest.Message != nil && rest.Message.Code == discordgo.ErrCodeUnknownMessage {
-		// The queue message was deleted; recreate it with a fresh file reader.
-		if transcript != nil {
-			payload.Files[0].Reader = strings.NewReader(transcript.Content)
-		}
-		sent, err = c.session.ChannelMessageSendComplex(settings.QueueChannelDiscordID, payload, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+		return nil, tickets.ErrQueueMessageMissing
 	}
 	if err != nil {
 		return nil, ticketQueueSendError(err)
@@ -59,6 +55,18 @@ func (c ticketDiscordClient) PublishTicketQueue(ctx context.Context, ticket *tic
 		return nil, errors.New("ticket transcript attachment was not returned")
 	}
 	return &tickets.QueueReceipt{MessageID: sent.ID, URL: fmt.Sprintf("https://discord.com/channels/%s/%s/%s", guildID, settings.QueueChannelDiscordID, sent.ID)}, nil
+}
+
+// TicketQueueMessageExists verifies a saved queue receipt without mutating it.
+// Only Discord's explicit missing-resource responses permit replacement; access
+// failures and network uncertainty must keep the source conversation intact.
+func (c ticketDiscordClient) TicketQueueMessageExists(ctx context.Context, channelID, messageID string) (bool, error) {
+	_, err := c.session.ChannelMessage(channelID, messageID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+	var rest *discordgo.RESTError
+	if errors.As(err, &rest) && rest.Message != nil && (rest.Message.Code == discordgo.ErrCodeUnknownMessage || rest.Message.Code == discordgo.ErrCodeUnknownChannel) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 // ticketQueueSendError distinguishes definite Discord rejection from a send that

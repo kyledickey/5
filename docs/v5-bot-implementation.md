@@ -1530,3 +1530,25 @@ means further work is required, not completion.
   while retaining its private-response and no-queued-task assertions.
   The running beta still has the prior copy;
   this new feedback requires a later runtime switch for live verification.
+
+### Ticket queue replacement and closure recovery
+
+- Repair ticket now checks a saved staff queue post and replaces it only after
+  Discord confirms that it is missing. A failed or uncertain read stops repair.
+- Missing-message edits and queue destination changes return through durable
+  send admission before a replacement POST. Lost responses and failed receipt
+  writes retain that admission across restart, preventing blind duplicate sends.
+- Retrying closure after a failed thread deletion verifies the saved transcript
+  post. A definitely missing post clears the stale receipt and must be republished
+  before source deletion; unavailable reads or publication preserve the thread
+  and member reservation.
+- Focused tests cover repair, rejected/uncertain sends, receipt persistence
+  failure, restart, queue moves, and deletion retries. The transport integration
+  test exercises the real service and adapter, verifies admission at the POST,
+  and checks intact transcript content before deletion. The full backend suite
+  with MySQL also passed. Live recovery acceptance
+  remains open. Uncertain sends still require administrator inspection; a manual
+  receipt reconciliation workflow has not been added.
+- The separate blocked-DM regression (`b011be8`) verifies Discord 403/50007 is
+  recorded as a definitive undelivered send with retained attempted content and
+  no automatic resend. Account-level blocked-DM acceptance remains open.

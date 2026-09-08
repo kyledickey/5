@@ -17,6 +17,7 @@ type DiscordClient interface {
 	FreezeTicketChannel(context.Context, string) error
 	CaptureTicketTranscript(context.Context, string) (string, error)
 	PublishTicketQueue(context.Context, *Ticket, Settings, *Transcript) (*QueueReceipt, error)
+	TicketQueueMessageExists(context.Context, string, string) (bool, error)
 	DeleteTicketChannel(context.Context, string) error
 	DeleteProvisionalTicketChannel(context.Context, string) error
 }
@@ -148,6 +149,11 @@ func (a *DiscordAdapter) CloseWithProgress(ctx context.Context, actor Actor, tic
 	} else if ticket.Status != StatusResolved {
 		return nil, ErrInvalidTransition
 	}
+	if resolved.TranscriptURL != "" {
+		if err := a.checkQueueReceipt(ctx, resolved); err != nil {
+			return resolved, err
+		}
+	}
 	if resolved.TranscriptURL == "" {
 		transcript, err := a.service.Transcript(ctx, actor, ticketID)
 		if err != nil {
@@ -181,6 +187,11 @@ func (a *DiscordAdapter) publishQueue(ctx context.Context, ticket *Ticket, setti
 	if settings.QueueChannelDiscordID == "" {
 		return "", errors.New("ticket queue channel is not configured")
 	}
+	if ticket.LogMessageDiscordID != "" && ticket.LogChannelDiscordID != settings.QueueChannelDiscordID {
+		if err := a.service.store.clearQueueReceipt(ctx, ticket); err != nil {
+			return "", err
+		}
+	}
 	initialSend := ticket.LogMessageDiscordID == ""
 	if initialSend {
 		if err := a.service.store.reserveQueueSend(ctx, ticket, settings.QueueChannelDiscordID); err != nil {
@@ -188,6 +199,12 @@ func (a *DiscordAdapter) publishQueue(ctx context.Context, ticket *Ticket, setti
 		}
 	}
 	receipt, err := a.client.PublishTicketQueue(ctx, ticket, settings, transcript)
+	if !initialSend && errors.Is(err, ErrQueueMessageMissing) {
+		if err := a.service.store.clearQueueReceipt(ctx, ticket); err != nil {
+			return "", err
+		}
+		return a.publishQueue(ctx, ticket, settings, transcript)
+	}
 	if err != nil {
 		if initialSend && errors.Is(err, ErrQueueNotSent) {
 			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
@@ -212,8 +229,25 @@ func (a *DiscordAdapter) publishQueue(ctx context.Context, ticket *Ticket, setti
 	return receipt.MessageID, nil
 }
 
-// RepairPermissions restores private access and any definitely missing initial
-// staff queue publication. Existing or uncertain receipts never cause a new send.
+// checkQueueReceipt verifies saved delivery before trusting it for repair or
+// source cleanup. Only definite absence clears the receipt; read failures retain
+// it and stop cleanup, and replacement sends still require durable admission.
+func (a *DiscordAdapter) checkQueueReceipt(ctx context.Context, ticket *Ticket) error {
+	if ticket.LogMessageDiscordID == "" {
+		return nil
+	}
+	exists, err := a.client.TicketQueueMessageExists(ctx, ticket.LogChannelDiscordID, ticket.LogMessageDiscordID)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return a.service.store.clearQueueReceipt(ctx, ticket)
+	}
+	return nil
+}
+
+// RepairPermissions restores private access and definitely missing staff queue
+// publications. Uncertain delivery retains its durable fence against new sends.
 func (a *DiscordAdapter) RepairPermissions(ctx context.Context, actor Actor, ticketID string) error {
 	if !actor.CanManage {
 		return ErrPermissionDenied
@@ -238,6 +272,9 @@ func (a *DiscordAdapter) RepairPermissions(ctx context.Context, actor Actor, tic
 		return ErrDisabled
 	}
 	if err := a.client.EnsureTicketPermissions(ctx, ticket.ThreadDiscordChannelID, ticket.OwnerDiscordUserID, actor.GuildID); err != nil {
+		return err
+	}
+	if err := a.checkQueueReceipt(ctx, ticket); err != nil {
 		return err
 	}
 	if ticket.LogMessageDiscordID == "" {

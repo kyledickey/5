@@ -340,6 +340,11 @@ func (f *discordFake) PublishTicketQueue(_ context.Context, ticket *tickets.Tick
 	return &tickets.QueueReceipt{MessageID: "queue-" + ticket.ID, URL: "https://discord.com/channels/guild/queue/message"}, nil
 }
 
+// TicketQueueMessageExists keeps existing lifecycle fixtures' saved receipts live.
+func (f *discordFake) TicketQueueMessageExists(context.Context, string, string) (bool, error) {
+	return true, nil
+}
+
 func (f *discordFake) FreezeTicketChannel(context.Context, string) error { f.frozen = true; return nil }
 
 // TestTicketDeletionWaitsForTranscriptPublication exercises a failed upload,
