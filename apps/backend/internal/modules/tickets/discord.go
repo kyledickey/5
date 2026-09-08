@@ -62,12 +62,6 @@ func (a *DiscordAdapter) Open(ctx context.Context, actor Actor) (*Ticket, error)
 	if err != nil {
 		return nil, err
 	}
-	if err := a.client.EnsureTicketPermissions(ctx, channelID, actor.DiscordUserID, actor.GuildID); err != nil {
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-		defer cleanupCancel()
-		_ = a.client.DeleteProvisionalTicketChannel(cleanupCtx, channelID)
-		return nil, err
-	}
 	ticket, err := a.service.store.finishOpening(ctx, actor, token, channelID, a.service.now())
 	if err != nil {
 		// A failed commit acknowledgement may conceal a committed ticket. Keep
@@ -77,6 +71,14 @@ func (a *DiscordAdapter) Open(ctx context.Context, actor Actor) (*Ticket, error)
 	}
 	a.service.rememberJournalThread(ticket)
 	a.service.audit(ctx, actor, "ticket.open", ticket.ID, "success", nil)
+	// Persistence and journal admission precede invitation: the owner can post as
+	// soon as ThreadMemberAdd succeeds, even while the remaining ACL sync runs.
+	// Once invited, failed synchronization must preserve evidence and the member
+	// reservation; the queue exposes the saved ticket for permission repair.
+	if err := a.client.EnsureTicketPermissions(ctx, channelID, actor.DiscordUserID, actor.GuildID); err != nil {
+		_, queueErr := a.publishQueue(ctx, ticket, settings, nil)
+		return ticket, errors.Join(err, queueErr)
+	}
 	// A failed greeting must not suppress the staff notification for a saved ticket.
 	welcomeErr := a.client.SendTicketWelcome(ctx, ticket)
 	_, queueErr := a.publishQueue(ctx, ticket, settings, nil)

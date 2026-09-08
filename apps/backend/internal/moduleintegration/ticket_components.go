@@ -56,7 +56,7 @@ func (r *Runtime) openTicketComponent(ctx ui.Context) ui.HandlerResult {
 		setupIncomplete := err != nil
 		message := ui.Signal("ticket", "Your ticket is ready: <#"+ticket.ThreadDiscordChannelID+">. Type there whenever you’re ready; a moderator will join you.", true)
 		if setupIncomplete {
-			message.Content += "\nYour thread is saved, but setup did not finish. Please let a moderator know."
+			message = ui.Signal("ticket", "Your ticket is saved: <#"+ticket.ThreadDiscordChannelID+">, but setup did not finish. If you cannot access it, ask a server administrator to use Repair permissions on this ticket. Opening again will return this same ticket.", true)
 		}
 		message.Components = ticketControls(ticket.ID, actor.CanManage)
 		_, err = responder.EditOriginal(ui.EditMessage(message))

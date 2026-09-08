@@ -244,3 +244,42 @@ func TestJournalSharesTranscriptRetention(t *testing.T) {
 		t.Fatal("expired journal retained", count, err)
 	}
 }
+
+// openingJournalFake injects a create/delete while permission synchronization is
+// still running after the owner's successful invitation.
+type openingJournalFake struct {
+	*journalDiscordFake
+	service *tickets.Service
+}
+
+// EnsureTicketPermissions models an immediate reply no longer in final history.
+func (f *openingJournalFake) EnsureTicketPermissions(ctx context.Context, thread, owner, guild string) error {
+	if known, ok := f.service.KnownMessageThread(thread); !ok || known != guild {
+		return errors.New("owner invited before journal admission")
+	}
+	if err := f.service.RecordMessage(ctx, guild, thread, tickets.TranscriptMessage{MessageID: "early", AuthorID: owner, Body: "deleted during invitation", SentAt: time.Now().UTC()}); err != nil {
+		return err
+	}
+	return f.permissionError
+}
+
+// TestJournalRetainsReplyDuringOpening closes the gap between member invitation
+// and permission-sync completion without relying on surviving Discord history.
+func TestJournalRetainsReplyDuringOpening(t *testing.T) {
+	_, service, _ := journalSetup(t)
+	client := &openingJournalFake{journalDiscordFake: &journalDiscordFake{discordFake: &discordFake{permissionError: errors.New("sync failed after owner invitation")}}, service: service}
+	adapter := tickets.NewDiscordAdapter(service, client)
+	actor := tickets.Actor{GuildID: "guild-a", DiscordUserID: "member"}
+	ticket, err := adapter.Open(context.Background(), actor)
+	if err == nil || ticket == nil || ticket.LogMessageDiscordID == "" {
+		t.Fatalf("failed sync must retain queued ticket: %+v %v", ticket, err)
+	}
+	client.permissionError = nil
+	if _, err := adapter.Close(context.Background(), actor, ticket.ID); err != nil {
+		t.Fatal(err)
+	}
+	transcript, err := service.Transcript(context.Background(), actor, ticket.ID)
+	if err != nil || !strings.Contains(transcript.Content, "deleted during invitation") {
+		t.Fatal(transcript, err)
+	}
+}

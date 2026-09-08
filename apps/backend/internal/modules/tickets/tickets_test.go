@@ -179,18 +179,26 @@ func TestDiscordOpeningLimitsPrecedeProvisioning(t *testing.T) {
 	}
 	actor.DiscordUserID = "failed-member"
 	client.permissionError = errors.New("private ACL unavailable")
-	for range 3 {
-		if _, err := adapter.Open(context.Background(), actor); err == nil {
-			t.Fatal("expected ACL rejection")
-		}
+	saved, err := adapter.Open(context.Background(), actor)
+	if err == nil || saved == nil {
+		t.Fatalf("expected recoverable saved ticket: %v %v", saved, err)
+	}
+	if _, err := adapter.Open(context.Background(), actor); !errors.Is(err, tickets.ErrDuplicateOpen) {
+		t.Fatalf("failed invitation released durable reservation: %v", err)
+	}
+	detail, _, detailErr := service.Detail(context.Background(), actor, saved.ID)
+	if detailErr != nil || detail.LogMessageDiscordID == "" {
+		t.Fatalf("failed invitation lost staff queue receipt: %+v %v", detail, detailErr)
 	}
 	client.permissionError = nil
-	if _, err := adapter.Open(context.Background(), actor); err != nil {
-		t.Fatalf("setup repair did not allow retry: %v", err)
+	actor.CanManage = true
+	if err := adapter.RepairPermissions(context.Background(), actor, saved.ID); err != nil {
+		t.Fatalf("saved ticket repair failed: %v", err)
 	}
-	if client.channelCalls != 5 || len(client.archived) != 3 {
-		t.Fatalf("unexpected provisional cleanup: %+v", client)
+	if client.channelCalls != 2 || len(client.archived) != 0 {
+		t.Fatalf("invitation failure deleted evidence: %+v", client)
 	}
+
 }
 func (f *discordFake) SendTicketReply(_ context.Context, _ string, body string) error {
 	f.replies = append(f.replies, body)

@@ -13,7 +13,7 @@ func existingTicketMessage(ticket *tickets.Ticket) ui.Message {
 		return ui.Signal("ticket", "Your ticket is still opening. Try again in a moment.", true)
 	}
 	if ticket.Status == tickets.StatusOpen {
-		message := ui.Signal("ticket", "You already have a ticket: <#"+ticket.ThreadDiscordChannelID+">. Continue the conversation there.", true)
+		message := ui.Signal("ticket", "You already have a ticket: <#"+ticket.ThreadDiscordChannelID+">. Continue the conversation there. If you cannot access it, ask a server administrator to use Repair permissions on this ticket.", true)
 		message.Components = tickets.TicketComponents(ticket.ID)
 		return message
 	}
