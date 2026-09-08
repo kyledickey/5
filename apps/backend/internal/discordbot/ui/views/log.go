@@ -2,8 +2,6 @@ package views
 
 import (
 	"encoding/json"
-	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
@@ -32,6 +30,10 @@ func StaffLogMessage(payload string) ui.Message {
 	if event.ActorID != "" {
 		actor = "<@" + event.ActorID + ">"
 	}
+	target := "A member"
+	if event.Metadata["target_id"] != "" {
+		target = "<@" + event.Metadata["target_id"] + ">"
+	}
 	var lead string
 	switch event.Type {
 	case "message_edit":
@@ -40,52 +42,67 @@ func StaffLogMessage(payload string) ui.Message {
 		lead = "A message from " + actor + " was deleted."
 	case "message_bulk_delete":
 		lead = "Messages were deleted."
+		if count := event.Metadata["message_count"]; count != "" {
+			lead = ui.PlainText(count) + " messages were deleted."
+		}
 	case "member_join":
 		lead = actor + " joined the server."
 	case "member_leave":
 		lead = actor + " left the server."
 	case "discord_ban":
-		lead = "A ban was recorded."
+		lead = target + " was banned by " + actor + "."
 	case "discord_unban":
-		lead = "A ban was removed."
+		lead = target + " was unbanned by " + actor + "."
 	case "guild_change":
 		lead = "Server settings changed."
 	case "channel_change":
 		lead = "A channel changed."
+		switch event.Metadata["operation"] {
+		case "created":
+			lead = "A channel was created."
+		case "deleted":
+			lead = "A channel was deleted."
+		case "updated":
+			lead = "Channel settings changed."
+		}
+		if name := event.Metadata["name"]; name != "" {
+			lead = strings.TrimSuffix(lead, ".") + ": " + ui.PlainText(name) + "."
+		}
 	default:
 		lead = "Server activity was recorded."
 	}
-	if event.ChannelID != "" {
+	if event.ChannelID != "" && event.Type != "channel_change" {
 		lead = strings.TrimSuffix(lead, ".") + " in <#" + event.ChannelID + ">."
 	}
 	parts := []string{}
 	if event.Before != "" {
 		before := ui.Quote(ui.PlainText(event.Before))
 		if event.Type == "message_edit" {
-			before = "Previously:\n" + before
+			before = "Before:\n" + before
 		}
 		parts = append(parts, before)
 	}
 	if event.After != "" {
-		parts = append(parts, "It now reads:\n"+ui.Quote(ui.PlainText(event.After)))
+		parts = append(parts, "After:\n"+ui.Quote(ui.PlainText(event.After)))
 	}
 	if len(event.Attachments) > 0 {
 		names := []string{}
 		for _, attachment := range event.Attachments {
 			names = append(names, ui.PlainText(attachment.Filename))
 		}
-		parts = append(parts, "Included "+strings.Join(names, ", ")+".")
+		parts = append(parts, "Files: "+strings.Join(names, ", "))
 	}
 	if len(event.EmbedTypes) > 0 {
 		parts = append(parts, "Included embeds: "+ui.PlainText(strings.Join(event.EmbedTypes, ", "))+".")
 	}
-	keys := make([]string, 0, len(event.Metadata))
-	for key := range event.Metadata {
-		keys = append(keys, key)
+	if reason := event.Metadata["reason"]; reason != "" {
+		parts = append(parts, "Reason:\n"+ui.Quote(ui.PlainText(reason)))
 	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		parts = append(parts, fmt.Sprintf("%s — %s", ui.PlainText(strings.ReplaceAll(key, "_", " ")), ui.PlainText(event.Metadata[key])))
+	if event.Type == "guild_change" && event.Metadata["name"] != "" {
+		parts = append(parts, "Server: "+ui.PlainText(event.Metadata["name"]))
+	}
+	if event.Type == "message_bulk_delete" && event.Metadata["cached_count"] != "" {
+		parts = append(parts, "Messages with saved content: "+ui.PlainText(event.Metadata["cached_count"])+".")
 	}
 	meta := ""
 	if event.MessageID != "" {

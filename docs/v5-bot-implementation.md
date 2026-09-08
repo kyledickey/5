@@ -390,3 +390,12 @@ means further work is required, not completion.
   focused and full backend suites pass. Audit-entry gateway delivery, existing
   configurations missing the permission, reconnect replay behavior and live
   ban/unban rehearsal remain pending.
+
+- General log presentation now explicitly renders ban/unban actor and target,
+  deletion counts, available cached-content counts and channel lifecycle names.
+  Arbitrary metadata is no longer printed as internal labels; reasons remain
+  visible and source audit-entry identifiers stay out of staff-facing copy.
+  Message edits use Before/After labels and attachments use a Files label.
+  Tests cover moderation attribution, metadata omission and actual gateway channel
+  operation values. Focused and full backend suites pass. Long-content delivery,
+  remaining legacy event coverage and live visual review remain pending.
