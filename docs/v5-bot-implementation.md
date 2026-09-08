@@ -845,3 +845,9 @@ means further work is required, not completion.
   administrator-selected destinations. Managed evidence source/storage protection
   remains separate. Selection/failure/default permission tests, updated setup and
   audit delivery regressions, and the full MySQL-enabled backend suite pass.
+- Live verification: reloaded the approved beta pane with
+  `/tmp/quack-v5-setup-defaults`; `/readyz` remained fully ready. From dickey in
+  Helium, `/setup tickets` with no options created `support` and `ticket-log` and
+  published the Open ticket panel. Subsequent explicit-channel UI testing paused
+  when CUA detected the user interacting with Helium; explicit selection and
+  non-staff/public-viewer acceptance are covered by automated regressions.
