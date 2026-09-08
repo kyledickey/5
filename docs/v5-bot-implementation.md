@@ -1019,3 +1019,53 @@ means further work is required, not completion.
   full-suite tests pass. Neither change edits dashboard source.
 - Running beta is still `/tmp/quack-v5-retention-review`; these latest interaction
   refinements require the next build/reload before live acceptance.
+
+### Live logging and honeypot rehearsal
+
+- Default `/setup logging` created a log channel. The tester sent, edited and
+  deleted synthetic text in the testing channel. The administrator visibly
+  verified author, channel, message ID, exact before/after edit versions and the
+  final deleted text in the log. Attachment, bulk-delete and bot-message paths
+  remain test-backed rather than live-verified.
+- Default `/setup honeypot` created its channel and warning. The administrator
+  changed its editable template to a one-minute timeout. An administrator message
+  remained untouched with no counter increment. A tester message then disappeared,
+  Discord displayed the one-minute timeout and the warning counter advanced to one.
+- Read-only database checks confirmed case #3 (`01M20JTVTPNGKV9NMNTCK5VFE3`),
+  source `honeypot`, valid state, one successful timeout execution, captured
+  triggering text and a sent notification. This establishes the ordinary incident
+  flow, not burst suppression or interrupted-incident recovery in live Discord.
+- `3dcf02b` removes direct command access to case publication storage through
+  narrow receipt-registration and action-status use cases. Root focused command
+  and case publication tests pass; durable worker ownership remains in composition.
+- Subsequent administrator inspection also verified bot-message logging: the
+  honeypot counter update included Beta Bot attribution and both warning versions.
+  The tester visibly received case #3's timeout DM and opened its appeal form.
+  Submission appeared in `/appeals`; administrator rejection updated the private
+  receipt and delivered a decline DM. Clicking the original appeal button again
+  returned the existing-appeal explanation instead of another form.
+
+### Parallel scale review and bounded improvements
+
+- GPT-6 medium agents reviewed scale paths and implemented independent fixes;
+  root reviewed their changes and performed live acceptance in the meantime.
+- `e907627` fixes singular incident/minute copy. `704a0e9` resolves an incoming
+  message's guild once, captures context before honeypot REST lookups and bounds
+  those database/Discord requests. Configuration remains current on every message;
+  this removes one repeated lookup, not all per-message database work.
+- `fb7c236` derives staff statistics through four grouped SQL count projections,
+  preserving source filters, exact labels and UTC buckets. Independent SQLite and
+  disposable MySQL checks include a non-UTC DSN across DST. Memory now follows
+  aggregate groups; the database still scans matching source history.
+- `939986c` imposes an estimated 64 MiB aggregate logging-cache budget alongside
+  per-guild FIFO limits. Global oldest-first eviction and bounded idle metadata
+  prevent guild count from multiplying retained context without a shared limit.
+  The estimate is not a precise heap ceiling; there is no time expiry or reserved
+  minimum per guild. Focused tests and ten race runs pass.
+- The MySQL-enabled full backend suite passed at
+  `/private/tmp/logging-cache-budget-full-test.log`; root separately reran the
+  final statistics tests and gateway integration package. These checks do not
+  establish measured capacity at 850 guilds or 200,000 members.
+- Scale review still identifies indefinite stable-receipt reconciliation and
+  complete detail/timeline reads behind some native pages. These remain follow-up
+  work. The live beta has not yet been reloaded with this batch.
