@@ -159,3 +159,28 @@ func TestCaseHistoryWorstCaseLabelsStayNative(t *testing.T) {
 		}
 	}
 }
+
+// TestImportedCaseViewsPreserveHistoricalOutcome ensures history without v5
+// executions never falls through to the current warning-only presentation.
+func TestImportedCaseViewsPreserveHistoricalOutcome(t *testing.T) {
+	for action, label := range map[string]string{"warning": "Warning", "ban": "Ban", "kick": "Kick", "unban": "Unban", "timeout": "Timeout", "message_delete": "Message deletion"} {
+		t.Run(action, func(t *testing.T) {
+			item := quack.CaseResponse{CaseNumber: 9, TargetDiscordUserID: "member", Source: model.CaseSourceV4Import, Reason: "Original reason", ContextURL: "https://discord.com/channels/1/2/3", Metadata: map[string]any{"v4": map[string]any{"action_type": action}}}
+			detail := CaseDetailMessage(&quack.CaseDetailResponse{CaseResponse: item})
+			list := CaseListMessage(&quack.CaseListResponse{Cases: []quack.CaseResponse{item}, Total: 1}, 1, "member")
+			for _, content := range []string{detail.Content, list.Content} {
+				if !strings.Contains(content, label) || !strings.Contains(content, "Imported v4") || strings.Contains(content, "Warning recorded.") {
+					t.Fatalf("misleading imported history: %s", content)
+				}
+			}
+			if !strings.Contains(detail.Content, "https://discord.com/channels/1/2/3") || !strings.Contains(detail.Content, "Original reason") || !strings.Contains(detail.Content, "No new action was performed") {
+				t.Fatalf("missing historical detail: %s", detail.Content)
+			}
+		})
+	}
+	for _, unsafe := range []string{"javascript:alert(1)", "https://name:secret@example.com/", "//example.com"} {
+		if historicalContextLink(unsafe) != "" {
+			t.Fatalf("unsafe context rendered: %q", unsafe)
+		}
+	}
+}

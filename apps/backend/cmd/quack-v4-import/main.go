@@ -24,7 +24,10 @@ func main() {
 
 func run(ctx context.Context, args []string, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: quack-v4-import import|rollback|check-scope")
+		return errors.New("usage: quack-v4-import export|import|rollback|check-scope")
+	}
+	if args[0] == "export" {
+		return exportLegacy(ctx, args[1:], output)
 	}
 	if args[0] == "check-scope" {
 		return checkScope(args[1:])
@@ -85,7 +88,7 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 		}
 		return importer.Rollback(ctx, *guild, *batch, *actor)
 	default:
-		return errors.New("usage: quack-v4-import import|rollback|check-scope")
+		return errors.New("usage: quack-v4-import export|import|rollback|check-scope")
 	}
 }
 

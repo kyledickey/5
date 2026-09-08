@@ -3,6 +3,7 @@ package views
 import (
 	"fmt"
 	"math"
+	"net/url"
 	"strings"
 	"unicode/utf16"
 
@@ -60,6 +61,15 @@ func CaseDetailMessage(detail *quack.CaseDetailResponse) ui.Message {
 		}
 	}
 	outcome := []string{staffActionSummary(detail.Actions)}
+	if detail.Source == model.CaseSourceV4Import {
+		outcome = []string{"Imported v4 history: " + historicalCaseLabel(detail.CaseResponse) + ". No new action was performed."}
+		if detail.ModeratorDiscordUserID != "" {
+			parts = append(parts, "Original moderator: <@"+detail.ModeratorDiscordUserID+">")
+		}
+		if link := historicalContextLink(detail.ContextURL); link != "" {
+			parts = append(parts, link)
+		}
+	}
 	if detail.Notification != nil {
 		outcome = append(outcome, notificationDeliverySentence(string(detail.Notification.Status)))
 	}
@@ -139,7 +149,7 @@ func caseHistoryMessageWithLabels(list *quack.CaseListResponse, page int, target
 			}
 			row := fmt.Sprintf("**#%d**  <@%s> · %s", item.CaseNumber, item.TargetDiscordUserID, summary)
 			if item.Source == model.CaseSourceV4Import {
-				row += " · **Imported v4**"
+				row = fmt.Sprintf("**#%d**  <@%s> · %s · **Imported v4**", item.CaseNumber, item.TargetDiscordUserID, historicalCaseLabel(item))
 			}
 			if item.Validity == model.CaseValidityVoided {
 				row += " · **Voided**"
@@ -366,4 +376,39 @@ func CaseEvidencePage(detail *quack.CaseDetailResponse, page int, applicationID 
 		message.Components, _ = ui.Pagination("case", "evidence", fmt.Sprintf("%d|%s", page, detail.ID), page, len(pages))
 	}
 	return message
+}
+
+// historicalCaseLabel describes the original recorded event without manufacturing
+// an execution result. Imported metadata is display-only and cannot trigger work.
+func historicalCaseLabel(item quack.CaseResponse) string {
+	metadata, _ := item.Metadata.(map[string]any)
+	legacy, _ := metadata["v4"].(map[string]any)
+	action, _ := legacy["action_type"].(string)
+	switch action {
+	case "warning":
+		return "Warning"
+	case "ban":
+		return "Ban"
+	case "kick":
+		return "Kick"
+	case "unban":
+		return "Unban"
+	case "timeout":
+		return "Timeout"
+	case "message_delete":
+		return "Message deletion"
+	default:
+		return "Historical case"
+	}
+}
+
+// historicalContextLink exposes the preserved source URL without allowing its
+// contents to break Markdown or create a non-web link. Storage retains the original.
+func historicalContextLink(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil {
+		return ""
+	}
+	safe := strings.NewReplacer("(", "%28", ")", "%29", "<", "%3C", ">", "%3E", "\n", "%0A", "\r", "%0D").Replace(parsed.String())
+	return "[View original context](" + safe + ")"
 }

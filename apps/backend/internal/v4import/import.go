@@ -174,6 +174,7 @@ func (i *Importer) Rollback(ctx context.Context, guildID, batchID, actorID strin
 func parse(raw []byte, guildID string) ([]PreparedCase, []Issue) {
 	scanner := bufio.NewScanner(bytes.NewReader(raw))
 	scanner.Buffer(make([]byte, 64*1024), 2<<20)
+	seen := make(map[string]struct{})
 	var rows []PreparedCase
 	var issues []Issue
 	for line := 1; scanner.Scan(); line++ {
@@ -197,6 +198,11 @@ func parse(raw []byte, guildID string) ([]PreparedCase, []Issue) {
 			issues = append(issues, Issue{Line: line, Code: code})
 			continue
 		}
+		if _, duplicate := seen[row.SourceID]; duplicate {
+			issues = append(issues, Issue{Line: line, Code: "duplicate_source_id"})
+			continue
+		}
+		seen[row.SourceID] = struct{}{}
 		canonical, _ := json.Marshal(row)
 		digest := sha256.Sum256(canonical)
 		rows = append(rows, PreparedCase{Line: line, Fingerprint: hex.EncodeToString(digest[:]), Case: row})
@@ -230,7 +236,7 @@ func validate(row LegacyCase, guildID string) string {
 		return "missing_reason"
 	}
 	switch row.ActionType {
-	case "warning", "timeout", "kick", "ban":
+	case "warning", "timeout", "kick", "ban", "unban", "message_delete":
 	default:
 		return "unsupported_action_type"
 	}

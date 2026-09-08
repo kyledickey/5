@@ -1,85 +1,134 @@
-# V4 Historical Moderation Import
+# V4 historical moderation import
 
-Quack v5 accepts one final newline-delimited JSON format: `quack-v4-case-jsonl/v1`.
-Every non-empty line is one historical warning, timeout, kick, or ban. Core import
-does not map tickets, general logging, honeypots, or unfinished v4 modules; each
-optional module owns its separate migration hook.
+The explicit operator CLI exports actual v4 MySQL `cases` rows into
+`quack-v4-case-jsonl/v1`, then imports them as historical v5 cases. It never
+executes the old punishments or sends DMs. Imported cases appear in native user
+history and case detail with the original action label, reason, timestamp,
+moderator, and available context link. They do not count toward template escalation.
 
-Required fields are `format`, `source_id`, `guild_id`,
-`target_discord_user_id`, `reason`, `action_type`, and `created_at`.
-`action_type` is one of `warning`, `timeout`, `kick`, or `ban`. Optional fields
-preserve the v4 case number, moderator identity/display fallback, Discord context
-URL, departed/missing target state, and an old action expiry. See
-`apps/backend/internal/v4import/testdata/historical_cases.jsonl` for representative rows.
+The six v4 numeric types map to `warning` (0), `ban` (1), `kick` (2), `unban` (3),
+`timeout` (4), and `message_delete` (5). The original string case ID becomes the
+stable `source_id`. The v4 SQL schema has no numeric case number, so extraction
+leaves `case_number` zero and v5 allocates a guild number. Original identity and
+action type remain in historical metadata. No expiration, moderator display name,
+or departed-member status is invented when the source does not contain it.
 
-## Safe import procedure
+## Disposable rehearsal first
 
-1. Export one guild from v4 without changing the v4 database. Store it in an
-   operator-only location and calculate an independent checksum.
-2. Apply the v5 migration registry including logical 0400 and 0410.
-3. Run a dry-run against an isolated restored v5 target:
+Run Go commands from `apps/backend`. Use separate source and target databases;
+never point v5 schema tooling at the legacy source. For the first rehearsal use
+the checked-in legacy SQL schema and synthetic fixtures, then repeat against an
+authorized restored real v4 backup. Tests do not establish live Discord acceptance.
+
+The automated rehearsal creates independent source/target databases and covers
+all six types, nullable links, Unicode/multiline reasons, stable extraction,
+guild isolation, preview, idempotent application, rollback, preserved fields,
+and absence of action executions, notifications, evidence and appeals:
+
+```sh
+go test ./internal/v4import ./cmd/quack-v4-import
+go test ./internal/store -run '^TestV4SQLExportImportRehearsal$' -count=1
+# Set QUACK_TEST_MYSQL_DSN explicitly to a disposable MySQL test server.
+# This test creates and drops randomized quack_migration_* databases only.
+go test ./internal/store -run '^TestMySQLV4SQLExportImportRehearsal$' -count=1
+```
+
+Source fixtures: `Legacy/SQL/cases.sql` and
+`apps/backend/internal/v4import/testdata/legacy_cases.sql`. The older
+`historical_cases.jsonl` fixture additionally covers optional transformed fields.
+
+## Export and import one guild
+
+1. Restore the legacy snapshot into an isolated source database. Prefer an account
+   with SELECT permission only. Determine the legacy **Discord guild ID** and the
+   matching target **v5 guild ULID** explicitly; they are different identifiers.
+2. Initialize an empty target with `go run ./cmd/quack-migrate init`, supplying its
+   isolated `DATABASE_DSN` explicitly. Current schema includes import ledgers;
+   do not replay historical migrations. Existing unmarked prerelease databases
+   require the separate adoption procedure in [migrations.md](migrations.md).
+3. Provision the target guild through the normal v5 guild lifecycle in the test
+   environment and read its `guilds.id` by matching `guilds.discord_guild_id`.
+   Schema initialization alone does not create guilds; this CLI does not create
+   or guess them. Keep any test bot isolated from the production bot.
+4. Export into a new private file:
 
    ```sh
-   DATABASE_DSN='operator supplied isolated DSN' go run ./apps/backend/cmd/quack-v4-import import \
-     --dry-run --file ./guild.jsonl --source final-v4-export \
-     --guild 01J... --actor 123...
+   V4_DATABASE_DSN='readonly:password@tcp(test-host:3306)/v4_snapshot' \
+     go run ./cmd/quack-v4-import export \
+     --legacy-guild 123456789012345678 --guild 01J40000000000000000000001 \
+     --file /private/operator/guild.jsonl
    ```
 
-4. Review only the checksum, counts, line numbers, and warning/failure codes.
-   Do not paste reasons, member IDs, or source rows into logs or tickets.
-5. Run the same command without `--dry-run`. Preserve its batch ID and report.
-6. Repeat the command. It must report every row as already imported and create
-   no cases.
-7. Verify staff history and a target-owned member history view. Imported cases
-   use source `v4_import`, carry their legacy identity in immutable metadata,
-   and never create action executions, escalation counts, DMs, notifications,
-   or appeal work.
+   Export reads a repeatable, read-only SQL transaction, normalizes MySQL
+   TIMESTAMP values in a UTC session, and orders by timestamp and original ID.
+   It never reads `.env` or `DATABASE_DSN`. Output uses mode 0600 and refuses to
+   overwrite an existing file. Failed row validation emits no partial export.
+   Verify an independent checksum, for example `shasum -a 256` on the file.
+5. Validate against the isolated target:
 
-Malformed rows abort the entire source before writes. Reusing a source identity
-with changed content is a hard collision. A conflicting case number is remapped
-to the next guild number and reported while the v4 number remains in metadata
-and the source ledger. Departed/missing users and unavailable moderators remain
-readable without requiring a live Discord lookup. Expired legacy actions are
-warnings for manual review; they are never replayed.
+   ```sh
+   DATABASE_DSN='operator:password@tcp(test-host:3306)/v5_rehearsal?parseTime=true' \
+     go run ./cmd/quack-v4-import import --dry-run \
+     --file /private/operator/guild.jsonl --source final-v4-snapshot \
+     --guild 01J40000000000000000000001 --actor 123456789012345678
+   ```
 
-An untouched batch can be removed with:
+   Review counts, checksum, line classifications and case-number remaps. Reports
+   also contain source IDs and target mappings; keep reports and JSONL private.
+   Use a stable source name for subsequent exports from the same legacy database.
+6. Run the same command without `--dry-run`; preserve its batch ID. Repeat it:
+   every row must be already imported and zero cases created. Reconcile source
+   counts and all six action types before considering any real cutover.
+7. Inspect native history and case detail for active and departed members. Verify
+   original content, context links and action labels, staff access, cross-guild
+   denial, and that imported rows do not affect the next template level.
+
+Malformed rows, unknown action types, or duplicate source IDs within a file abort
+validation. Reusing an existing source identity with changed content is a hard
+collision. Existing numeric case-number collisions in manually transformed JSONL
+are remapped and reported. The format accepts optional departed/missing flags,
+moderator display name and old action expiry; expired actions are only warnings,
+never replayed. A source is bounded to 64 MiB, with each JSONL row below 2 MiB;
+there is currently no automatic chunking. Oversized sources require a separate
+bounded-export workflow before cutover, rather than truncation or skipped rows.
+
+Required JSONL fields are `format`, `source_id`, `guild_id` (the target ULID),
+`target_discord_user_id`, `reason`, `action_type`, and `created_at`. Preserve the
+source snapshot and investigate rejected rows instead of silently dropping them.
+
+## Rollback and module setup
+
+An untouched historical batch can be removed explicitly:
 
 ```sh
-DATABASE_DSN='operator supplied isolated DSN' go run ./apps/backend/cmd/quack-v4-import rollback \
-  --guild 01J... --batch v4-... --actor 123...
+DATABASE_DSN='operator supplied isolated target DSN' \
+  go run ./cmd/quack-v4-import rollback \
+  --guild 01J40000000000000000000001 --batch v4-BATCH-ID --actor 123456789012345678
 ```
 
-Rollback refuses a batch after any v5 action, notification, appeal, or evidence
-depends on an imported case. The audit history is retained.
+Rollback refuses cases with dependent v5 actions, notifications, appeals or
+evidence; import audit history remains. Preserve a target backup before applying
+real history. The source database is unchanged throughout extraction/import.
 
-## Controlled coexistence and cutover
+Module settings translation is not wired to an operator CLI. Configure tickets,
+honeypot, appeals and the single general-log destination through native `/setup`
+in v5. This explicit resetup is permitted by interview Q71. Old ticket panels,
+DM controls and module history are not migrated by this case-history tool.
 
-V4 and v5 use separate databases, Redis namespaces, processes, application IDs,
-and Discord command scopes during rehearsal. Before enabling both, compare the
-registered names:
+## Controlled cutover
 
-```sh
-go run ./apps/backend/cmd/quack-v4-import check-scope --v4 ticket --v5 case
-```
-
-At cutover, disable v4 command synchronization and remove `/warn`, `/timeout`,
-`/kick`, and `/ban`; do not retain them as alternate v5 workflows. The
-post-migration check fails while any direct command remains:
+During rehearsal keep v4/v5 databases, Redis namespaces, processes, application
+IDs and command scopes separate. `check-scope` only validates the lists supplied
+by the operator; it does not fetch Discord registrations or remove commands:
 
 ```sh
-go run ./apps/backend/cmd/quack-v4-import check-scope \
+go run ./cmd/quack-v4-import check-scope --v4 ticket --v5 case
+go run ./cmd/quack-v4-import check-scope \
   --v4 warn,timeout,kick,ban --v5 case --after-migration
+# The second example intentionally fails because direct v4 commands remain.
 ```
 
-Rollback means disabling v5 command sync and re-enabling the isolated v4
-process from its unchanged storage. Never point one version at the other's
-schema or Redis prefix. Core rollback does not undo module-owned imports.
-
-## Final integration contract
-
-Add `migration0400V4HistoricalImport(nextVersion)` followed by
-`migration0410FinalStorageConstraints(nextVersion)` to the central ordered
-registry. Wire neither importer into application startup: import is an explicit
-operator command. Logical 0410 converts any residual legacy template
-`deleted_at` value into `archived_at`, clears it, adds final uniqueness/index
-coverage, and inventories unsafe expired running actions for manual review.
+At the authorized cutover, disable v4 synchronization and remove its direct
+moderation commands. Verify actual Discord registrations independently. A service
+rollback uses the unchanged v4 snapshot/process and disables v5 synchronization;
+never point either version at the other's schema. No import command starts a bot.

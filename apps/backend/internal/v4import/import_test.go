@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -107,4 +108,18 @@ func FuzzLegacyImportRows(f *testing.F) {
 			}
 		}
 	})
+}
+
+// TestImportDuplicateSourceIDsFailPreview proves both identical and changed
+// duplicate identities fail validation before preview or application can succeed.
+func TestImportDuplicateSourceIDsFailPreview(t *testing.T) {
+	row := `{"format":"quack-v4-case-jsonl/v1","source_id":"source","guild_id":"guild","target_discord_user_id":"member","reason":"history","action_type":"unban","created_at":"2024-01-02T03:04:05Z"}`
+	for _, dryRun := range []bool{true, false} {
+		for _, next := range []string{row, strings.Replace(row, "history", "changed", 1)} {
+			report, err := New(&fakeRepository{}).Import(context.Background(), "export", "guild", "actor", strings.NewReader(row+"\n"+next), dryRun)
+			if !errors.Is(err, ErrInvalidInput) || len(report.Failures) != 1 || report.Failures[0].Code != "duplicate_source_id" || report.Failures[0].Line != 2 {
+				t.Fatalf("duplicate identity accepted: report=%+v err=%v", report, err)
+			}
+		}
+	}
 }
