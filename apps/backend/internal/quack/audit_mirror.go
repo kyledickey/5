@@ -2,7 +2,6 @@ package quack
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -13,7 +12,8 @@ import (
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
-// ErrAuditMirrorChannelUnavailable classifies a removed or inaccessible configured staff channel.
+// ErrAuditMirrorChannelUnavailable reports a destination that cannot currently
+// accept staff events. It does not authorize erasing administrator configuration.
 var ErrAuditMirrorChannelUnavailable = errors.New("audit mirror channel unavailable")
 
 // AuditMirrorMessage is the redacted transport-neutral event sent to the configured staff channel.
@@ -53,7 +53,6 @@ type AuditMirrorRepository interface {
 	GetGuildSettings(context.Context, string) (*model.GuildSettings, error)
 	GetGuildByID(context.Context, string) (*model.Guild, error)
 	SaveAuditMirrorDelivery(context.Context, string, bool, time.Time) error
-	ClearGuildChannelReferences(context.Context, string, string, *model.AuditLogEntry) (*model.GuildSettings, error)
 	ListPendingAuditMirrorEntries(context.Context, int) ([]model.AuditLogEntry, error)
 }
 
@@ -138,12 +137,7 @@ func (w *AuditMirrorWorker) process(ctx context.Context, entry model.AuditLogEnt
 	}
 	if err := w.sender.SendAuditMirror(ctx, message); err != nil {
 		if errors.Is(err, ErrAuditMirrorChannelUnavailable) {
-			if recordErr := w.recordDelivery(ctx, entry, false, "channel_unavailable"); recordErr != nil {
-				return recordErr
-			}
-			repair := &model.AuditLogEntry{GuildID: entry.GuildID, ActorDiscordUserID: "quack-system", Source: model.AuditSourceSystem, Action: string(model.AuditActionMirrorRepaired), ResourceType: "guild_settings", ResourceID: settings.ID, Result: model.AuditResultSuccess, CorrelationID: entry.CorrelationID, MetadataJSON: auditMirrorMetadata(entry.ID, map[string]any{"cleared_channel_reference": true})}
-			_, clearErr := w.store.ClearGuildChannelReferences(ctx, entry.GuildID, settings.AuditMirrorChannelDiscordID, repair)
-			return clearErr
+			return w.recordDelivery(ctx, entry, false, "channel_unavailable")
 		}
 		return w.recordDelivery(ctx, entry, false, "delivery_failed")
 	}
@@ -157,18 +151,6 @@ func (w *AuditMirrorWorker) recordDelivery(ctx context.Context, original model.A
 		slog.WarnContext(ctx, "Audit mirror delivery failed", "audit_entry_id", original.ID, "guild_id", original.GuildID, "reason", failure)
 	}
 	return w.store.SaveAuditMirrorDelivery(ctx, original.ID, finished, retryAt)
-}
-
-func auditMirrorMetadata(originalID string, extra map[string]any) string {
-	metadata := map[string]any{"audit_entry_id": originalID}
-	for key, value := range extra {
-		metadata[key] = value
-	}
-	body, err := json.Marshal(metadata)
-	if err != nil {
-		return "{}"
-	}
-	return string(body)
 }
 
 // FormatAuditMirrorLine returns a bounded fallback description for adapters without embeds.

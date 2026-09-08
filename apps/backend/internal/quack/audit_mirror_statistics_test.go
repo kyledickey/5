@@ -92,8 +92,23 @@ func TestAuditMirrorWorkerIsNonBlockingRedactedAndRepairable(t *testing.T) {
 		t.Fatal(err)
 	}
 	repaired, err := repository.GetGuildSettings(ctx, moderator.Guild.ID)
-	if err != nil || repaired.AuditMirrorChannelDiscordID != "" {
-		t.Fatalf("expected inaccessible mirror channel to be cleared, settings=%+v err=%v", repaired, err)
+	if err != nil || repaired.AuditMirrorChannelDiscordID != settings.AuditMirrorChannelDiscordID {
+		t.Fatalf("inaccessible mirror channel lost its configured destination, settings=%+v err=%v", repaired, err)
+	}
+	// Make only the failed event eligible again, as if the retry delay elapsed.
+	if err := repository.SaveAuditMirrorDelivery(ctx, second.ID, false, time.Now().Add(-time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	sender.err = nil
+	before := len(sender.messages)
+	if err := worker.PollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(sender.messages) != before+1 || sender.messages[len(sender.messages)-1].AuditEntryID != second.ID {
+		t.Fatal("repair did not deliver the pending event to the retained channel")
+	}
+	if err := worker.PollOnce(ctx); err != nil || len(sender.messages) != before+1 {
+		t.Fatal("recovered event was delivered twice")
 	}
 	failures, _ := repository.ListAuditLogEntriesFiltered(ctx, model.ListAuditLogEntriesParams{GuildID: moderator.Guild.ID, Action: string(model.AuditActionMirrorFailed), Limit: 10})
 	repairs, _ := repository.ListAuditLogEntriesFiltered(ctx, model.ListAuditLogEntriesParams{GuildID: moderator.Guild.ID, Action: string(model.AuditActionMirrorRepaired), Limit: 10})

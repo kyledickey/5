@@ -486,3 +486,12 @@ means further work is required, not completion.
   cover snapshot names, tenant boundaries, current retry eligibility and component
   routing; focused and full backend suites pass. Template/ticket-specific enrichment,
   live audit rendering and destination repair behavior remain pending.
+
+- Audit delivery no longer erases the configured destination when live validation
+  or Discord delivery reports an inaccessible channel. The prior behavior could
+  turn a temporary permission/network failure into permanently skipped later events.
+  Failed events retain their retry receipt and resume delivery to the same channel
+  after repair. The worker regression verifies retained configuration, recovery
+  delivery and no repeat after success. Focused and full backend suites pass.
+  Explicit channel deletion handling and live destination setup/recovery remain
+  separate pending checks; ambiguous successful-send receipt loss is still tracked.
