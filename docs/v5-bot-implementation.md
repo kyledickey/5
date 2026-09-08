@@ -201,3 +201,15 @@ means further work is required, not completion.
   controls; focused and full backend suites pass. Queue transcript publication,
   delete-after-save ordering, thread-only setup, and consolidation of old
   resolved/cancelled persistence and HTTP closure paths remain pending.
+
+- Ticket closure now locks the thread before capture, retains the transcript in
+  storage, uploads it to the original staff queue message, saves the delivery
+  receipt, and only then deletes the thread. Upload failures preserve the source;
+  deletion retries reuse the receipt. Deleted queue messages are recreated with
+  the full transcript. Queue destinations are checked for current guild ownership
+  and privacy before delivery. Opening returns the created thread even if the
+  staff queue send fails. Focused lifecycle and real Discord multipart transport
+  tests pass, as does the full backend suite. The migration preservation fixture
+  explicitly seeds the older schema before the new queue-channel column exists.
+  Thread-only setup, recovery controls, closure-state/HTTP consolidation and live
+  Discord verification remain pending; this code has not replaced the running bot.

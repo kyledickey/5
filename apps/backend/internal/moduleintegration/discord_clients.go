@@ -174,36 +174,22 @@ func (c ticketDiscordClient) CaptureTicketTranscript(ctx context.Context, channe
 	return transcript.String(), nil
 }
 
-// ArchiveTicketChannel archives a thread or deletes a dedicated private text
-// channel after its transcript has been durably captured.
-func (c ticketDiscordClient) ArchiveTicketChannel(ctx context.Context, channelID string) error {
-	if err := ctx.Err(); err != nil {
-		return err
+// FreezeTicketChannel closes normal thread posting before transcript capture.
+// Retrying the lock is safe if a previous close stopped before publication.
+func (c ticketDiscordClient) FreezeTicketChannel(ctx context.Context, channelID string) error {
+	archived, locked := true, true
+	_, err := c.session.ChannelEditComplex(channelID, &discordgo.ChannelEdit{Archived: &archived, Locked: &locked}, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+	return err
+}
+
+// DeleteTicketChannel removes a conversation only after its transcript receipt
+// was persisted by the ticket adapter. Missing channels make retry idempotent.
+func (c ticketDiscordClient) DeleteTicketChannel(ctx context.Context, channelID string) error {
+	_, err := c.session.ChannelDelete(channelID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+	var rest *discordgo.RESTError
+	if errors.As(err, &rest) && rest.Message != nil && rest.Message.Code == discordgo.ErrCodeUnknownChannel {
+		return nil
 	}
-	channel, err := c.session.Channel(channelID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
-	if err != nil {
-		return err
-	}
-	if channel.IsThread() {
-		archived := true
-		locked := true
-		_, err = c.session.ChannelEditComplex(channelID, &discordgo.ChannelEdit{Archived: &archived, Locked: &locked}, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
-		return err
-	}
-	overwrites := make([]*discordgo.PermissionOverwrite, 0, len(channel.PermissionOverwrites))
-	for _, existing := range channel.PermissionOverwrites {
-		copy := *existing
-		if copy.ID != channel.GuildID {
-			copy.Allow &^= discordgo.PermissionSendMessages
-			copy.Deny |= discordgo.PermissionSendMessages
-		}
-		overwrites = append(overwrites, &copy)
-	}
-	name := channel.Name
-	if !strings.HasPrefix(name, "closed-") {
-		name = "closed-" + name
-	}
-	_, err = c.session.ChannelEditComplex(channelID, &discordgo.ChannelEdit{Name: name, PermissionOverwrites: overwrites}, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 	return err
 }
 

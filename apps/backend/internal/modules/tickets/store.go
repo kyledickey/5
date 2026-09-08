@@ -19,6 +19,7 @@ type ticketRecord struct {
 	OwnerDiscordUserID      string `gorm:"size:32;not null;index:idx_ticket_guild_owner,priority:2"`
 	ThreadDiscordChannelID  string `gorm:"size:32;uniqueIndex"`
 	Status                  Status `gorm:"size:32;not null;index:idx_ticket_guild_status,priority:2"`
+	LogChannelDiscordID     string `gorm:"size:32"`
 	LogMessageDiscordID     string `gorm:"size:32"`
 	ResolvedByDiscordUserID string `gorm:"size:32"`
 	ResolvedAt              *time.Time
@@ -323,5 +324,19 @@ func (s *Store) importTarget(ctx context.Context, guildID, sourceID string) (str
 }
 
 func ticketFromRecord(r ticketRecord) Ticket {
-	return Ticket{ID: r.ID, GuildID: r.GuildID, OwnerDiscordUserID: r.OwnerDiscordUserID, ThreadDiscordChannelID: r.ThreadDiscordChannelID, Status: r.Status, ResolvedByDiscordUserID: r.ResolvedByDiscordUserID, ResolvedAt: r.ResolvedAt, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
+	return Ticket{LogMessageDiscordID: r.LogMessageDiscordID, LogChannelDiscordID: r.LogChannelDiscordID, TranscriptURL: r.TranscriptURL, ID: r.ID, GuildID: r.GuildID, OwnerDiscordUserID: r.OwnerDiscordUserID, ThreadDiscordChannelID: r.ThreadDiscordChannelID, Status: r.Status, ResolvedByDiscordUserID: r.ResolvedByDiscordUserID, ResolvedAt: r.ResolvedAt, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
+}
+
+// saveQueueReceipt records the Discord destination only after successful delivery.
+// A saved transcript URL is the durable fence before deleting the source thread.
+func (s *Store) saveQueueReceipt(ctx context.Context, ticket *Ticket, channelID, messageID, transcriptURL string) error {
+	result := s.db.WithContext(ctx).Model(&ticketRecord{}).Where("id = ? AND guild_id = ?", ticket.ID, ticket.GuildID).Updates(map[string]any{"log_channel_discord_id": channelID, "log_message_discord_id": messageID, "transcript_url": transcriptURL})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ErrNotFound
+	}
+	ticket.LogChannelDiscordID, ticket.LogMessageDiscordID, ticket.TranscriptURL = channelID, messageID, transcriptURL
+	return nil
 }

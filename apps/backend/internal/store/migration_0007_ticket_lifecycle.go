@@ -29,6 +29,7 @@ type migration0007Ticket struct {
 	OwnerDiscordUserID      string     `gorm:"size:32;not null;index:idx_ticket_guild_owner,priority:2"`
 	ThreadDiscordChannelID  string     `gorm:"size:32;uniqueIndex"`
 	Status                  string     `gorm:"size:32;not null;index:idx_ticket_guild_status,priority:2"`
+	LogChannelDiscordID     string     `gorm:"size:32"`
 	LogMessageDiscordID     string     `gorm:"size:32"`
 	ResolvedByDiscordUserID string     `gorm:"size:32"`
 	ResolvedAt              *time.Time `gorm:"index"`

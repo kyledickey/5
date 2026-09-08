@@ -42,11 +42,15 @@ func (r *Runtime) ticketActor(ctx ui.Context) (tickets.Actor, error) {
 func (r *Runtime) openTicketComponent(ctx ui.Context) ui.HandlerResult {
 	return r.ticketTask(ctx, func(taskCtx context.Context, responder ui.Responder, actor tickets.Actor) error {
 		ticket, err := r.TicketDiscord.Open(taskCtx, actor)
-		if err != nil {
+		if err != nil && ticket == nil {
 			_, _ = responder.EditOriginal(ui.ErrorEdit(ticketErrorMessage(err)))
 			return nil
 		}
+		queueFailed := err != nil
 		message := ui.Signal("ticket", "Your ticket is ready: <#"+ticket.ThreadDiscordChannelID+">. Type there whenever you’re ready; a moderator will join you.", true)
+		if queueFailed {
+			message.Content += "\nThe staff queue update failed. Your thread is saved; please let a moderator know."
+		}
 		message.Components = ticketControls(ticket.ID, actor.CanManage)
 		_, err = responder.EditOriginal(ui.EditMessage(message))
 		return err

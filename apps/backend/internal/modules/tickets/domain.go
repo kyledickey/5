@@ -50,6 +50,7 @@ var (
 
 // Settings fixes the module's Discord, privacy, retention, and abuse-control policy for one guild.
 type Settings struct {
+	QueueChannelDiscordID string   `json:"queue_channel_discord_id"`
 	EntryChannelDiscordID string   `json:"entry_channel_discord_id"`
 	StaffRoleDiscordIDs   []string `json:"staff_role_discord_ids"`
 	// UsePrivateThreads creates tickets under the entry channel when enabled.
@@ -70,6 +71,9 @@ type Actor struct {
 
 // Ticket is the module-owned ticket state; it does not reference cases or appeals.
 type Ticket struct {
+	LogMessageDiscordID     string     `json:"log_message_discord_id,omitempty"`
+	LogChannelDiscordID     string     `json:"log_channel_discord_id,omitempty"`
+	TranscriptURL           string     `json:"transcript_url,omitempty"`
 	ID                      string     `json:"id"`
 	GuildID                 string     `json:"guild_id"`
 	OwnerDiscordUserID      string     `json:"owner_discord_user_id"`
@@ -112,4 +116,10 @@ type ModuleStatus struct {
 // Descriptor exposes ticket configuration validation to the shared registry.
 func Descriptor() modules.Descriptor {
 	return modules.Descriptor{ID: modules.Tickets, DisplayName: "Tickets", Validate: validateSettingsJSON}
+}
+
+// QueueReceipt identifies the Discord message that safely holds ticket history.
+type QueueReceipt struct {
+	MessageID string
+	URL       string
 }

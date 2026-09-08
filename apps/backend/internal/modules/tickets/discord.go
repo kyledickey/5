@@ -12,8 +12,10 @@ type DiscordClient interface {
 	CreatePrivateTicketChannel(context.Context, string, string, Settings) (string, error)
 	EnsureTicketPermissions(context.Context, string, string, string, []string) error
 	SendTicketReply(context.Context, string, string) error
+	FreezeTicketChannel(context.Context, string) error
 	CaptureTicketTranscript(context.Context, string) (string, error)
-	ArchiveTicketChannel(context.Context, string) error
+	PublishTicketQueue(context.Context, *Ticket, Settings, *Transcript) (*QueueReceipt, error)
+	DeleteTicketChannel(context.Context, string) error
 	DeleteProvisionalTicketChannel(context.Context, string) error
 }
 
@@ -38,6 +40,9 @@ func (a *DiscordAdapter) Open(ctx context.Context, actor Actor) (*Ticket, error)
 	}
 	if !enabled {
 		return nil, ErrDisabled
+	}
+	if settings.QueueChannelDiscordID == "" {
+		return nil, errors.New("ticket queue channel is not configured")
 	}
 	token, err := a.service.store.reserveOpening(ctx, actor, a.service.now())
 	if err != nil {
@@ -68,6 +73,9 @@ func (a *DiscordAdapter) Open(ctx context.Context, actor Actor) (*Ticket, error)
 		return nil, err
 	}
 	a.service.audit(ctx, actor, "ticket.open", ticket.ID, "success", nil)
+	if _, err := a.publishQueue(ctx, ticket, settings, nil); err != nil {
+		return ticket, err
+	}
 	return ticket, nil
 }
 
@@ -86,7 +94,7 @@ func (a *DiscordAdapter) Reply(ctx context.Context, actor Actor, ticketID, body 
 	return a.service.Reply(ctx, actor, ticketID, body)
 }
 
-// Close captures the transcript before resolving and archiving the private channel.
+// Close preserves and publishes the transcript before deleting the private thread.
 func (a *DiscordAdapter) Close(ctx context.Context, actor Actor, ticketID string) (*Ticket, error) {
 	ticket, _, err := a.service.Detail(ctx, actor, ticketID)
 	if err != nil {
@@ -94,6 +102,9 @@ func (a *DiscordAdapter) Close(ctx context.Context, actor Actor, ticketID string
 	}
 	resolved := ticket
 	if ticket.Status == StatusOpen {
+		if err := a.client.FreezeTicketChannel(ctx, ticket.ThreadDiscordChannelID); err != nil {
+			return nil, err
+		}
 		transcript, err := a.client.CaptureTicketTranscript(ctx, ticket.ThreadDiscordChannelID)
 		if err != nil {
 			return nil, err
@@ -105,35 +116,54 @@ func (a *DiscordAdapter) Close(ctx context.Context, actor Actor, ticketID string
 	} else if ticket.Status != StatusResolved {
 		return nil, ErrInvalidTransition
 	}
-	if err := a.client.ArchiveTicketChannel(ctx, ticket.ThreadDiscordChannelID); err != nil {
+	if resolved.TranscriptURL == "" {
+		transcript, err := a.service.Transcript(ctx, actor, ticketID)
+		if err != nil {
+			return resolved, err
+		}
+		settings, _, err := a.service.loadSettings(ctx, actor.GuildID)
+		if err != nil {
+			return resolved, err
+		}
+		if _, err := a.publishQueue(ctx, resolved, settings, transcript); err != nil {
+			return resolved, err
+		}
+	}
+	if err := a.client.DeleteTicketChannel(ctx, ticket.ThreadDiscordChannelID); err != nil {
 		return resolved, err
 	}
+
 	return resolved, nil
 }
 
-// Cancel captures the private transcript before an owner-or-staff cancellation and archives the channel.
+// Cancel uses the same transcript-preserving closure as the Close control.
 func (a *DiscordAdapter) Cancel(ctx context.Context, actor Actor, ticketID string) (*Ticket, error) {
-	ticket, _, err := a.service.Detail(ctx, actor, ticketID)
+	return a.Close(ctx, actor, ticketID)
+}
+
+// publishQueue persists a successful queue send/edit before source cleanup.
+func (a *DiscordAdapter) publishQueue(ctx context.Context, ticket *Ticket, settings Settings, transcript *Transcript) (string, error) {
+	if settings.QueueChannelDiscordID == "" {
+		return "", errors.New("ticket queue channel is not configured")
+	}
+	receipt, err := a.client.PublishTicketQueue(ctx, ticket, settings, transcript)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	cancelled := ticket
-	if ticket.Status == StatusOpen {
-		transcript, err := a.client.CaptureTicketTranscript(ctx, ticket.ThreadDiscordChannelID)
-		if err != nil {
-			return nil, err
+	if receipt == nil || receipt.MessageID == "" {
+		return "", errors.New("ticket queue delivery returned no message")
+	}
+	url := ""
+	if transcript != nil {
+		url = receipt.URL
+		if url == "" {
+			return "", errors.New("ticket transcript delivery returned no link")
 		}
-		cancelled, err = a.service.cancel(ctx, actor, ticketID, &transcript)
-		if err != nil {
-			return nil, err
-		}
-	} else if ticket.Status != StatusCancelled {
-		return nil, ErrInvalidTransition
 	}
-	if err := a.client.ArchiveTicketChannel(ctx, ticket.ThreadDiscordChannelID); err != nil {
-		return cancelled, err
+	if err := a.service.store.saveQueueReceipt(ctx, ticket, settings.QueueChannelDiscordID, receipt.MessageID, url); err != nil {
+		return "", err
 	}
-	return cancelled, nil
+	return receipt.MessageID, nil
 }
 
 // RepairPermissions restores the exact member/staff-only ACL and records the repair.

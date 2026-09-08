@@ -45,7 +45,8 @@ func TestTicketLifecycleMigrationPreservesBaselineTicketRows(t *testing.T) {
 		OwnerDiscordUserID: "member", ThreadDiscordChannelID: "channel",
 		Status: "resolved", MetadataJSON: `{"legacy":true}`, CreatedAt: now, UpdatedAt: now,
 	}
-	if err := db.Create(&want).Error; err != nil {
+	// Seed the older schema before the queue destination column is introduced.
+	if err := db.Omit("LogChannelDiscordID").Create(&want).Error; err != nil {
 		t.Fatalf("insert baseline ticket: %v", err)
 	}
 	if err := runMigrations(db, registeredMigrations()); err != nil {

@@ -48,6 +48,7 @@ func setup(t *testing.T) (*gorm.DB, *tickets.Service, *auditRecorder) {
 	service := tickets.NewService(registry, tickets.NewStore(db), audit)
 	settings := tickets.Defaults()
 	settings.EntryChannelDiscordID = "entry"
+	settings.QueueChannelDiscordID = "queue"
 	settings.StaffRoleDiscordIDs = []string{"staff-role"}
 	if _, err := service.UpdateSettings(context.Background(), tickets.Actor{GuildID: "guild-a", DiscordUserID: "admin", CanManage: true}, true, settings); err != nil {
 		t.Fatal(err)
@@ -131,13 +132,16 @@ func TestImportDryRunAndIdempotency(t *testing.T) {
 }
 
 type discordFake struct {
-	archived        []string
-	replies         []string
-	permissionCalls int
-	channelCalls    int
-	archiveAttempts int
-	failArchive     int
-	permissionError error
+	frozen              bool
+	failPublish         bool
+	transcriptPublishes int
+	archived            []string
+	replies             []string
+	permissionCalls     int
+	channelCalls        int
+	archiveAttempts     int
+	failArchive         int
+	permissionError     error
 }
 
 func (f *discordFake) CreatePrivateTicketChannel(context.Context, string, string, tickets.Settings) (string, error) {
@@ -187,13 +191,16 @@ func (f *discordFake) SendTicketReply(_ context.Context, _ string, body string) 
 	return nil
 }
 func (f *discordFake) CaptureTicketTranscript(context.Context, string) (string, error) {
+	if !f.frozen {
+		return "", errors.New("thread was not frozen")
+	}
 	return "captured", nil
 }
 func (f *discordFake) DeleteProvisionalTicketChannel(_ context.Context, id string) error {
 	f.archived = append(f.archived, id)
 	return nil
 }
-func (f *discordFake) ArchiveTicketChannel(_ context.Context, id string) error {
+func (f *discordFake) DeleteTicketChannel(_ context.Context, id string) error {
 	f.archiveAttempts++
 	if f.archiveAttempts <= f.failArchive {
 		return errors.New("temporary archive failure")
@@ -254,6 +261,7 @@ func TestEnabledTicketsRequireStaffRole(t *testing.T) {
 	_, service, _ := setup(t)
 	settings := tickets.Defaults()
 	settings.EntryChannelDiscordID = "entry"
+	settings.QueueChannelDiscordID = "queue"
 	_, err := service.UpdateSettings(context.Background(), tickets.Actor{GuildID: "guild-a", DiscordUserID: "admin", CanManage: true}, true, settings)
 	if err == nil {
 		t.Fatal("enabled tickets accepted no staff role")
@@ -290,6 +298,7 @@ func TestPrivateThreadSettingDefaultsAndRoundTrips(t *testing.T) {
 	for _, useThreads := range []bool{true, false} {
 		settings := tickets.Defaults()
 		settings.EntryChannelDiscordID = "entry"
+		settings.QueueChannelDiscordID = "queue"
 		settings.StaffRoleDiscordIDs = []string{"staff-role"}
 		settings.UsePrivateThreads = useThreads
 		saved, err := service.UpdateSettings(context.Background(), actor, true, settings)
@@ -314,7 +323,7 @@ func TestOwnerCanCloseExistingTicketAfterModuleDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.UpdateSettings(ctx, tickets.Actor{GuildID: "guild-a", DiscordUserID: "admin", CanManage: true}, false, tickets.Defaults()); err != nil {
+	if _, err := service.UpdateSettings(ctx, tickets.Actor{GuildID: "guild-a", DiscordUserID: "admin", CanManage: true}, false, tickets.Settings{QueueChannelDiscordID: "queue", UsePrivateThreads: true, TranscriptRetentionDays: 90}); err != nil {
 		t.Fatal(err)
 	}
 	closed, err := adapter.Close(ctx, member, ticket.ID)
@@ -327,5 +336,57 @@ func TestOwnerCanCloseExistingTicketAfterModuleDisabled(t *testing.T) {
 	}
 	if _, err := adapter.Open(ctx, member); !errors.Is(err, tickets.ErrDisabled) {
 		t.Fatalf("disabled module opened ticket: %v", err)
+	}
+}
+
+func (f *discordFake) PublishTicketQueue(_ context.Context, ticket *tickets.Ticket, _ tickets.Settings, transcript *tickets.Transcript) (*tickets.QueueReceipt, error) {
+	if transcript != nil {
+		f.transcriptPublishes++
+		if f.failPublish {
+			return nil, errors.New("transcript upload failed")
+		}
+	}
+	return &tickets.QueueReceipt{MessageID: "queue-" + ticket.ID, URL: "https://discord.com/channels/guild/queue/message"}, nil
+}
+
+func (f *discordFake) FreezeTicketChannel(context.Context, string) error { f.frozen = true; return nil }
+
+// TestTicketDeletionWaitsForTranscriptPublication exercises a failed upload,
+// recovery, and a repeated close without uploading or deleting before its receipt.
+func TestTicketDeletionWaitsForTranscriptPublication(t *testing.T) {
+	_, service, _ := setup(t)
+	ctx := context.Background()
+	client := &discordFake{}
+	adapter := tickets.NewDiscordAdapter(service, client)
+	actor := tickets.Actor{GuildID: "guild-a", DiscordUserID: "member"}
+	ticket, err := adapter.Open(ctx, actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.failPublish = true
+	if _, err := adapter.Close(ctx, actor, ticket.ID); err == nil {
+		t.Fatal("failed transcript upload reported success")
+	}
+	if client.archiveAttempts != 0 {
+		t.Fatal("thread deleted before transcript publication")
+	}
+	saved, err := service.Transcript(ctx, actor, ticket.ID)
+	if err != nil || saved.Content != "captured" {
+		t.Fatalf("failed upload lost captured transcript: %+v %v", saved, err)
+	}
+	client.failPublish = false
+	client.failArchive = 1
+	if _, err := adapter.Close(ctx, actor, ticket.ID); err == nil {
+		t.Fatal("expected first delete to fail")
+	}
+	if _, err := adapter.Close(ctx, actor, ticket.ID); err != nil {
+		t.Fatal(err)
+	}
+	if client.transcriptPublishes != 2 || client.archiveAttempts != 2 {
+		t.Fatalf("retry did not reuse transcript receipt: %+v", client)
+	}
+	detail, _, err := service.Detail(ctx, actor, ticket.ID)
+	if err != nil || detail.TranscriptURL == "" || detail.LogMessageDiscordID == "" {
+		t.Fatalf("missing durable transcript receipt: %+v %v", detail, err)
 	}
 }
