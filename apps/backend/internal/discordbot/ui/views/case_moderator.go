@@ -230,12 +230,21 @@ func evidenceSummary(evidence []quack.CaseEvidenceResponse) string {
 			label = item.CaptureOutcome
 		}
 		rows = append(rows, label)
+		if item.Content != "" {
+			rows = append(rows, ui.Quote(ui.PlainText(item.Content)))
+		}
+		if item.CaptureWarning != "" {
+			rows = append(rows, "{{quack:warn}} "+ui.PlainText(item.CaptureWarning))
+		}
 		for _, attachment := range item.Attachments {
 			url := attachment.PreservedURL
 			if url == "" {
 				url = attachment.OriginalURL
 			}
 			rows = append(rows, fmt.Sprintf("[%s](%s) · %s", ui.PlainText(attachment.Filename), url, ui.PlainText(attachment.CopyOutcome)))
+			if attachment.Warning != "" {
+				rows = append(rows, "{{quack:warn}} "+ui.PlainText(attachment.Warning))
+			}
 		}
 	}
 	return strings.Join(rows, "\n")

@@ -42,7 +42,11 @@ func CaseCreatedMessage(result CaseCreated) ui.Message {
 			icon = "pending"
 		}
 	}
-	return ui.Conversation(icon, FormatCaseCreated(result), "", publicActionStatus(created.Actions), strings.Join(meta, " · "), false)
+	status := publicActionStatus(created.Actions)
+	if created.EvidenceIncomplete {
+		status += "\n{{quack:warn}} Some evidence could not be saved."
+	}
+	return ui.Conversation(icon, FormatCaseCreated(result), "", status, strings.Join(meta, " · "), false)
 }
 
 // FormatCaseCreated puts the affected member and rule in a single natural sentence.

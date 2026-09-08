@@ -86,6 +86,7 @@ func (s *CaseService) Get(ctx context.Context, guildContext *GuildStaffContext, 
 		return nil, err
 	}
 	base := caseResponseFromModel(*caseModel, actions)
+	base.EvidenceIncomplete = evidenceIncomplete(evidence)
 	if err := s.audit(ctx, guildContext, "case.read", "case", caseModel.ID, model.AuditResultSuccess, ""); err != nil {
 		return nil, err
 	}

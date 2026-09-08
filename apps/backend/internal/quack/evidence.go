@@ -95,7 +95,7 @@ func NewEvidenceService(client DiscordEvidenceClient, stores ...EvidenceReposito
 	return service
 }
 
-// EnsureGuildEvidenceChannel creates or repairs the managed staff-only channel and persists its current reference.
+// EnsureGuildEvidenceChannel creates missing evidence storage and persists its current reference.
 func (s *EvidenceService) EnsureGuildEvidenceChannel(ctx context.Context, guild model.Guild, settings model.GuildSettings) (string, error) {
 	if s == nil || s.client == nil || s.store == nil {
 		return "", errors.New("evidence service is not configured")
@@ -112,7 +112,7 @@ func (s *EvidenceService) EnsureGuildEvidenceChannel(ctx context.Context, guild 
 	return channelID, err
 }
 
-// RepairDiscordGuildEvidenceChannel reloads durable channel state and repairs drift after Discord channel events.
+// RepairDiscordGuildEvidenceChannel reloads durable channel state and recreates storage after Discord deletes the channel.
 func (s *EvidenceService) RepairDiscordGuildEvidenceChannel(ctx context.Context, discordGuildID string) (string, error) {
 	if s == nil || s.store == nil {
 		return "", errors.New("evidence service is not configured")
@@ -142,15 +142,15 @@ func ParseDiscordMessageLink(raw string) (DiscordMessageReference, error) {
 }
 
 // Capture snapshots each unique message before case commit and preserves supported attachments when possible.
-func (s *EvidenceService) Capture(ctx context.Context, guildID, actorDiscordUserID, targetDiscordUserID, evidenceChannelID string, links []string, allowUnavailable bool) (*CapturedEvidence, error) {
+func (s *EvidenceService) Capture(ctx context.Context, guildID, actorDiscordUserID, targetDiscordUserID, evidenceChannelID string, links []string) (*CapturedEvidence, error) {
 	if actorDiscordUserID == "" && len(links) > 0 {
 		return nil, fmt.Errorf("%w: evidence actor is required", ErrEvidenceValidation)
 	}
-	return s.capture(ctx, guildID, actorDiscordUserID, targetDiscordUserID, evidenceChannelID, links, allowUnavailable)
+	return s.capture(ctx, guildID, actorDiscordUserID, targetDiscordUserID, evidenceChannelID, links)
 }
 
 // capture permits an empty actor only for the trusted system case path.
-func (s *EvidenceService) capture(ctx context.Context, guildID, actorDiscordUserID, targetDiscordUserID, evidenceChannelID string, links []string, allowUnavailable bool) (*CapturedEvidence, error) {
+func (s *EvidenceService) capture(ctx context.Context, guildID, actorDiscordUserID, targetDiscordUserID, evidenceChannelID string, links []string) (*CapturedEvidence, error) {
 	if len(links) > maxEvidenceMessages {
 		return nil, fmt.Errorf("%w: at most %d message links can be captured", ErrEvidenceValidation, maxEvidenceMessages)
 	}
@@ -177,10 +177,11 @@ func (s *EvidenceService) capture(ctx context.Context, guildID, actorDiscordUser
 		message, err := s.client.FetchMessageEvidence(ctx, ref)
 		if err != nil {
 			var unavailable *EvidenceUnavailableError
-			if !allowUnavailable || !errors.As(err, &unavailable) {
-				return nil, err
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
 			}
-			warning := "linked message could not be captured; moderator supplied other visible context"
+			_ = errors.As(err, &unavailable)
+			warning := "Message could not be saved. You can add evidence later."
 			outcome := "unavailable"
 			if unavailable != nil {
 				outcome = unavailable.Outcome

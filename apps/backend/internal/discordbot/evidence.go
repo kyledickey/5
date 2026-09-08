@@ -61,7 +61,7 @@ func (b *Bot) FetchMessageEvidence(ctx context.Context, ref quack.DiscordMessage
 	return &quack.DiscordMessageSnapshot{GuildID: message.GuildID, ChannelID: message.ChannelID, MessageID: message.ID, AuthorDiscordUserID: message.Author.ID, URL: ref.URL, Content: message.Content, CreatedAt: message.Timestamp, EditedAt: message.EditedTimestamp, Embeds: embeds, Attachments: attachments}, nil
 }
 
-// PreserveEvidenceAttachment copies supported bytes into the guild's managed staff-only evidence channel.
+// PreserveEvidenceAttachment copies supported bytes into the guild's evidence channel.
 func (b *Bot) PreserveEvidenceAttachment(ctx context.Context, guildID, channelID string, item quack.DiscordAttachmentSnapshot) (*quack.PreservedDiscordAttachment, error) {
 	if item.SizeBytes < 0 || item.SizeBytes > quack.MaxPreservedAttachmentBytes || !discordAttachmentURL(item.URL) {
 		return nil, errors.New("attachment is not eligible for managed copying")
@@ -97,8 +97,9 @@ func (b *Bot) PreserveEvidenceAttachment(ctx context.Context, guildID, channelID
 	if err != nil || int64(len(content)) != item.SizeBytes {
 		return nil, errors.New("attachment download size did not match its metadata")
 	}
-	if err := b.ValidateStaffChannel(ctx, guildID, channelID); err != nil {
-		return nil, err
+	channel, err := b.Session.Channel(channelID, discordgo.WithContext(ctx))
+	if err != nil || channel == nil || channel.GuildID != guildID || channel.Type != discordgo.ChannelTypeGuildText {
+		return nil, errors.New("evidence channel is unavailable")
 	}
 	sent, err := b.Session.ChannelFileSend(channelID, item.Filename, bytes.NewReader(content), discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 	if err != nil {
@@ -122,7 +123,7 @@ func discordAttachmentURL(raw string) bool {
 	return strings.HasPrefix(parsed.Path, "/attachments/") || strings.HasPrefix(parsed.Path, "/ephemeral-attachments/")
 }
 
-// EnsureEvidenceChannel creates or repairs a staff-only evidence channel owned by Quack.
+// EnsureEvidenceChannel creates missing evidence storage and leaves existing channel settings to administrators.
 func (b *Bot) EnsureEvidenceChannel(ctx context.Context, guildID, currentChannelID string) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
@@ -148,14 +149,10 @@ func (b *Bot) EnsureEvidenceChannel(ctx context.Context, guildID, currentChannel
 			}
 		}
 		if err == nil && channel != nil && channel.GuildID == guildID {
-			_, editErr := b.Session.ChannelEditComplex(channel.ID, &discordgo.ChannelEdit{Name: "quack-evidence", Topic: "Quack-managed immutable moderation evidence", PermissionOverwrites: overwrites}, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
-			if editErr != nil {
-				return "", classifyDiscordOperation("evidence_channel_repair", editErr, false)
-			}
 			return channel.ID, nil
 		}
 	}
-	created, err := b.Session.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{Name: "quack-evidence", Type: discordgo.ChannelTypeGuildText, Topic: "Quack-managed immutable moderation evidence", PermissionOverwrites: overwrites}, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+	created, err := b.Session.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{Name: "quack-evidence", Type: discordgo.ChannelTypeGuildText, Topic: "Saved case evidence. Keep these messages to preserve attached files.", PermissionOverwrites: overwrites}, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 	if err != nil {
 		return "", classifyDiscordOperation("evidence_channel_create", err, false)
 	}

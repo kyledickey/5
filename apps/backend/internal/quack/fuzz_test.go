@@ -33,7 +33,7 @@ func FuzzStructuredContextValue(f *testing.F) {
 	f.Add("summary", `{bad`)
 	f.Fuzz(func(t *testing.T, key, value string) {
 		fields := []model.CaseTemplateContextField{{Key: "summary", Label: "Summary", FieldType: model.ContextFieldShortText, Position: 1, Required: true}}
-		body, _, _, err := validateCaseContextValues(fields, []CaseContextValueInput{{Key: key, Value: json.RawMessage(value)}})
+		body, _, err := validateCaseContextValues(fields, []CaseContextValueInput{{Key: key, Value: json.RawMessage(value)}})
 		if err != nil {
 			return
 		}

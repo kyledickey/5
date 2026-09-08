@@ -88,6 +88,7 @@ type CaseProfileSummary struct {
 
 // CaseResponse presents the immutable moderation decision separately from its current validity and action progress.
 type CaseResponse struct {
+	EvidenceIncomplete      bool                       `json:"evidence_incomplete"`
 	CreatedAt               time.Time                  `json:"created_at"`
 	UpdatedAt               time.Time                  `json:"updated_at"`
 	ID                      string                     `json:"id"`

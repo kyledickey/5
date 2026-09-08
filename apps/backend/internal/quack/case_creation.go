@@ -33,7 +33,11 @@ func (s *CaseService) create(ctx context.Context, guildContext *GuildStaffContex
 			if actionErr != nil {
 				return nil, actionErr
 			}
-			return &model.CreatedCase{Case: *existing, ActionExecutions: actions}, nil
+			evidence, attachments, evidenceErr := s.store.ListCaseEvidence(ctx, existing.ID)
+			if evidenceErr != nil {
+				return nil, evidenceErr
+			}
+			return &model.CreatedCase{Case: *existing, ActionExecutions: actions, Evidence: evidence, Attachments: attachments}, nil
 		}
 	}
 

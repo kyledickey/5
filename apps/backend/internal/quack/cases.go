@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
@@ -114,7 +115,12 @@ func (s *CaseService) createWithAttribution(ctx context.Context, guildContext *G
 			if listErr != nil {
 				return nil, listErr
 			}
+			evidence, _, evidenceErr := s.store.ListCaseEvidence(ctx, existing.ID)
+			if evidenceErr != nil {
+				return nil, evidenceErr
+			}
 			response := caseResponseFromModel(*existing, actions)
+			response.EvidenceIncomplete = evidenceIncomplete(evidence)
 			return &response, nil
 		}
 	}
@@ -200,7 +206,7 @@ func (s *CaseService) preflightCreate(ctx context.Context, guildContext *GuildSt
 			return nil, err
 		}
 	}
-	valuesJSON, links, hasFallback, err := validateCaseContextValues(template.ContextFields, input.ContextValues)
+	valuesJSON, links, err := validateCaseContextValues(template.ContextFields, input.ContextValues)
 	if err != nil {
 		return nil, err
 	}
@@ -210,12 +216,9 @@ func (s *CaseService) preflightCreate(ctx context.Context, guildContext *GuildSt
 	}
 	result := &caseCreatePreflight{TemplateID: template.Template.ID, TemplateVersion: template.Template.Version, SelectedLevelID: selected.Level.ID, ActionType: actionType, ContextValuesJSON: valuesJSON}
 	if len(links) > 0 {
-		if s.evidence == nil {
-			return nil, validationCaseError("evidence capture is not configured")
-		}
 		settings, settingsErr := s.store.GetGuildSettings(ctx, guildContext.Guild.ID)
 		if settingsErr != nil {
-			return nil, settingsErr
+			slog.WarnContext(ctx, "Evidence storage settings unavailable", "guild_id", guildContext.Guild.ID)
 		}
 		channelID := ""
 		if settings != nil {
@@ -227,10 +230,17 @@ func (s *CaseService) preflightCreate(ctx context.Context, guildContext *GuildSt
 		} else if actorID == "" {
 			return nil, validationCaseError("evidence actor is required")
 		}
-		captured, captureErr := s.evidence.capture(ctx, guildContext.Guild.DiscordGuildID, actorID, targetID, channelID, links, hasFallback)
+		captured, captureErr := s.evidence.capture(ctx, guildContext.Guild.DiscordGuildID, actorID, targetID, channelID, links)
 		if captureErr != nil {
-			_ = s.auditWithAttribution(ctx, guildContext, attribution, "evidence.capture", "case_evidence", "unknown", model.AuditResultFailure, captureErr.Error())
-			return nil, validationCaseError(captureErr.Error())
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			warning := "Evidence could not be saved. Add it to the case later."
+			slog.WarnContext(ctx, "Case evidence capture failed", "guild_id", guildContext.Guild.ID)
+			result.Captured = CapturedEvidence{
+				Snapshots: []model.CaseEvidenceSnapshot{{CaptureOutcome: "unavailable", CaptureWarning: warning, MessageCreatedAt: time.Now().UTC(), EmbedsJSON: "[]"}},
+				Warnings:  []string{warning},
+			}
 		}
 		if captured != nil {
 			result.Captured = *captured

@@ -58,3 +58,10 @@ is deferred; shared Go services and HTTP contracts still need the agreed behavio
   until a concrete safe template workflow is implemented; use Discord attachment
   options for screenshots plus an add-context button for text/message links.
   These are implementation choices, not claimed completed behavior.
+
+- Optional context and best-effort message evidence now pass focused and full Go
+  tests. Missing adapters, deleted messages and transport failures retain a
+  visible incomplete-evidence flag without dropping the moderation decision.
+  Existing evidence channels are reused without edits. Saved text and capture
+  warnings appear in staff detail. Direct uploads and post-creation editing are
+  still pending; Discord creation still needs its mandatory form removed.

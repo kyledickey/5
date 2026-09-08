@@ -7,8 +7,49 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/quack"
+	"github.com/quackdiscord/bot/internal/quack/model"
 )
+
+// TestCaseProceedsWithoutContextOrWorkingEvidence exercises the moderation
+// boundary: evidence failures must not discard the selected enforcement action.
+func TestCaseProceedsWithoutContextOrWorkingEvidence(t *testing.T) {
+	ctx := context.Background()
+	repository := newMigratedStore(t)
+	guildID := "111111111111111111"
+	admin := templateGuildContext(t, repository, guildID, "admin", uint64(discordgo.PermissionManageGuild))
+	moderator := templateGuildContext(t, repository, guildID, "mod", uint64(discordgo.PermissionModerateMembers))
+	input := validTemplateInput("optional-evidence")
+	input.Levels = []quack.TemplateLevelInput{{Name: "Ban", Position: 1, IsDefault: true, NotifyUser: true, Actions: []quack.TemplateActionInput{{ActionType: model.ActionBanUser}}}}
+	input.ContextFields = []quack.TemplateContextFieldInput{{Key: "message", Label: "Message", FieldType: model.ContextFieldMessageLink, Position: 1, Required: true}}
+	template := createAppTemplate(t, ctx, repository, admin, input)
+	for _, scenario := range []struct {
+		name   string
+		links  []string
+		client quack.DiscordEvidenceClient
+	}{
+		{name: "no context"},
+		{name: "missing adapter", links: []string{"https://discord.com/channels/111111111111111111/222222222222222222/333333333333333333"}},
+		{name: "deleted message", links: []string{"https://discord.com/channels/111111111111111111/222222222222222222/333333333333333333"}, client: unavailableEvidenceClient{err: &quack.EvidenceUnavailableError{Outcome: "deleted"}}},
+		{name: "transport failure", links: []string{"https://discord.com/channels/111111111111111111/222222222222222222/333333333333333333"}, client: unavailableEvidenceClient{err: errors.New("transport secret must not be exposed")}},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			service := quack.NewCaseService(repository).WithEvidenceCapture(quack.NewEvidenceService(scenario.client, repository))
+			created, err := service.Create(ctx, moderator, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: "target", EvidenceLinks: scenario.links})
+			if err != nil {
+				t.Fatalf("optional evidence blocked case: %v", err)
+			}
+			detail, err := service.Get(ctx, moderator, created.ID)
+			if err != nil || detail.Validity != model.CaseValidityValid || len(detail.Actions) != 1 {
+				t.Fatalf("moderation decision lost: detail=%+v err=%v", detail, err)
+			}
+			if len(scenario.links) != 0 && (!created.EvidenceIncomplete || !detail.EvidenceIncomplete || len(detail.Evidence) != 1 || detail.Evidence[0].CaptureWarning == "") {
+				t.Fatalf("capture failure was not visible: created=%+v detail=%+v", created, detail)
+			}
+		})
+	}
+}
 
 type unavailableEvidenceClient struct{ err error }
 
@@ -53,19 +94,16 @@ func TestParseDiscordMessageLinkRejectsLookalikesAndCrossGuildCapture(t *testing
 		}
 	}
 	service := quack.NewEvidenceService(unavailableEvidenceClient{})
-	if _, err := service.Capture(context.Background(), "999999999999999999", "actor", "target", "", []string{valid}, false); !errors.Is(err, quack.ErrEvidenceValidation) {
+	if _, err := service.Capture(context.Background(), "999999999999999999", "actor", "target", "", []string{valid}); !errors.Is(err, quack.ErrEvidenceValidation) {
 		t.Fatalf("cross-guild capture accepted: %v", err)
 	}
 }
 
-func TestUnavailableEvidenceRequiresOtherVisibleContext(t *testing.T) {
+func TestUnavailableEvidenceDoesNotRequireFallbackContext(t *testing.T) {
 	link := "https://discord.com/channels/111111111111111111/222222222222222222/333333333333333333"
 	for _, outcome := range []string{"deleted", "inaccessible"} {
 		service := quack.NewEvidenceService(unavailableEvidenceClient{err: &quack.EvidenceUnavailableError{Outcome: outcome, Message: "message " + outcome}})
-		if _, err := service.Capture(context.Background(), "111111111111111111", "actor", "target", "", []string{link}, false); err == nil {
-			t.Fatalf("%s message continued without visible fallback context", outcome)
-		}
-		captured, err := service.Capture(context.Background(), "111111111111111111", "actor", "target", "", []string{link}, true)
+		captured, err := service.Capture(context.Background(), "111111111111111111", "actor", "target", "", []string{link})
 		if err != nil || len(captured.Snapshots) != 1 || captured.Snapshots[0].CaptureOutcome != outcome || captured.Snapshots[0].MessageCreatedAt.IsZero() {
 			t.Fatalf("partial %s capture: %+v err=%v", outcome, captured, err)
 		}
@@ -92,7 +130,7 @@ func TestLiveEvidencePreservesSupportedAndRetainsUnsupportedOrOversizedMetadata(
 		},
 		preserved: quack.PreservedDiscordAttachment{URL: "https://cdn.example/preserved", MessageID: "copy-message", AttachmentID: "copy-attachment"},
 	}
-	captured, err := quack.NewEvidenceService(client).Capture(context.Background(), guildID, "actor", targetID, "evidence-channel", []string{link}, false)
+	captured, err := quack.NewEvidenceService(client).Capture(context.Background(), guildID, "actor", targetID, "evidence-channel", []string{link})
 	if err != nil {
 		t.Fatalf("capture live evidence: %v", err)
 	}

@@ -9,7 +9,9 @@ import (
 
 // caseResponse projects a committed case and its initial actions into the shared adapter response.
 func caseResponse(created model.CreatedCase) CaseResponse {
-	return caseResponseFromModel(created.Case, created.ActionExecutions)
+	response := caseResponseFromModel(created.Case, created.ActionExecutions)
+	response.EvidenceIncomplete = evidenceIncomplete(created.Evidence)
+	return response
 }
 
 // caseResponseFromModel encapsulates the case response from model rule so callers share one consistent package implementation.
@@ -218,4 +220,14 @@ func caseNotificationResponse(item *model.CaseNotification, member bool) *CaseNo
 		response.LastError = ""
 	}
 	return response
+}
+
+// evidenceIncomplete reports missing content or files without exposing staff evidence.
+func evidenceIncomplete(evidence []model.CaseEvidenceSnapshot) bool {
+	for _, item := range evidence {
+		if item.CaptureWarning != "" || item.CaptureOutcome == "unavailable" {
+			return true
+		}
+	}
+	return false
 }
