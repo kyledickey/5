@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/quackdiscord/bot/internal/discordtext"
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
@@ -73,19 +72,4 @@ func (s *AppealService) response(ctx context.Context, item *model.Appeal, member
 		}
 	}
 	return response, nil
-}
-
-// memberNotificationBody keeps review decisions distinct from enforcement and
-// quotes staff-authored context without disclosing the reviewing staff member.
-func memberNotificationBody(status model.AppealStatus, reason string) string {
-	icon, lead, next := "appeal", "Your appeal was closed.", ""
-	switch status {
-	case model.AppealStatusNeedsInformation:
-		icon, lead, next = "reply", "Staff need a little more information to review your appeal.", "You can reply from your Quack dashboard."
-	case model.AppealStatusAccepted:
-		icon, lead, next = "accept", "Your appeal was accepted.", "Your case was voided. Quack will try to remove any ban or timeout from it."
-	case model.AppealStatusRejected:
-		icon, lead = "decline", "Your appeal was declined."
-	}
-	return discordtext.Conversation(icon, lead, discordtext.Plain(reason), next, "")
 }

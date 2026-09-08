@@ -268,6 +268,7 @@ type AppealNotificationRecord struct {
 	TargetDiscordUserID string                           `gorm:"size:32;not null;index"`
 	Audience            model.AppealNotificationAudience `gorm:"size:32;not null;index"`
 	Status              model.AppealNotificationStatus   `gorm:"size:32;not null;index"`
+	DecisionIntentJSON  string                           `gorm:"type:text"`
 	Body                string                           `gorm:"type:text;not null"`
 	DeliveryChannelID   string                           `gorm:"size:32;not null;default:''"`
 	RefreshRequested    bool                             `gorm:"not null;default:false"`

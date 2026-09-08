@@ -265,14 +265,18 @@ func TestAppealServiceOwnershipSnapshotTimelineAndAtomicAcceptance(t *testing.T)
 		t.Fatalf("expected staff and member notifications, got %+v err=%v", notifications, err)
 	}
 	for _, notification := range notifications {
-		if notification.Audience == model.AppealNotificationMember && (!strings.Contains(notification.Body, "https://discord.gg/pond") || !strings.Contains(notification.Body, "once any ban has been removed")) {
-			t.Fatalf("accepted notification missing conditional rejoin link: %s", notification.Body)
+		if notification.Audience != model.AppealNotificationMember {
+			continue
 		}
-
-		if notification.Audience == model.AppealNotificationMember && (notification.Body == "" || strings.Contains(notification.Body, "moderator")) {
-			t.Fatalf("member notification leaked staff identity: %+v", notification)
+		var intent model.AppealDecisionIntent
+		if err := json.Unmarshal([]byte(notification.DecisionIntentJSON), &intent); err != nil || intent.Version != 1 || intent.Status != model.AppealStatusAccepted || intent.RejoinURL != "https://discord.gg/pond" || intent.Reason == "" || notification.Body != "" {
+			t.Fatalf("accepted notice lost decision snapshot: %+v %v", notification, err)
+		}
+		if strings.Contains(notification.DecisionIntentJSON, "moderator") {
+			t.Fatalf("member intent leaked staff: %+v", notification)
 		}
 	}
+
 	client := &appealNotificationClientStub{}
 	var dispatchErrors [2]error
 	var dispatchWait sync.WaitGroup
@@ -460,7 +464,7 @@ func insertLegacyAppeal(db *gorm.DB, appeal *migration0200LegacyAppeal) error {
 	return db.Select("id", "guild_id", "case_id", "target_discord_user_id", "status", "content", "decision_reason", "reviewed_by_discord_user_id", "reviewed_at", "review_message_discord_id", "metadata_json", "created_at", "updated_at").Create(appeal).Error
 }
 
-func (c *appealNotificationClientStub) SendAppealMemberNotification(context.Context, string, string) (string, error) {
+func (c *appealNotificationClientStub) SendAppealMemberNotification(context.Context, string, quack.AppealMemberNotification) (string, error) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	c.member++

@@ -64,7 +64,7 @@ func TestNotificationAdaptersSendApplicationText(t *testing.T) {
 				t.Fatal(err)
 			}
 			adapter := &AppealNotificationAdapter{Session: session}
-			if _, err := adapter.SendAppealMemberNotification(context.Background(), "member", body); err != nil {
+			if _, err := adapter.SendAppealMemberNotification(context.Background(), "member", quack.AppealMemberNotification{LegacyBody: body}); err != nil {
 				t.Fatal(err)
 			}
 			if count != 4 {

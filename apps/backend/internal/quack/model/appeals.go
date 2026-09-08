@@ -88,10 +88,21 @@ type AppealNotification struct {
 	Audience            AppealNotificationAudience
 	Status              AppealNotificationStatus
 	Body                string
+	DecisionIntentJSON  string
 	DeliveryChannelID   string
 	RefreshRequested    bool
 	DeliveryMessageID   string
 	LastErrorCode       string
 	LeaseToken          string
 	LeaseExpiresAt      *time.Time
+}
+
+// AppealDecisionIntent freezes member-facing decision facts at the transition.
+// Version identifies the durable payload contract; no current settings are needed
+// to render a queued notice after restart or a later appeal transition.
+type AppealDecisionIntent struct {
+	Version   int          `json:"version"`
+	Status    AppealStatus `json:"status"`
+	Reason    string       `json:"reason"`
+	RejoinURL string       `json:"rejoin_url,omitempty"`
 }

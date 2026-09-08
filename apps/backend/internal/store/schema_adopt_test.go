@@ -154,3 +154,63 @@ func TestCurrentSchemaAddsTicketJournalOnStartup(t *testing.T) {
 		})
 	}
 }
+
+// TestCurrentSchemaAddsAppealDecisionIntent preserves legacy body-only outbox
+// rows on startup and includes typed decision payloads in recovery verification.
+func TestCurrentSchemaAddsAppealDecisionIntent(t *testing.T) {
+	for name, open := range map[string]func(*testing.T) *gorm.DB{"sqlite": openSQLiteMigrationDB, "mysql": openMySQLMigrationDB} {
+		t.Run(name, func(t *testing.T) {
+			db := open(t)
+			repository := New(db, nil)
+			if err := repository.Migrate(); err != nil {
+				t.Fatal(err)
+			}
+			if !db.Migrator().HasColumn(&AppealNotificationRecord{}, "DecisionIntentJSON") {
+				t.Fatal("current initializer omitted decision intent")
+			}
+			if err := db.Migrator().DropColumn(&AppealNotificationRecord{}, "DecisionIntentJSON"); err != nil {
+				t.Fatal(err)
+			}
+			now := time.Now().UTC()
+			if err := db.Table("appeal_notifications").Create(map[string]any{"id": "legacy-notice", "appeal_id": "appeal", "event_id": "event", "guild_id": "guild", "target_discord_user_id": "member", "audience": "member", "status": "pending", "body": "original legacy body", "delivery_message_id": "", "last_error_code": "", "lease_token": "", "created_at": now, "updated_at": now}).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := repository.Migrate(); err != nil {
+				t.Fatal("marked current startup failed additive upgrade", err)
+			}
+			var record AppealNotificationRecord
+			if err := db.First(&record, "id = ?", "legacy-notice").Error; err != nil || record.DecisionIntentJSON != "" || record.Body != "original legacy body" {
+				t.Fatal("legacy row altered", record, err)
+			}
+			payload := `{"version":1,"status":"accepted","reason":"saved decision","rejoin_url":"https://discord.gg/original"}`
+			if err := db.Model(&record).Update("decision_intent_json", payload).Error; err != nil {
+				t.Fatal(err)
+			}
+			manifest, err := repository.BuildRecoveryManifest(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if manifest.Tables["appeal_notifications"].Count != 1 {
+				t.Fatal("manifest omitted retained notice")
+			}
+			if err := repository.VerifyRecoveryManifest(context.Background(), *manifest); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Model(&record).Update("decision_intent_json", `{"version":2}`).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := repository.VerifyRecoveryManifest(context.Background(), *manifest); err == nil {
+				t.Fatal("manifest ignored intent mutation")
+			}
+			if err := db.Model(&record).Update("decision_intent_json", payload).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Model(&record).Update("body", "changed legacy body").Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := repository.VerifyRecoveryManifest(context.Background(), *manifest); err == nil {
+				t.Fatal("manifest ignored legacy body mutation")
+			}
+		})
+	}
+}

@@ -25,7 +25,7 @@ type AppealNotificationAdapter struct {
 }
 
 // SendAppealMemberNotification delivers one member-owned status update through DM.
-func (a *AppealNotificationAdapter) SendAppealMemberNotification(ctx context.Context, discordUserID, body string) (string, error) {
+func (a *AppealNotificationAdapter) SendAppealMemberNotification(ctx context.Context, discordUserID string, notice quack.AppealMemberNotification) (string, error) {
 	if a == nil || a.Session == nil || strings.TrimSpace(discordUserID) == "" {
 		return "", fmt.Errorf("%w: member adapter unavailable", quack.ErrAppealDeliveryDeferred)
 	}
@@ -33,7 +33,7 @@ func (a *AppealNotificationAdapter) SendAppealMemberNotification(ctx context.Con
 	if err != nil {
 		return "", appealMemberSendError(err)
 	}
-	message, err := a.Session.ChannelMessageSendComplex(channel.ID, ui.Signal("appeal", body, false).SendParams(ui.SessionApplicationID(a.Session)), discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+	message, err := a.Session.ChannelMessageSendComplex(channel.ID, ui.Signal("appeal", appealMemberNotificationBody(notice), false).SendParams(ui.SessionApplicationID(a.Session)), discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 	if err != nil {
 		return "", appealMemberSendError(err)
 	}

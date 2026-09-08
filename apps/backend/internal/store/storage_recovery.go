@@ -73,6 +73,11 @@ func (s *Store) BuildRecoveryManifest(ctx context.Context) (*RecoveryManifest, e
 	manifest := &RecoveryManifest{Version: "quack-v5-recovery/v1", CapturedAt: time.Now().UTC(), Tables: map[string]RecoveryTableManifest{}, GuildCaseHighWater: map[string]uint64{}}
 	definitions := append([]recoveryTableDefinition{}, recoveryTables...)
 	if s.db.Migrator().HasTable(&currentSchema{}) {
+		for index := range definitions {
+			if definitions[index].name == "appeal_notifications" {
+				definitions[index].columns = append(append([]string{}, definitions[index].columns...), "body", "decision_intent_json")
+			}
+		}
 		definitions = append(definitions,
 			recoveryTableDefinition{"case_publications", []string{"message_id", "case_id", "channel_id", "presentation_json", "last_digest", "retry_at", "refresh_requested", "revision"}, "message_id"},
 			recoveryTableDefinition{"honeypot_message_cleanups", []string{"id", "guild_id", "message_discord_id", "channel_discord_id", "target_discord_user_id", "trigger_id", "attempt_count", "next_attempt_at", "completed_at"}, "id"},

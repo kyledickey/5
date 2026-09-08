@@ -15,9 +15,10 @@ var ErrAppealDeliveryDeferred = errors.New("appeal delivery deferred")
 // AppealQueueReceipt identifies the existing staff queue message for in-place refresh.
 type AppealQueueReceipt struct{ ChannelID, MessageID string }
 
-// AppealNotificationClient sends already-rendered, staff-identity-free appeal messages.
+// AppealNotificationClient delivers validated member intent or a legacy body,
+// and projects staff queue updates without changing durable delivery ownership.
 type AppealNotificationClient interface {
-	SendAppealMemberNotification(context.Context, string, string) (string, error)
+	SendAppealMemberNotification(context.Context, string, AppealMemberNotification) (string, error)
 	SendAppealStaffNotification(context.Context, string, *AppealResponse, AppealQueueReceipt) (AppealQueueReceipt, error)
 }
 
@@ -53,7 +54,11 @@ func (d *AppealNotificationDispatcher) DispatchPending(ctx context.Context, limi
 		var sendErr error
 		switch item.Audience {
 		case model.AppealNotificationMember:
-			messageID, sendErr = d.client.SendAppealMemberNotification(ctx, item.TargetDiscordUserID, item.Body)
+			notice, decodeErr := appealMemberNotification(item)
+			sendErr = decodeErr
+			if sendErr == nil {
+				messageID, sendErr = d.client.SendAppealMemberNotification(ctx, item.TargetDiscordUserID, notice)
+			}
 		case model.AppealNotificationStaff:
 			var record *model.Appeal
 			record, sendErr = d.store.GetAppealByID(ctx, item.AppealID)
@@ -92,6 +97,9 @@ func (d *AppealNotificationDispatcher) DispatchPending(ctx context.Context, limi
 func appealNotificationErrorCode(err error) string {
 	if err == nil {
 		return ""
+	}
+	if errors.Is(err, ErrAppealNotificationIntent) {
+		return "invalid_notification_intent"
 	}
 	if errors.Is(err, ErrAppealDeliveryDeferred) {
 		return "delivery_deferred"
