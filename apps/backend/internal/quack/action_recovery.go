@@ -47,10 +47,7 @@ func (s *ActionService) Retry(ctx context.Context, guildContext *GuildStaffConte
 	if execution == nil || execution.DismissedAt != nil {
 		return nil, ErrCaseNotFound
 	}
-	if execution.Status == model.ActionExecutionPending || execution.Status == model.ActionExecutionRetrying {
-		return execution, nil
-	}
-	if execution.Status != model.ActionExecutionFailed {
+	if execution.Status != model.ActionExecutionFailed && execution.Status != model.ActionExecutionPending && execution.Status != model.ActionExecutionRetrying {
 		return nil, ErrCaseNotFound
 	}
 	item, err := s.store.GetCaseByID(ctx, execution.CaseID)
@@ -60,10 +57,17 @@ func (s *ActionService) Retry(ctx context.Context, guildContext *GuildStaffConte
 	if item == nil {
 		return nil, ErrCaseNotFound
 	}
+	if item.Validity == model.CaseValidityVoided && execution.ReversalOfExecutionID == nil {
+		return nil, errors.New("a voided case's punishment cannot be retried")
+	}
 	if s.authorizer == nil {
 		return nil, ErrAuthorizationUnavailable
 	}
-	if err := s.authorizer.PreflightCase(ctx, guildContext, item.TargetDiscordUserID, execution.ActionType); err != nil {
+	preflight := s.authorizer.PreflightCase
+	if execution.ReversalOfExecutionID != nil {
+		preflight = s.authorizer.PreflightReversal
+	}
+	if err := preflight(ctx, guildContext, item.TargetDiscordUserID, execution.ActionType); err != nil {
 		return nil, err
 	}
 	updated, err = s.store.RetryCaseAction(ctx, model.RetryCaseActionParams{GuildID: item.GuildID, ExecutionID: execution.ID, ActorDiscordUserID: guildContext.Staff.DiscordUserID, Audit: actionControlAudit(ctx, guildContext, "case_action.retry", execution.ID)})

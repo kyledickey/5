@@ -43,6 +43,13 @@ func (s *Store) ListFailedCaseActions(ctx context.Context, filter model.FailedCa
 // RetryCaseAction requeues the same immutable action after live authorization has been performed by the service.
 func (s *Store) RetryCaseAction(ctx context.Context, params model.RetryCaseActionParams) (*model.CaseActionExecution, error) {
 	return s.controlCaseAction(ctx, params.GuildID, params.ExecutionID, func(tx *gorm.DB, item *model.CaseActionExecution, now time.Time) error {
+		var caseRecord model.Case
+		if err := tx.Where("id = ?", item.CaseID).First(&caseRecord).Error; err != nil {
+			return err
+		}
+		if caseRecord.Validity == model.CaseValidityVoided && item.ReversalOfExecutionID == nil {
+			return errors.New("a voided case's punishment cannot be retried")
+		}
 		if item.Status == model.ActionExecutionPending || item.Status == model.ActionExecutionRetrying {
 			return nil
 		}
@@ -100,6 +107,11 @@ func (s *Store) controlCaseAction(ctx context.Context, guildID, executionID stri
 	now := time.Now().UTC()
 	var item model.CaseActionExecution
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Match void and claim lock order so a retry cannot cross a case void.
+		var caseRecord model.Case
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("guild_id = ? AND id IN (SELECT case_id FROM case_action_executions WHERE id = ?)", guildID, executionID).First(&caseRecord).Error; err != nil {
+			return err
+		}
 		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND case_id IN (SELECT id FROM cases WHERE guild_id = ?)", executionID, guildID).First(&item)
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return gorm.ErrRecordNotFound

@@ -180,3 +180,28 @@ func TestExpiredUnsafeActionRequiresReview(t *testing.T) {
 		})
 	}
 }
+
+// TestRetryCannotResurrectVoidedPunishment checks the storage boundary even if a
+// caller authorized a retry before another moderator voided the case.
+func TestRetryCannotResurrectVoidedPunishment(t *testing.T) {
+	ctx := context.Background()
+	repository, guildID := templateTestStore(t)
+	created, err := repository.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), ActionExecutions: []model.CaseActionExecution{{ActionType: model.ActionBanUser, Status: model.ActionExecutionFailed, ConfigSnapshotJSON: `{}`}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	actions, err := repository.ListCaseActionExecutions(ctx, created.Case.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.VoidCase(ctx, model.VoidCaseParams{GuildID: guildID, CaseID: created.Case.ID, ActorDiscordUserID: "mod", Reason: "Mistaken identity"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.RetryCaseAction(ctx, model.RetryCaseActionParams{GuildID: guildID, ExecutionID: actions[0].ID, ActorDiscordUserID: "mod"}); err == nil {
+		t.Fatal("retried punishment on voided case")
+	}
+	claimed, err := repository.ClaimNextCaseAction(ctx, storage.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker"})
+	if err != nil || claimed != nil {
+		t.Fatalf("voided punishment became executable: %+v, %v", claimed, err)
+	}
+}

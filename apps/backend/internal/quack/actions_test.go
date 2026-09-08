@@ -207,3 +207,50 @@ func actionTemplateInput(slug string, actions []quack.TemplateActionInput) quack
 	input.Levels[0].Actions = actions
 	return input
 }
+
+// TestRetryUnbanRefreshesPermissionsForDepartedMember covers both an actual retry
+// and a repeated button press after the first request has queued the reversal.
+func TestRetryUnbanRefreshesPermissionsForDepartedMember(t *testing.T) {
+	ctx := context.Background()
+	store := newMigratedStore(t)
+	admin := templateGuildContext(t, store, "guild-1", "admin-1", uint64(discordgo.PermissionManageGuild))
+	moderator := templateGuildContext(t, store, "guild-1", "mod-1", uint64(discordgo.PermissionModerateMembers|discordgo.PermissionBanMembers))
+	template := createAppTemplate(t, ctx, store, admin, actionTemplateInput("retry-unban", []quack.TemplateActionInput{{ActionType: model.ActionBanUser}}))
+	created, err := quack.NewCaseService(store).Create(ctx, moderator, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: "target-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	actions, err := store.ListCaseActionExecutions(ctx, created.ID)
+	if err != nil || len(actions) != 1 {
+		t.Fatalf("actions: %+v, %v", actions, err)
+	}
+	if err := store.DB().Model(&model.CaseActionExecution{}).Where("id = ?", actions[0].ID).Update("status", model.ActionExecutionSucceeded).Error; err != nil {
+		t.Fatal(err)
+	}
+	reversal, err := store.QueueCaseReversal(ctx, model.QueueCaseReversalParams{GuildID: moderator.Guild.ID, CaseID: created.ID, OriginalExecutionID: actions[0].ID, ActionType: model.ActionUnbanUser, ActorDiscordUserID: "mod-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A void must not make failed removal work ineligible for recovery.
+	if _, err := store.VoidCase(ctx, model.VoidCaseParams{GuildID: moderator.Guild.ID, CaseID: created.ID, ActorDiscordUserID: "mod-1", Reason: "Mistaken identity"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DB().Model(&model.CaseActionExecution{}).Where("id = ?", reversal.ID).Update("status", model.ActionExecutionFailed).Error; err != nil {
+		t.Fatal(err)
+	}
+	snapshot := &quack.DiscordGuildAuthorization{
+		Guild:  quack.DiscordBotGuild{ID: "guild-1", OwnerID: "owner-1"},
+		Actor:  quack.DiscordMemberAuthorization{DiscordUserID: "mod-1", Present: true, PermissionBits: uint64(discordgo.PermissionModerateMembers | discordgo.PermissionBanMembers), TopRolePosition: 10},
+		Bot:    quack.DiscordMemberAuthorization{DiscordUserID: "quack", Present: true, PermissionBits: ^uint64(0), TopRolePosition: 100, Bot: true},
+		Target: &quack.DiscordMemberAuthorization{DiscordUserID: "target-1", Present: false},
+	}
+	service := quack.NewActionService(store, nil).WithRecoveryControls(quack.NewGuildService(store, fakeDiscordClient{authorization: snapshot}), nil)
+	retried, err := service.Retry(ctx, moderator, reversal.ID)
+	if err != nil || retried == nil || retried.Status != model.ActionExecutionPending {
+		t.Fatalf("unban retry: %+v, %v", retried, err)
+	}
+	snapshot.Actor.PermissionBits = uint64(discordgo.PermissionModerateMembers)
+	if _, err := service.Retry(ctx, moderator, reversal.ID); err == nil {
+		t.Fatal("repeat retry ignored revoked ban permission")
+	}
+}

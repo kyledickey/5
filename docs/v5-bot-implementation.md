@@ -113,3 +113,10 @@ means further work is required, not completion.
   include context/evidence/user/void controls; staff reads and evidence responses
   are private. Focused tests include actual attachment option payloads and copy
   adapter responses; `go test ./...` passes. No live Discord rehearsal yet.
+
+- Recovery retries now reject original punishments on voided cases at both the
+  service and transactional storage boundaries. Storage locks the case before its
+  action, matching void/claim ordering. Reversal retries use current reversal
+  permissions, including unban for departed members; repeated requests also
+  refresh permissions. Focused and full backend tests pass. Automatic reversal
+  on void/appeal acceptance and late worker completion remain pending.
