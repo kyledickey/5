@@ -26,7 +26,9 @@ type EnforcementClient interface {
 	UnbanMember(context.Context, string, string, string) (map[string]any, error)
 }
 
-// Context carries the request-scoped context data needed by downstream logic.
+// Context supplies the persisted case and execution snapshots for one attempt.
+// Config is decoded from that execution, so later template edits do not change
+// the action being retried. DiscordGuildID is the external guild identifier.
 type Context struct {
 	Case           model.Case
 	Execution      model.CaseActionExecution
@@ -56,7 +58,9 @@ func (f Func) Execute(ctx context.Context, action Context) Result {
 	return f(ctx, action)
 }
 
-// DiscordError carries classified discord error failure details across package boundaries.
+// DiscordError carries the adapter's retry classification into the action worker.
+// OutcomeUncertain means Discord may already have applied the operation; retry
+// eligibility alone must not be treated as proof that repeating it is safe.
 type DiscordError struct {
 	Code             string
 	Message          string
@@ -64,7 +68,7 @@ type DiscordError struct {
 	OutcomeUncertain bool
 }
 
-// Error formats discord error as a standard Go error without discarding its classification.
+// Error returns the failure explanation, falling back to its code.
 func (e DiscordError) Error() string {
 	if e.Message != "" {
 		return e.Message
@@ -72,7 +76,9 @@ func (e DiscordError) Error() string {
 	return e.Code
 }
 
-// ResultFromError encapsulates the result from error rule so callers share one consistent package implementation.
+// ResultFromError preserves classified adapter failures. Cancellation and unknown
+// errors are uncertain, non-retryable results because they do not establish
+// whether Discord applied the request. A nil error produces a successful result.
 func ResultFromError(err error) Result {
 	if err == nil {
 		return Result{}
@@ -94,23 +100,26 @@ func ResultFromError(err error) Result {
 	return Result{ErrorCode: "discord_error", Error: "Discord request failed", OutcomeUncertain: true}
 }
 
-// PermanentError encapsulates the permanent error rule so callers share one consistent package implementation.
+// PermanentError creates a failure that must not be retried automatically.
 func PermanentError(code, message string) Result {
 	return Result{ErrorCode: code, Error: message}
 }
 
-// RetryableError encapsulates the retryable error rule so callers share one consistent package implementation.
+// RetryableError marks a known failure eligible for the worker's retry policy.
+// Callers must separately mark uncertain outcomes when an external effect may
+// have occurred; the worker also considers the action's safety and retry limit.
 func RetryableError(code, message string) Result {
 	return Result{Retryable: true, ErrorCode: code, Error: message}
 }
 
-// Unsupported encapsulates the unsupported rule so callers share one consistent package implementation.
+// Unsupported rejects an unregistered action without attempting a Discord effect.
 func Unsupported(ctx context.Context, action Context) Result {
 	_ = ctx
 	return PermanentError("unsupported_action", fmt.Sprintf("action type %s is not supported", action.Execution.ActionType))
 }
 
-// ConfigString encapsulates the config string rule so callers share one consistent package implementation.
+// ConfigString reads a trimmed action setting. Non-string values use their Go
+// text representation; a missing key returns an empty string.
 func ConfigString(config map[string]any, key string) string {
 	value, ok := config[key]
 	if !ok {
