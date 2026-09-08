@@ -202,6 +202,29 @@ func (s *Store) ListCaseEvents(ctx context.Context, caseID string) ([]model.Case
 	return events, nil
 }
 
+// ListRecentCaseEvents selects a bounded latest timeline window for an already
+// authorized case, then returns it chronologically. IDs break timestamp ties so
+// repeated native reads select and display the same events. Invalid limits fail
+// before querying rather than accidentally requesting an unbounded history.
+func (s *Store) ListRecentCaseEvents(ctx context.Context, caseID string, limit int) ([]model.CaseEvent, error) {
+	if limit < 1 || limit > 100 {
+		return nil, errors.New("recent case event limit must be between 1 and 100")
+	}
+	if s == nil || s.db == nil {
+		return nil, errors.New("database not connected")
+	}
+	var events []model.CaseEvent
+	if err := s.db.WithContext(ctx).Where("case_id = ?", caseID).
+		Where("event_type NOT IN ?", retiredCaseEventTypes).
+		Order("created_at DESC").Order("id DESC").Limit(limit).Find(&events).Error; err != nil {
+		return nil, fmt.Errorf("list recent case events: %w", err)
+	}
+	for left, right := 0, len(events)-1; left < right; left, right = left+1, right-1 {
+		events[left], events[right] = events[right], events[left]
+	}
+	return events, nil
+}
+
 // ListCaseActionExecutions returns case action executions subject to authorization, ordering, and filtering constraints.
 func (s *Store) ListCaseActionExecutions(ctx context.Context, caseID string) ([]model.CaseActionExecution, error) {
 	return s.ListCaseActionsForCases(ctx, []string{caseID})

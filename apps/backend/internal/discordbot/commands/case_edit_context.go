@@ -21,7 +21,7 @@ func handleEditContextComponent(ctx ui.Context) ui.HandlerResult {
 	if err != nil {
 		return ui.Immediate(ui.Error(caseCommandErrorMessage(err)))
 	}
-	detail, err := ctx.Services.Cases.Get(ctx.Context, guild, parsed.Payload)
+	detail, err := ctx.Services.Cases.GetNativeDetail(ctx.Context, guild, parsed.Payload)
 	if err != nil {
 		return ui.Immediate(ui.Error(caseCommandErrorMessage(err)))
 	}

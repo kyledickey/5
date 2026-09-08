@@ -38,7 +38,7 @@ func pageEvidence(delta int) ui.Handler {
 
 // pageCaseRecord shares navigation and authorization for private case record views.
 func pageCaseRecord(delta int, render func(*quack.CaseDetailResponse, int, string) ui.Message) ui.Handler {
-	return pageCaseRecordWithLoader(delta, render, (*quack.CaseService).Get)
+	return pageCaseRecordWithLoader(delta, render, (*quack.CaseService).GetNativeDetail)
 }
 
 // caseRecordLoader selects only the authorized data required by a native view.

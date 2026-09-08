@@ -40,8 +40,21 @@ func (s *CaseService) List(ctx context.Context, guildContext *GuildStaffContext,
 	}, nil
 }
 
-// Get retrieves get without exposing the underlying adapter implementation.
+// Get returns the complete authorized staff detail, including all events and action attempts.
 func (s *CaseService) Get(ctx context.Context, guildContext *GuildStaffContext, caseRef string) (*CaseDetailResponse, error) {
+	return s.getDetail(ctx, guildContext, caseRef, false)
+}
+
+// GetNativeDetail returns the native staff detail with the latest six timeline
+// events and no action attempts. Actions, evidence, and recovery controls retain
+// their full detail; guild authorization and read auditing match Get.
+func (s *CaseService) GetNativeDetail(ctx context.Context, guildContext *GuildStaffContext, caseRef string) (*CaseDetailResponse, error) {
+	return s.getDetail(ctx, guildContext, caseRef, true)
+}
+
+// getDetail shares authorization and response construction while limiting reads
+// that the native renderer cannot display. The HTTP detail remains complete.
+func (s *CaseService) getDetail(ctx context.Context, guildContext *GuildStaffContext, caseRef string, native bool) (*CaseDetailResponse, error) {
 	if err := s.requireCaseRead(guildContext); err != nil {
 		_ = s.audit(ctx, guildContext, string(model.AuditActionCaseRead), "case", strings.TrimSpace(caseRef), model.AuditResultDenied, "permission_denied")
 		return nil, err
@@ -63,18 +76,26 @@ func (s *CaseService) Get(ctx context.Context, guildContext *GuildStaffContext, 
 	if err != nil {
 		return nil, err
 	}
-	events, err := s.store.ListCaseEvents(ctx, caseModel.ID)
+	var events []model.CaseEvent
+	if native {
+		events, err = s.store.ListRecentCaseEvents(ctx, caseModel.ID, 6)
+	} else {
+		events, err = s.store.ListCaseEvents(ctx, caseModel.ID)
+	}
 	if err != nil {
 		return nil, err
 	}
 
-	executionIDs := make([]string, 0, len(actions))
-	for _, action := range actions {
-		executionIDs = append(executionIDs, action.ID)
-	}
-	attempts, err := s.store.ListCaseActionAttempts(ctx, executionIDs)
-	if err != nil {
-		return nil, err
+	var attempts []model.CaseActionAttempt
+	if !native {
+		executionIDs := make([]string, 0, len(actions))
+		for _, action := range actions {
+			executionIDs = append(executionIDs, action.ID)
+		}
+		attempts, err = s.store.ListCaseActionAttempts(ctx, executionIDs)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	evidence, attachments, err := s.store.ListCaseEvidence(ctx, caseModel.ID)

@@ -37,7 +37,7 @@ func handleCaseStaffSubcommand(ctx ui.Context, data discordgo.ApplicationCommand
 				response = caseWebLink(views.CaseDetailPage(detail, 1, ui.SessionApplicationID(ctx.Session)), ctx.Services.Config.ApplicationBaseURL, guildContext.Guild.DiscordGuildID, "cases", detail.ID)
 			}
 		case "view":
-			detail, getErr := ctx.Services.Cases.Get(taskCtx, guildContext, optionStringValue(selected.GetOption("case")))
+			detail, getErr := ctx.Services.Cases.GetNativeDetail(taskCtx, guildContext, optionStringValue(selected.GetOption("case")))
 			err = getErr
 			if detail != nil {
 				response = caseWebLink(views.CaseDetailPage(detail, 1, ui.SessionApplicationID(ctx.Session)), ctx.Services.Config.ApplicationBaseURL, guildContext.Guild.DiscordGuildID, "cases", detail.ID)
