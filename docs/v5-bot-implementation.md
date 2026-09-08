@@ -1307,3 +1307,30 @@ means further work is required, not completion.
   the saved replacement receipt, idle refresh and unchanged four honeypot cases.
   This tests ordinary deletion repair; live transient permission failures and
   ambiguous replacement delivery remain outside this rehearsal.
+
+### Evidence storage, attachment links, and appeal rejoin
+
+- `b940eda` repairs evidence storage on attachment capture with a bounded attempt.
+  Channel receipt updates compare the expected old ID and preserve concurrent
+  administrator settings and channel choices; capture uses the winning ID.
+  Existing channel names and permissions remain untouched. Failed repair leaves
+  explicit metadata-only evidence warnings, and later uploads retry. A channel
+  created by a losing concurrent repair is left for inspection rather than deleted.
+- `8885dd0` adds an optional Rejoin server link button to accepted appeal DMs,
+  using the validated URL saved in the decision intent. Legacy stored bodies keep
+  their original behavior; delivery does not reconstruct links from current settings.
+- `1fb6fdb` retains attachment links in single-message and bulk deletion logs and
+  edit context. Signed URL rotation alone refreshes the cache without producing a
+  false edit event. These links are not archived copies and may expire; large log
+  bodies retain the `message.txt` attachment fallback.
+- The full MySQL-enabled backend suite passed in
+  `/tmp/evidence-links-rejoin-final.log`. Loaded
+  `/tmp/quack-v5-evidence-links-review` in the authorized `quack` beta pane `%1`;
+  `/readyz` checks passed. Live `/setup appeals rejoin:https://discord.gg/BC8EDwJTS`
+  created the appeals channel by default. The live ban/rejoin rehearsal remains
+  pending; this records setup and readiness, not successful ban reversal or rejoin.
+- The temporary `Ban evidence rehearsal` rule form is prepared in the admin's
+  Helium session. Automatic approval review rejected submission because it changes
+  live moderation configuration without sufficiently specific authorization.
+  No rule was created and no tester ban was performed; explicit permission is
+  needed before continuing this live rehearsal.
