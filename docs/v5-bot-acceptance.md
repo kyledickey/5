@@ -6,6 +6,16 @@ This matrix maps all 76 answers in [the product interview](v5-product-interview.
 
 ## Work in progress and acceptance gates
 
+- Current loaded beta is `/tmp/quack-v5-evidence-links-review` at `1fb6fdb`.
+  Full backend/MySQL tests and readiness passed. Evidence repair now preserves
+  concurrent settings and retries on later uploads; accepted appeals have an
+  optional Rejoin Server button; general logs retain available attachment URLs
+  without treating signed-URL rotation as a message edit. Live default appeal
+  setup created its channel and saved the return invite. The proposed synthetic
+  ban rule was blocked by automatic approval review; its submission and the
+  ban/evidence/appeal/rejoin journey await specific permission.
+  Runtime references below describe earlier rehearsals, not the latest build.
+
 - Live ticket acceptance passed for member open, duplicate-open protection, staff join/reply, member close, new ticket after closure, and admin queue close. Both closed tickets retained queue transcripts and released the member slot. See the [implementation ledger](v5-bot-implementation.md). Original-message journaling is committed in `c6e21ed`; deleted-message/restart live acceptance passed: the published queue transcript retained the tester text deleted before a clean beta restart.
 - Native history totals/import labels and bounded Unicode pages are committed in `b8be3c8`; command/view regression packages pass. Live profile acceptance remains open.
 - Honeypot interrupted primary-incident recovery and legacy bot exemptions are committed in `bad4bb3`; race and MySQL-enabled backend tests pass. Live default setup, editable timeout policy, administrator exemption, member timeout, triggering-message deletion and counter increment passed. Case #3 persisted captured evidence, one successful timeout attempt and a sent notification. Burst/recovery acceptance remains open.
@@ -100,7 +110,7 @@ All paths below are backend paths; the production runtime registers native comma
 | 14 Evidence lifecycle rough edges | P/U: stable message links and admin-preserving ACL lifecycle. Precommit upload failures can leave orphan copies; long-term live access unverified. |
 | 15 Different case entry flows | P: immediate common creation, paginated picker, no required context/JSON input. |
 | 16 Fragile mandatory drafts | P: superseded by accepted simple flow; Q24 does not require persistent drafts. |
-| 17 Public deferred errors | P/U: void/reversal modals now acknowledge privately before live checks; successful recovery receipts publish separately. Retry from a public audit entry passed live with private feedback and source preservation. Other visibility paths still require review; slash creation retains its existing public acknowledgement contract. |
+| 17 Public deferred errors | P/U: case creation and void/reversal acknowledge privately before live checks; public success notices publish separately through standalone channel sends. Retry from a public audit entry passed live with private feedback and source preservation. The tester saw the new void notice without a broken reply reference; other failure paths remain separate live checks. |
 | 18 Stale results after restart | P/U: durable receipt refresh is driven by source mutations in `9933511`; old receipt #2 updated to voided after restart and became idle. Outage/race tests pass; delayed action/reversal live coverage remains separate. |
 | 19 Expected events logged as failures | P: logging queue distinguishes disabled/unrouted events; old logs do not establish present health. |
 | 20 Architecture/documentation mismatch | P/I: core worker and registration ownership is corrected; combined repository exposure and core/presentation coupling remain. This matrix supersedes broad completion claims, not the user's requirements. |

@@ -1334,3 +1334,25 @@ means further work is required, not completion.
   live moderation configuration without sufficiently specific authorization.
   No rule was created and no tester ban was performed; explicit permission is
   needed before continuing this live rehearsal.
+
+### Synthetic load measurements
+
+- `0025298` adds reproducible cache benchmarks and an opt-in MySQL audit-history
+  assessment. On this Apple M3 Pro with Go 1.25.4, one-second cache samples across
+  850 guild identities used 256-byte text and two attachments with 200-byte URLs.
+  At GOMAXPROCS=1, replacement measured 672 ns/op, global eviction 935 ns/op,
+  and mixed replacement/read 713 ns/op (748 ns/op with eight workers). The
+  eviction workload retained 40,169 messages and 67,107,485 accounted bytes,
+  below the 64 MiB budget. Accounting excludes transient allocations and Go
+  allocator overhead. Raw results: `/tmp/logging-cache-bench.txt`.
+- Cache timings exclude gateway SQL/configuration reads, JSON decoding, queueing
+  and Discord delivery. They do not prove capacity for 850 production guilds.
+  Run `go test ./internal/modules/generallogging -run '^$' -bench
+  BenchmarkCache850Guilds -benchmem -benchtime=1s -cpu=1,8` from `apps/backend`.
+- Against an isolated local MySQL database containing 85,000 delivered audit
+  events across 850 guild identities, 20 idle polls measured median 342 ms,
+  p95 522 ms and maximum 679 ms. The current anti-join scans retained history;
+  this identifies an implementation cost to remove, not a successful scale gate.
+  Raw results: `/tmp/quack-audit-load.log`. Run `TestAuditMirrorHistoricalLoad`
+  with `QUACK_LOAD_TESTS=1` and `QUACK_TEST_MYSQL_DSN` to repeat the assessment;
+  the helper creates and drops its own database and does not touch beta data.
