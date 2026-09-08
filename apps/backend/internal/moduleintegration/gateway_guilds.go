@@ -36,27 +36,37 @@ func (r *Runtime) memberEvent(member *discordgo.Member, eventType generallogging
 	r.submit(generallogging.Event{GuildID: guildID, Type: eventType, ActorDiscordUserID: actorID})
 }
 
-// onGuildBanAdd queues configured ban logging.
-func (r *Runtime) onGuildBanAdd(_ *discordgo.Session, event *discordgo.GuildBanAdd) {
-	r.banEvent(event.GuildID, event.User, generallogging.DiscordBan)
-}
-
-// onGuildBanRemove queues configured unban logging.
-func (r *Runtime) onGuildBanRemove(_ *discordgo.Session, event *discordgo.GuildBanRemove) {
-	r.banEvent(event.GuildID, event.User, generallogging.DiscordUnban)
-}
-
-// banEvent maps one Discord ban lifecycle event into module identity.
-func (r *Runtime) banEvent(discordGuildID string, user *discordgo.User, eventType generallogging.EventType) {
-	guildID, ok := r.internalGuildID(discordGuildID)
+// onModerationAuditEntry uses Discord's actor attribution to omit Quack's own
+// bans and unbans, which already have case/action audit records.
+func (r *Runtime) onModerationAuditEntry(_ *discordgo.Session, entry *discordgo.GuildAuditLogEntryCreate) {
+	event, ok := externalBanEvent(entry, currentBotID(r.session))
 	if !ok {
 		return
 	}
-	actorID := ""
-	if user != nil {
-		actorID = user.ID
+	guildID, ok := r.internalGuildID(entry.GuildID)
+	if !ok {
+		return
 	}
-	r.submit(generallogging.Event{GuildID: guildID, Type: eventType, ActorDiscordUserID: actorID})
+	event.GuildID = guildID
+	r.submit(event)
+}
+
+// externalBanEvent projects only externally performed ban lifecycle changes.
+// The target and actor are kept separate rather than labeling the target as staff.
+func externalBanEvent(entry *discordgo.GuildAuditLogEntryCreate, botID string) (generallogging.Event, bool) {
+	if entry == nil || entry.AuditLogEntry == nil || entry.ActionType == nil || entry.GuildID == "" || entry.TargetID == "" || entry.UserID == "" || botID == "" || entry.UserID == botID {
+		return generallogging.Event{}, false
+	}
+	var kind generallogging.EventType
+	switch *entry.ActionType {
+	case discordgo.AuditLogActionMemberBanAdd:
+		kind = generallogging.DiscordBan
+	case discordgo.AuditLogActionMemberBanRemove:
+		kind = generallogging.DiscordUnban
+	default:
+		return generallogging.Event{}, false
+	}
+	return generallogging.Event{Type: kind, ActorDiscordUserID: entry.UserID, Metadata: map[string]string{"target_id": entry.TargetID, "reason": entry.Reason, "discord_audit_entry_id": entry.ID}}, true
 }
 
 // onGuildUpdate queues non-content guild metadata changes.

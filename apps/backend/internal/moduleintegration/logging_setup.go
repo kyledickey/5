@@ -3,6 +3,7 @@ package moduleintegration
 import (
 	"context"
 	"fmt"
+	"github.com/bwmarrin/discordgo"
 
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/modules/generallogging"
@@ -26,6 +27,11 @@ func (r *Runtime) SetupLogging(ctx ui.Context) ui.HandlerResult {
 	return r.ticketTask(ctx, func(taskCtx context.Context, responder ui.Responder, identity tickets.Actor) error {
 		if !identity.CanManage {
 			_, err := responder.EditOriginal(ui.ErrorEdit("You need Manage Server permission to set up logging."))
+			return err
+		}
+		guild, member, permissionErr := currentBotMember(taskCtx, r.session, ctx.Interaction.GuildID)
+		if permissionErr != nil || channelPermissions(guild, &discordgo.Channel{GuildID: ctx.Interaction.GuildID}, member)&discordgo.PermissionViewAuditLogs == 0 {
+			_, err := responder.EditOriginal(ui.ErrorEdit("Quack needs View Audit Log permission to log bans by other moderators without duplicating its own actions."))
 			return err
 		}
 		actor := generallogging.Actor{GuildID: identity.GuildID, DiscordUserID: identity.DiscordUserID, CanManage: true}

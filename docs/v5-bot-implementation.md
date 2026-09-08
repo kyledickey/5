@@ -380,3 +380,13 @@ means further work is required, not completion.
   parity, Quack-ban suppression and live logging rehearsal. Module setup currently
   reuses the existing guild-authority task helper; its ticket-specific naming/types
   remain cleanup work.
+
+- General ban/unban logging now consumes Discord audit-entry gateway events so
+  actor attribution is explicit. Quack-authored actions are omitted; external
+  actions preserve the moderator, target, reason and source entry separately.
+  Removed registration of unattributed ban lifecycle handlers. Logging setup now
+  checks fresh View Audit Log authority for the bot, explaining its purpose when
+  missing. Tests cover own-action suppression and external ban/unban attribution;
+  focused and full backend suites pass. Audit-entry gateway delivery, existing
+  configurations missing the permission, reconnect replay behavior and live
+  ban/unban rehearsal remain pending.
