@@ -8,17 +8,18 @@ import (
 // Discord command adapters. Business use cases should be added here
 // instead of being implemented directly in handlers.
 type Services struct {
-	Config    config.Config
-	Store     Repository
-	Guilds    *GuildService
-	Settings  *GuildSettingsService
-	Templates *TemplateService
-	Cases     *CaseService
-	Appeals   *AppealService
-	Audits    *AuditService
-	Actions   *ActionService
-	Evidence  *EvidenceService
-	Ops       *OpsService
+	Config     config.Config
+	Store      Repository
+	Guilds     *GuildService
+	Settings   *GuildSettingsService
+	Templates  *TemplateService
+	Cases      *CaseService
+	Appeals    *AppealService
+	Audits     *AuditService
+	Statistics *StaffStatisticsService
+	Actions    *ActionService
+	Evidence   *EvidenceService
+	Ops        *OpsService
 }
 
 // New assembles storage-backed use cases without live Discord or worker adapters.
@@ -53,6 +54,7 @@ func NewWithConfigDependencies(cfg config.Config, store Repository, discord Disc
 		services.Cases.authorizer = services.Guilds
 	}
 	services.Audits = NewAuditService(store)
+	services.Statistics = NewStaffStatisticsService(store)
 	services.Actions = NewActionService(store, actions).WithRecoveryControls(services.Guilds, scheduler).WithDashboardBaseURL(cfg.ApplicationBaseURL)
 	services.Ops = NewOpsService(store, scheduler)
 	return services

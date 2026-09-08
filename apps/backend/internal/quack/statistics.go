@@ -23,7 +23,6 @@ type StatisticsInput struct {
 
 // StatisticsRepository derives operational statistics from immutable history.
 type StatisticsRepository interface {
-	CreateAuditLogEntry(context.Context, *model.AuditLogEntry) error
 	DeriveStaffStatistics(context.Context, model.StaffStatisticsParams) (*model.StaffStatistics, error)
 }
 
@@ -43,24 +42,17 @@ func (s *StaffStatisticsService) Get(ctx context.Context, guildContext *GuildSta
 		return nil, errors.New("statistics service is not configured")
 	}
 	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil || !guildContext.Can(model.PermissionActionAuditRead) {
-		s.auditRead(ctx, guildContext, model.AuditResultDenied, "permission_denied")
 		return nil, ErrStatisticsPermissionDenied
 	}
 	from, to, err := statisticsRange(input, time.Now().UTC())
 	if err != nil {
 		return nil, err
 	}
-	result, err := s.store.DeriveStaffStatistics(ctx, model.StaffStatisticsParams{GuildID: guildContext.Guild.ID, From: from, To: to})
-	if err != nil {
-		s.auditRead(ctx, guildContext, model.AuditResultFailure, "query_failed")
-		return nil, err
-	}
-	if err := s.auditRead(ctx, guildContext, model.AuditResultSuccess, ""); err != nil {
-		return nil, err
-	}
-	return result, nil
+	return s.store.DeriveStaffStatistics(ctx, model.StaffStatisticsParams{GuildID: guildContext.Guild.ID, From: from, To: to})
 }
 
+// statisticsRange normalizes the requested window to UTC and bounds expensive
+// history queries to one year. Omitted bounds select the preceding month.
 func statisticsRange(input StatisticsInput, now time.Time) (time.Time, time.Time, error) {
 	to := now.UTC()
 	var from time.Time
@@ -83,18 +75,4 @@ func statisticsRange(input StatisticsInput, now time.Time) (time.Time, time.Time
 		return time.Time{}, time.Time{}, fmt.Errorf("%w: range must be positive and at most 366 days", ErrStatisticsValidation)
 	}
 	return from, to, nil
-}
-
-func (s *StaffStatisticsService) auditRead(ctx context.Context, guildContext *GuildStaffContext, result model.AuditResult, failure string) error {
-	if guildContext == nil || guildContext.Guild == nil {
-		return nil
-	}
-	actorID := ""
-	bits := uint64(0)
-	if guildContext.Staff != nil {
-		actorID = guildContext.Staff.DiscordUserID
-		bits = guildContext.PermissionBits
-	}
-	requestID, correlationID := TraceIDsFromContext(ctx)
-	return recordAudit(ctx, s.store, &model.AuditLogEntry{GuildID: guildContext.Guild.ID, ActorDiscordUserID: actorID, ActorPermissionBits: bits, Source: model.AuditSourceAPI, Action: string(model.AuditActionStatisticsRead), ResourceType: "statistics", ResourceID: "guild", Result: result, FailureReason: failure, RequestID: requestID, CorrelationID: correlationID, MetadataJSON: "{}"})
 }

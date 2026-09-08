@@ -12,11 +12,11 @@ import (
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
-// RegisterAuditStatisticsStaffRoutes mounts QP-E feature routes without editing the integration-owned router.
+// RegisterAuditStatisticsStaffRoutes exposes the shared statistics use case behind
+// the same guild authorization required to read moderation history.
 func RegisterAuditStatisticsStaffRoutes(group *gin.RouterGroup, services *quack.Services) {
-	statistics := quack.NewStaffStatisticsService(services.Store)
 	group.GET("/:discordGuildID/statistics", middleware.RequireGuildContext(services, model.PermissionActionAuditRead), func(c *gin.Context) {
-		getStatistics(c, statistics)
+		getStatistics(c, services.Statistics)
 	})
 }
 
