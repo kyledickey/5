@@ -126,18 +126,6 @@ func RegisterRoutes(group *gin.RouterGroup, service *Service, resolve ActorResol
 		}
 		c.JSON(http.StatusOK, gin.H{"ticket": ticket})
 	})
-	module.POST("/:ticketID/reopen", func(c *gin.Context) {
-		actor, ok := resolveActor(c, resolve)
-		if !ok {
-			return
-		}
-		ticket, err := service.Reopen(c, actor, c.Param("ticketID"))
-		if err != nil {
-			writeError(c, err)
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"ticket": ticket})
-	})
 }
 
 func resolveActor(c *gin.Context, resolve ActorResolver) (Actor, bool) {

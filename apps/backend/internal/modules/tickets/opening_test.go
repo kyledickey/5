@@ -23,15 +23,15 @@ func TestOpeningReservationFencesExpiredWorkers(t *testing.T) {
 	s := NewStore(db)
 	actor := Actor{GuildID: "guild", DiscordUserID: "member"}
 	now := time.Now().UTC()
-	first, err := s.reserveOpening(context.Background(), actor, 3, now)
+	first, err := s.reserveOpening(context.Background(), actor, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.reserveOpening(context.Background(), actor, 3, now); !errors.Is(err, ErrDuplicateOpen) {
+	if _, err := s.reserveOpening(context.Background(), actor, now); !errors.Is(err, ErrDuplicateOpen) {
 		t.Fatalf("concurrent opening was not denied: %v", err)
 	}
 	later := now.Add(ticketOpeningTTL + time.Second)
-	second, err := s.reserveOpening(context.Background(), actor, 3, later)
+	second, err := s.reserveOpening(context.Background(), actor, later)
 	if err != nil {
 		t.Fatal(err)
 	}

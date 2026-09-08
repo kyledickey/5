@@ -87,17 +87,12 @@ func TestLifecyclePrivacyDuplicateRateAndIsolation(t *testing.T) {
 	if err != nil || transcript.Content != "private transcript" {
 		t.Fatalf("transcript=%+v err=%v", transcript, err)
 	}
-	reopened, err := service.Reopen(ctx, staff, ticket.ID)
-	if err != nil || reopened.Status != tickets.StatusOpen {
-		t.Fatalf("reopen=%+v err=%v", reopened, err)
-	}
-	cancelled, err := service.Cancel(ctx, member, ticket.ID)
-	if err != nil || cancelled.Status != tickets.StatusCancelled {
-		t.Fatalf("cancel=%+v err=%v", cancelled, err)
+	if _, err := service.Resolve(ctx, member, ticket.ID, "replacement"); !errors.Is(err, tickets.ErrInvalidTransition) {
+		t.Fatalf("closed ticket changed: %v", err)
 	}
 	transcript, err = service.Transcript(ctx, member, ticket.ID)
 	if err != nil || transcript.Content != "private transcript" {
-		t.Fatalf("cancel overwrote transcript=%+v err=%v", transcript, err)
+		t.Fatalf("closed transcript changed: %+v %v", transcript, err)
 	}
 	for index := 2; index <= 3; index++ {
 		opened, openErr := service.Open(ctx, member, fmt.Sprintf("thread-%d", index))
@@ -108,8 +103,8 @@ func TestLifecyclePrivacyDuplicateRateAndIsolation(t *testing.T) {
 			t.Fatalf("cancel %d: %v", index, cancelErr)
 		}
 	}
-	if _, err := service.Open(ctx, member, "thread-4"); !errors.Is(err, tickets.ErrRateLimited) {
-		t.Fatalf("rate error=%v", err)
+	if _, err := service.Open(ctx, member, "thread-4"); err != nil {
+		t.Fatalf("unexpected daily limit: %v", err)
 	}
 	if len(audit.events) < 5 {
 		t.Fatalf("audit events=%d", len(audit.events))
@@ -179,10 +174,11 @@ func TestDiscordOpeningLimitsPrecedeProvisioning(t *testing.T) {
 			t.Fatal("expected ACL rejection")
 		}
 	}
-	if _, err := adapter.Open(context.Background(), actor); !errors.Is(err, tickets.ErrRateLimited) {
-		t.Fatalf("failed provisioning bypassed daily allowance: %v", err)
+	client.permissionError = nil
+	if _, err := adapter.Open(context.Background(), actor); err != nil {
+		t.Fatalf("setup repair did not allow retry: %v", err)
 	}
-	if client.channelCalls != 4 || len(client.archived) != 3 {
+	if client.channelCalls != 5 || len(client.archived) != 3 {
 		t.Fatalf("unexpected provisional cleanup: %+v", client)
 	}
 }
@@ -216,6 +212,9 @@ func TestDiscordAdapterPrivateFlowAndRepair(t *testing.T) {
 		t.Fatal(err)
 	}
 	staff := tickets.Actor{GuildID: "guild-a", DiscordUserID: "staff", CanModerate: true, CanManage: true}
+	if _, err := adapter.Close(context.Background(), tickets.Actor{GuildID: "guild-a", DiscordUserID: "other"}, ticket.ID); !errors.Is(err, tickets.ErrPermissionDenied) {
+		t.Fatalf("unrelated member closed ticket: %v", err)
+	}
 	if err := adapter.Reply(context.Background(), staff, ticket.ID, "staff reply"); err != nil {
 		t.Fatal(err)
 	}
@@ -223,10 +222,10 @@ func TestDiscordAdapterPrivateFlowAndRepair(t *testing.T) {
 		t.Fatal(err)
 	}
 	client.failArchive = 1
-	if _, err := adapter.Close(context.Background(), staff, ticket.ID); err == nil {
+	if _, err := adapter.Close(context.Background(), member, ticket.ID); err == nil {
 		t.Fatal("expected first archive failure")
 	}
-	if _, err := adapter.Close(context.Background(), staff, ticket.ID); err != nil {
+	if _, err := adapter.Close(context.Background(), member, ticket.ID); err != nil {
 		t.Fatalf("retry close: %v", err)
 	}
 	second, err := adapter.Open(context.Background(), member)
@@ -264,10 +263,10 @@ func TestEnabledTicketsRequireStaffRole(t *testing.T) {
 func TestComponentRegistrarAndControls(t *testing.T) {
 	registry := interactions.NewComponentRegistry()
 	handler := func(ui.Context) ui.HandlerResult { return ui.Immediate(ui.Error("ok")) }
-	if err := tickets.RegisterComponents(registry, tickets.ComponentHandlers{Open: handler, Queue: handler, View: handler, Reply: handler, Close: handler}); err != nil {
+	if err := tickets.RegisterComponents(registry, tickets.ComponentHandlers{Open: handler, Queue: handler, View: handler, Close: handler}); err != nil {
 		t.Fatal(err)
 	}
-	for _, action := range []string{"open", "queue", "view", "reply", "close"} {
+	for _, action := range []string{"open", "queue", "view", "close"} {
 		customID := ui.MustCustomID(ui.CustomID{Namespace: "ticket", Action: action, Version: "v1", Payload: "ticket-id"})
 		if _, ok, err := registry.LookupComponent(customID); err != nil || !ok {
 			t.Fatalf("action %s ok=%v err=%v", action, ok, err)
@@ -276,6 +275,10 @@ func TestComponentRegistrarAndControls(t *testing.T) {
 	if len(tickets.EntryComponents()) != 1 || len(tickets.TicketComponents("ticket-id")) != 1 {
 		t.Fatal("missing ticket controls")
 	}
+	if _, ok, err := registry.LookupComponent(ui.MustCustomID(ui.CustomID{Namespace: "ticket", Action: "reply", Version: "v1", Payload: "ticket-id"})); err != nil || ok {
+		t.Fatalf("reply modal control remains: %v %v", ok, err)
+	}
+
 }
 
 func TestPrivateThreadSettingDefaultsAndRoundTrips(t *testing.T) {
@@ -297,5 +300,32 @@ func TestPrivateThreadSettingDefaultsAndRoundTrips(t *testing.T) {
 		if err != nil || loaded.UsePrivateThreads != useThreads {
 			t.Fatalf("read thread setting: %+v %v", loaded, err)
 		}
+	}
+}
+
+// TestOwnerCanCloseExistingTicketAfterModuleDisabled keeps closure available
+// during setup changes without allowing further tickets to be opened.
+func TestOwnerCanCloseExistingTicketAfterModuleDisabled(t *testing.T) {
+	_, service, _ := setup(t)
+	ctx := context.Background()
+	member := tickets.Actor{GuildID: "guild-a", DiscordUserID: "member"}
+	adapter := tickets.NewDiscordAdapter(service, &discordFake{})
+	ticket, err := adapter.Open(ctx, member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.UpdateSettings(ctx, tickets.Actor{GuildID: "guild-a", DiscordUserID: "admin", CanManage: true}, false, tickets.Defaults()); err != nil {
+		t.Fatal(err)
+	}
+	closed, err := adapter.Close(ctx, member, ticket.ID)
+	if err != nil || closed.Status != tickets.StatusResolved {
+		t.Fatalf("owner close: %+v %v", closed, err)
+	}
+	transcript, err := service.Transcript(ctx, member, ticket.ID)
+	if err != nil || transcript.Content != "captured" {
+		t.Fatalf("owner closure lost transcript: %+v %v", transcript, err)
+	}
+	if _, err := adapter.Open(ctx, member); !errors.Is(err, tickets.ErrDisabled) {
+		t.Fatalf("disabled module opened ticket: %v", err)
 	}
 }

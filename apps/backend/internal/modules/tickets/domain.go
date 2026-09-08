@@ -14,7 +14,7 @@ type Status string
 const (
 	// StatusOpen accepts member and staff replies.
 	StatusOpen Status = "open"
-	// StatusResolved is a staff-completed ticket eligible for bounded reopen.
+	// StatusResolved is a completed ticket; closed tickets cannot be reopened.
 	StatusResolved Status = "resolved"
 	// StatusCancelled is an owner- or staff-cancelled ticket.
 	StatusCancelled Status = "cancelled"
@@ -55,13 +55,11 @@ type Settings struct {
 	// UsePrivateThreads creates tickets under the entry channel when enabled.
 	UsePrivateThreads       bool `json:"use_private_threads"`
 	TranscriptRetentionDays int  `json:"transcript_retention_days"`
-	DailyOpenLimit          int  `json:"daily_open_limit"`
-	ReopenWindowHours       int  `json:"reopen_window_hours"`
 }
 
 // Defaults returns privacy-preserving settings for a newly enabled guild.
 func Defaults() Settings {
-	return Settings{UsePrivateThreads: true, TranscriptRetentionDays: 90, DailyOpenLimit: 3, ReopenWindowHours: 168}
+	return Settings{UsePrivateThreads: true, TranscriptRetentionDays: 90}
 }
 
 // Actor is the transport-neutral identity and current Discord authority for a ticket operation.

@@ -77,7 +77,7 @@ func Migration() modules.Migration {
 	}}
 }
 
-func (s *Store) create(ctx context.Context, guildID, ownerID, threadID string, dailyLimit int, now time.Time) (*Ticket, error) {
+func (s *Store) create(ctx context.Context, guildID, ownerID, threadID string, now time.Time) (*Ticket, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("ticket database is not connected")
 	}
@@ -90,13 +90,7 @@ func (s *Store) create(ctx context.Context, guildID, ownerID, threadID string, d
 		if state.OpenTicketID != "" {
 			return ErrDuplicateOpen
 		}
-		if now.Sub(state.WindowStartedAt) >= 24*time.Hour {
-			state.WindowStartedAt = now
-			state.OpenCount = 0
-		}
-		if state.OpenCount >= dailyLimit {
-			return ErrRateLimited
-		}
+
 		record := ticketRecord{ID: ulid.Make().String(), GuildID: guildID, OwnerDiscordUserID: ownerID, ThreadDiscordChannelID: threadID, Status: StatusOpen, MetadataJSON: "{}", CreatedAt: now, UpdatedAt: now}
 		if err := tx.Create(&record).Error; err != nil {
 			return err
@@ -105,7 +99,6 @@ func (s *Store) create(ctx context.Context, guildID, ownerID, threadID string, d
 			return err
 		}
 		state.OpenTicketID = record.ID
-		state.OpenCount++
 		state.UpdatedAt = now
 		if err := tx.Save(state).Error; err != nil {
 			return err

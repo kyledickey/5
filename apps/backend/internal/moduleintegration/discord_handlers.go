@@ -18,7 +18,7 @@ func (r *Runtime) RegisterComponents(registry *interactions.ComponentRegistry) e
 	}
 	handlers := tickets.ComponentHandlers{
 		Open: r.openTicketComponent, Queue: r.ticketQueueComponent,
-		View: r.viewTicketComponent, Reply: r.replyTicketComponent,
+		View:  r.viewTicketComponent,
 		Close: r.closeTicketComponent,
 	}
 	if err := tickets.RegisterComponents(registry, handlers); err != nil {
@@ -36,7 +36,7 @@ func (r *Runtime) RegisterComponents(registry *interactions.ComponentRegistry) e
 	if err := registry.RegisterComponent("ticket", "repair", r.repairTicketComponent); err != nil {
 		return err
 	}
-	return registry.RegisterModal("ticket", "reply-submit", r.submitTicketReplyModal)
+	return nil
 }
 
 // RegisterGatewayHandlers subscribes optional modules to gateway events without

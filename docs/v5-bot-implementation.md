@@ -190,3 +190,14 @@ means further work is required, not completion.
   tests cover undelivered submissions, pagination after a decision and revoked
   permissions. Notification failure diagnostics/resend controls, durable channel
   message refresh, rejoin links and live rehearsal still remain pending.
+
+- Read Legacy ticket creation/closure before changing the workflow. Owners now
+  use the normal Close control, and existing tickets remain closable when new
+  tickets are disabled. Reopen service/route and Discord reply-modal controls
+  were removed; members are directed to type in their thread. Daily limits and
+  reopen-window settings were removed, retaining the one-active-ticket reservation
+  and allowing retry after failed provisioning. Tests cover duplicate prevention,
+  owner closure, unrelated-user denial, disabled-module closure and removed
+  controls; focused and full backend suites pass. Queue transcript publication,
+  delete-after-save ordering, thread-only setup, and consolidation of old
+  resolved/cancelled persistence and HTTP closure paths remain pending.

@@ -23,3 +23,17 @@ func TestRouteRegistrarStatusAndAuthorization(t *testing.T) {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 }
+
+func TestTicketReopenRouteIsRemoved(t *testing.T) {
+	_, service, _ := setup(t)
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	tickets.RegisterRoutes(engine.Group("/guilds/:guildID/modules"), service, func(c *gin.Context) (tickets.Actor, error) {
+		return tickets.Actor{GuildID: c.Param("guildID"), DiscordUserID: "staff", CanModerate: true}, nil
+	})
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/guilds/guild-a/modules/tickets/ticket/reopen", nil))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("reopen route remains: %d", response.Code)
+	}
+}

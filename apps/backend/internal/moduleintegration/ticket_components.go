@@ -46,7 +46,7 @@ func (r *Runtime) openTicketComponent(ctx ui.Context) ui.HandlerResult {
 			_, _ = responder.EditOriginal(ui.ErrorEdit(ticketErrorMessage(err)))
 			return nil
 		}
-		message := ui.Signal("ticket", "Your ticket is ready: <#"+ticket.ThreadDiscordChannelID+">", true)
+		message := ui.Signal("ticket", "Your ticket is ready: <#"+ticket.ThreadDiscordChannelID+">. Type there whenever you’re ready; a moderator will join you.", true)
 		message.Components = ticketControls(ticket.ID, actor.CanManage)
 		_, err = responder.EditOriginal(ui.EditMessage(message))
 		return err
@@ -126,37 +126,6 @@ func ticketControls(ticketID string, includeRepair bool) []discordgo.MessageComp
 	row.Components = append(row.Components, ui.Button(repairID, "Repair permissions", discordgo.SecondaryButton, false))
 	components[0] = row
 	return components
-}
-
-// replyTicketComponent opens a modal so reply content never enters a custom ID.
-func (r *Runtime) replyTicketComponent(ctx ui.Context) ui.HandlerResult {
-	ticketID, err := ticketComponentID(ctx)
-	if err != nil {
-		return ui.Immediate(ui.Error("That ticket is unavailable."))
-	}
-	customID := ui.MustCustomID(ui.CustomID{Namespace: "ticket", Action: "reply-submit", Version: "v1", Payload: ticketID})
-	components := []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-		discordgo.TextInput{CustomID: "body", Label: "Reply", Style: discordgo.TextInputParagraph, Required: true, MinLength: 1, MaxLength: 4000},
-	}}}
-	return ui.Immediate(ui.Modal("Reply to ticket", customID, components))
-}
-
-// submitTicketReplyModal validates the modal and sends through the private adapter.
-func (r *Runtime) submitTicketReplyModal(ctx ui.Context) ui.HandlerResult {
-	data := ctx.Interaction.ModalSubmitData()
-	customID, err := ui.DecodeCustomID(data.CustomID)
-	if err != nil || customID.Payload == "" {
-		return ui.Immediate(ui.Error("That ticket reply is invalid."))
-	}
-	body := modalText(data.Components, "body")
-	return r.ticketTask(ctx, func(taskCtx context.Context, responder ui.Responder, actor tickets.Actor) error {
-		if err := r.TicketDiscord.Reply(taskCtx, actor, customID.Payload, body); err != nil {
-			_, _ = responder.EditOriginal(ui.ErrorEdit(ticketErrorMessage(err)))
-			return nil
-		}
-		_, err := responder.EditOriginal(ui.EditMessage(ui.Signal("reply", "Your reply was sent.", true)))
-		return err
-	})
 }
 
 // closeTicketComponent captures the transcript and resolves the ticket.

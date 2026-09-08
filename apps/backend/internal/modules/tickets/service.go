@@ -70,9 +70,9 @@ func (s *Service) UpdateSettings(ctx context.Context, actor Actor, enabled bool,
 	return settings, nil
 }
 
-// Open creates one member ticket after duplicate and rolling-day limits pass.
+// Open creates one ticket when the member has no active ticket.
 func (s *Service) Open(ctx context.Context, actor Actor, threadDiscordChannelID string) (*Ticket, error) {
-	settings, enabled, err := s.loadSettings(ctx, actor.GuildID)
+	_, enabled, err := s.loadSettings(ctx, actor.GuildID)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +82,7 @@ func (s *Service) Open(ctx context.Context, actor Actor, threadDiscordChannelID 
 	if strings.TrimSpace(actor.DiscordUserID) == "" || strings.TrimSpace(threadDiscordChannelID) == "" {
 		return nil, errors.New("member and private channel are required")
 	}
-	ticket, err := s.store.create(ctx, actor.GuildID, actor.DiscordUserID, threadDiscordChannelID, settings.DailyOpenLimit, s.now())
+	ticket, err := s.store.create(ctx, actor.GuildID, actor.DiscordUserID, threadDiscordChannelID, s.now())
 	if err != nil {
 		s.audit(ctx, actor, "ticket.open", "", "failure", err)
 		return nil, err
@@ -91,18 +91,20 @@ func (s *Service) Open(ctx context.Context, actor Actor, threadDiscordChannelID 
 	return ticket, nil
 }
 
-// Resolve closes an open ticket as current staff and stores its captured transcript.
+// Resolve closes a ticket for its owner or current moderators and preserves the
+// captured transcript. Disabling new tickets does not prevent existing closure.
 func (s *Service) Resolve(ctx context.Context, actor Actor, ticketID, transcript string) (*Ticket, error) {
-	if !actor.CanModerate {
-		s.audit(ctx, actor, "ticket.resolve", ticketID, "denied", ErrPermissionDenied)
-		return nil, ErrPermissionDenied
-	}
-	settings, enabled, err := s.loadSettings(ctx, actor.GuildID)
+	current, err := s.store.get(ctx, actor.GuildID, ticketID)
 	if err != nil {
 		return nil, err
 	}
-	if !enabled {
-		return nil, ErrDisabled
+	if actor.DiscordUserID != current.OwnerDiscordUserID && !actor.CanModerate {
+		s.audit(ctx, actor, "ticket.close", ticketID, "denied", ErrPermissionDenied)
+		return nil, ErrPermissionDenied
+	}
+	settings, _, err := s.loadSettings(ctx, actor.GuildID)
+	if err != nil {
+		return nil, err
 	}
 	now := s.now()
 	transcriptRecord := &Transcript{TicketID: ticketID, GuildID: actor.GuildID, Content: transcript, CapturedAt: now, ExpiresAt: now.AddDate(0, 0, settings.TranscriptRetentionDays)}
@@ -141,35 +143,6 @@ func (s *Service) cancel(ctx context.Context, actor Actor, ticketID string, tran
 		return nil, err
 	}
 	s.audit(ctx, actor, "ticket.cancel", ticket.ID, "success", nil)
-	return ticket, nil
-}
-
-// Reopen restores a recently resolved or cancelled ticket for current staff.
-func (s *Service) Reopen(ctx context.Context, actor Actor, ticketID string) (*Ticket, error) {
-	if !actor.CanModerate {
-		s.audit(ctx, actor, "ticket.reopen", ticketID, "denied", ErrPermissionDenied)
-		return nil, ErrPermissionDenied
-	}
-	settings, enabled, err := s.loadSettings(ctx, actor.GuildID)
-	if err != nil {
-		return nil, err
-	}
-	if !enabled {
-		return nil, ErrDisabled
-	}
-	current, err := s.store.get(ctx, actor.GuildID, ticketID)
-	if err != nil {
-		return nil, err
-	}
-	if s.now().Sub(current.UpdatedAt) > time.Duration(settings.ReopenWindowHours)*time.Hour {
-		return nil, ErrInvalidTransition
-	}
-	ticket, err := s.store.transition(ctx, actor.GuildID, ticketID, []Status{StatusResolved, StatusCancelled}, StatusOpen, actor.DiscordUserID, EventReopened, "Ticket reopened", false, nil, s.now())
-	if err != nil {
-		s.audit(ctx, actor, "ticket.reopen", ticketID, "failure", err)
-		return nil, err
-	}
-	s.audit(ctx, actor, "ticket.reopen", ticket.ID, "success", nil)
 	return ticket, nil
 }
 
@@ -316,12 +289,7 @@ func validateSettings(settings Settings, enabled bool) error {
 	if settings.TranscriptRetentionDays < 1 || settings.TranscriptRetentionDays > 365 {
 		return errors.New("transcript retention must be 1 to 365 days")
 	}
-	if settings.DailyOpenLimit < 1 || settings.DailyOpenLimit > 20 {
-		return errors.New("daily open limit must be 1 to 20")
-	}
-	if settings.ReopenWindowHours < 1 || settings.ReopenWindowHours > 720 {
-		return errors.New("reopen window must be 1 to 720 hours")
-	}
+
 	return nil
 }
 

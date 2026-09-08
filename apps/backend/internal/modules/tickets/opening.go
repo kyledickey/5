@@ -14,10 +14,9 @@ import (
 // replacement reservation has acquired the member slot.
 const ticketOpeningTTL = 5 * time.Minute
 
-// reserveOpening consumes the member's duplicate and daily allowance before any
-// Discord channel is created. Failed attempts retain their daily count so a
-// member cannot repeatedly force expensive provisioning failures.
-func (s *Store) reserveOpening(ctx context.Context, actor Actor, dailyLimit int, now time.Time) (string, error) {
+// reserveOpening reserves one active ticket before Discord provisioning. Failed
+// setup releases the reservation so the member can retry after repair.
+func (s *Store) reserveOpening(ctx context.Context, actor Actor, now time.Time) (string, error) {
 	if s == nil || s.db == nil || actor.GuildID == "" || actor.DiscordUserID == "" {
 		return "", errors.New("ticket member and database are required")
 	}
@@ -36,14 +35,8 @@ func (s *Store) reserveOpening(ctx context.Context, actor Actor, dailyLimit int,
 				return ErrDuplicateOpen
 			}
 		}
-		if now.Sub(state.WindowStartedAt) >= 24*time.Hour {
-			state.WindowStartedAt, state.OpenCount = now, 0
-		}
-		if state.OpenCount >= dailyLimit {
-			return ErrRateLimited
-		}
+
 		state.OpenTicketID, state.UpdatedAt = token, now
-		state.OpenCount++
 		return tx.Model(state).Updates(map[string]any{
 			"open_ticket_id": state.OpenTicketID, "open_count": state.OpenCount,
 			"window_started_at": state.WindowStartedAt, "updated_at": now,
@@ -53,7 +46,7 @@ func (s *Store) reserveOpening(ctx context.Context, actor Actor, dailyLimit int,
 }
 
 // finishOpening converts only the current member reservation into a durable
-// ticket and timeline. It never consumes a second daily allowance.
+// ticket and timeline. It preserves the single active ticket reservation.
 func (s *Store) finishOpening(ctx context.Context, actor Actor, token, channelID string, now time.Time) (*Ticket, error) {
 	var ticket Ticket
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {

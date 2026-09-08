@@ -39,7 +39,7 @@ func (a *DiscordAdapter) Open(ctx context.Context, actor Actor) (*Ticket, error)
 	if !enabled {
 		return nil, ErrDisabled
 	}
-	token, err := a.service.store.reserveOpening(ctx, actor, settings.DailyOpenLimit, a.service.now())
+	token, err := a.service.store.reserveOpening(ctx, actor, a.service.now())
 	if err != nil {
 		return nil, err
 	}
@@ -88,9 +88,6 @@ func (a *DiscordAdapter) Reply(ctx context.Context, actor Actor, ticketID, body 
 
 // Close captures the transcript before resolving and archiving the private channel.
 func (a *DiscordAdapter) Close(ctx context.Context, actor Actor, ticketID string) (*Ticket, error) {
-	if !actor.CanModerate {
-		return nil, ErrPermissionDenied
-	}
 	ticket, _, err := a.service.Detail(ctx, actor, ticketID)
 	if err != nil {
 		return nil, err
