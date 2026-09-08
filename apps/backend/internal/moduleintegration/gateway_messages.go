@@ -31,6 +31,7 @@ func (r *Runtime) internalGuildID(discordGuildID string) (string, bool) {
 // onMessageCreate retains bounded context only when logging is enabled.
 func (r *Runtime) onMessageCreate(_ *discordgo.Session, event *discordgo.MessageCreate) {
 	r.submitHoneypotMessage(event)
+	r.recordTicketMessage(event)
 	if event == nil || event.Message == nil || event.GuildID == "" {
 		return
 	}

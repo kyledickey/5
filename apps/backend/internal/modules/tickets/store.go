@@ -75,7 +75,7 @@ func NewStore(db *gorm.DB) *Store { return &Store{db: db} }
 // Migration exposes ticket schema changes without editing the central migration registry.
 func Migration() modules.Migration {
 	return modules.Migration{Version: 110, Name: "ticket_lifecycle", Apply: func(db *gorm.DB) error {
-		return db.AutoMigrate(&ticketRecord{}, &eventRecord{}, &transcriptRecord{}, &memberStateRecord{})
+		return db.AutoMigrate(&ticketRecord{}, &eventRecord{}, &transcriptRecord{}, &memberStateRecord{}, &MessageJournal{})
 	}}
 }
 
@@ -154,6 +154,9 @@ func (s *Store) captureClosure(ctx context.Context, guildID, ticketID, actorID s
 			if err := tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&transcriptRecord{TicketID: record.ID, GuildID: record.GuildID, Content: transcript.Content, CapturedAt: transcript.CapturedAt, ExpiresAt: transcript.ExpiresAt}).Error; err != nil {
 				return err
 			}
+		}
+		if err := tx.Model(&MessageJournal{}).Where("guild_id = ? AND ticket_id = ?", guildID, ticketID).Update("expires_at", transcript.ExpiresAt).Error; err != nil {
+			return err
 		}
 		out = ticketFromRecord(record)
 		return nil
@@ -238,8 +241,16 @@ func (s *Store) transcript(ctx context.Context, guildID, ticketID string, now ti
 }
 
 func (s *Store) purgeExpiredTranscripts(ctx context.Context, now time.Time) (int64, error) {
-	result := s.db.WithContext(ctx).Where("expires_at <= ?", now).Delete(&transcriptRecord{})
-	return result.RowsAffected, result.Error
+	var count int64
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := purgeJournal(tx, now); err != nil {
+			return err
+		}
+		result := tx.Where("expires_at <= ?", now).Delete(&transcriptRecord{})
+		count = result.RowsAffected
+		return result.Error
+	})
+	return count, err
 }
 
 func (s *Store) importTicket(ctx context.Context, source LegacyTicket, now time.Time) (string, bool, error) {

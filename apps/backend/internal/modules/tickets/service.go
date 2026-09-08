@@ -18,11 +18,14 @@ type Service struct {
 	store    *Store
 	auditor  modules.Auditor
 	now      func() time.Time
+	journal  messageJournalGate
 }
 
 // NewService constructs the ticket boundary from explicit module dependencies.
 func NewService(registry *modules.Registry, store *Store, auditor modules.Auditor) *Service {
-	return &Service{registry: registry, store: store, auditor: auditor, now: func() time.Time { return time.Now().UTC() }}
+	service := &Service{registry: registry, store: store, auditor: auditor, now: func() time.Time { return time.Now().UTC() }}
+	service.hydrateJournalThreads()
+	return service
 }
 
 // Settings returns one guild's ticket settings to current managers.
@@ -87,6 +90,7 @@ func (s *Service) Open(ctx context.Context, actor Actor, threadDiscordChannelID 
 		s.audit(ctx, actor, "ticket.open", "", "failure", err)
 		return nil, err
 	}
+	s.rememberJournalThread(ticket)
 	s.audit(ctx, actor, "ticket.open", ticket.ID, "success", nil)
 	return ticket, nil
 }
@@ -114,6 +118,9 @@ func (s *Service) Resolve(ctx context.Context, actor Actor, ticketID, transcript
 		s.audit(ctx, actor, "ticket.resolve", ticketID, "failure", err)
 		return nil, err
 	}
+	s.journal.mu.Lock()
+	delete(s.journal.known, ticket.ThreadDiscordChannelID)
+	s.journal.mu.Unlock()
 	s.audit(ctx, actor, "ticket.resolve", ticket.ID, "success", nil)
 	return ticket, nil
 }

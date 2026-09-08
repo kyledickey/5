@@ -75,6 +75,7 @@ func (a *DiscordAdapter) Open(ctx context.Context, actor Actor) (*Ticket, error)
 		a.service.audit(ctx, actor, "ticket.open", token, "failure", err)
 		return nil, err
 	}
+	a.service.rememberJournalThread(ticket)
 	a.service.audit(ctx, actor, "ticket.open", ticket.ID, "success", nil)
 	// A failed greeting must not suppress the staff notification for a saved ticket.
 	welcomeErr := a.client.SendTicketWelcome(ctx, ticket)
@@ -97,6 +98,12 @@ func (a *DiscordAdapter) Reply(ctx context.Context, actor Actor, ticketID, body 
 	return a.service.Reply(ctx, actor, ticketID, body)
 }
 
+// MessageTranscriptCapture exposes native identities so closure can merge original
+// journal text without duplicating messages still present in Discord history.
+type MessageTranscriptCapture interface {
+	CaptureTicketMessages(context.Context, string) ([]TranscriptMessage, error)
+}
+
 // Close preserves and publishes the transcript before deleting the private thread.
 func (a *DiscordAdapter) Close(ctx context.Context, actor Actor, ticketID string) (*Ticket, error) {
 	release, err := a.closes.acquire(ctx, actor.GuildID+":"+ticketID)
@@ -113,11 +120,19 @@ func (a *DiscordAdapter) Close(ctx context.Context, actor Actor, ticketID string
 		if err := a.client.FreezeTicketChannel(ctx, ticket.ThreadDiscordChannelID); err != nil {
 			return ticket, err
 		}
-		transcript, err := a.client.CaptureTicketTranscript(ctx, ticket.ThreadDiscordChannelID)
-		if err != nil {
-			return ticket, err
+		if capture, ok := a.client.(MessageTranscriptCapture); ok {
+			messages, captureErr := capture.CaptureTicketMessages(ctx, ticket.ThreadDiscordChannelID)
+			if captureErr != nil {
+				return ticket, captureErr
+			}
+			resolved, err = a.service.ResolveNativeTranscript(ctx, actor, ticketID, messages)
+		} else {
+			transcript, captureErr := a.client.CaptureTicketTranscript(ctx, ticket.ThreadDiscordChannelID)
+			if captureErr != nil {
+				return ticket, captureErr
+			}
+			resolved, err = a.service.resolveLegacyTranscript(ctx, actor, ticketID, transcript)
 		}
-		resolved, err = a.service.Resolve(ctx, actor, ticketID, transcript)
 		if err != nil {
 			return ticket, err
 		}

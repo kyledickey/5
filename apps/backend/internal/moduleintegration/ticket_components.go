@@ -257,6 +257,8 @@ func modalText(components []discordgo.MessageComponent, customID string) string 
 // ticketErrorMessage maps internal classifications to safe Discord copy.
 func ticketErrorMessage(err error) string {
 	switch {
+	case errors.Is(err, tickets.ErrJournalIncomplete):
+		return "This ticket cannot close because some received messages could not be retained. Ask a server administrator to check transcript storage."
 	case errors.Is(err, tickets.ErrDisabled):
 		return "Tickets are not enabled for this server."
 	case errors.Is(err, tickets.ErrPermissionDenied):

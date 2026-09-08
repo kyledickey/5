@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
-	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
@@ -98,22 +96,22 @@ func (c ticketDiscordClient) SendTicketReply(ctx context.Context, channelID, bod
 	return err
 }
 
-// CaptureTicketTranscript snapshots the complete available private message
-// history in stable chronological order before closure.
-func (c ticketDiscordClient) CaptureTicketTranscript(ctx context.Context, channelID string) (string, error) {
+// CaptureTicketMessages snapshots available private history with stable message
+// identities, allowing closure to merge retained original text after deletions.
+func (c ticketDiscordClient) CaptureTicketMessages(ctx context.Context, channelID string) ([]tickets.TranscriptMessage, error) {
 	before := ""
 	messages := make([]*discordgo.Message, 0, 100)
 	for {
 		if err := ctx.Err(); err != nil {
-			return "", err
+			return nil, err
 		}
 		page, err := c.session.ChannelMessages(channelID, 100, before, "", "", discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		for _, message := range page {
 			if message == nil || message.ID == "" {
-				return "", errors.New("Discord returned an incomplete ticket history page")
+				return nil, errors.New("Discord returned an incomplete ticket history page")
 			}
 		}
 		messages = append(messages, page...)
@@ -122,41 +120,41 @@ func (c ticketDiscordClient) CaptureTicketTranscript(ctx context.Context, channe
 		}
 		next := page[len(page)-1].ID
 		if before != "" && (len(next) > len(before) || len(next) == len(before) && next >= before) {
-			return "", errors.New("Discord ticket history pagination did not advance")
+			return nil, errors.New("Discord ticket history pagination did not advance")
 		}
 		before = next
 	}
-	sort.Slice(messages, func(i, j int) bool {
-		if messages[i].Timestamp.Equal(messages[j].Timestamp) {
-			if len(messages[i].ID) != len(messages[j].ID) {
-				return len(messages[i].ID) < len(messages[j].ID)
-			}
-			return messages[i].ID < messages[j].ID
-		}
-		return messages[i].Timestamp.Before(messages[j].Timestamp)
-	})
-	var transcript strings.Builder
-	seen := make(map[string]struct{}, len(messages))
+	result := make([]tickets.TranscriptMessage, 0, len(messages))
 	for _, message := range messages {
-		if _, exists := seen[message.ID]; exists {
-			continue
-		}
-		seen[message.ID] = struct{}{}
-		authorID := "unknown"
-		if message.Author != nil {
-			authorID = message.Author.Username + " (" + message.Author.ID + ")"
-		}
-		fmt.Fprintf(&transcript, "[%s] %s: %s\n", message.Timestamp.UTC().Format(time.RFC3339), authorID, message.Content)
-		for _, attachment := range message.Attachments {
-			if attachment != nil {
-				fmt.Fprintf(&transcript, "  attachment: %s (%d bytes)\n", attachment.Filename, attachment.Size)
-				if attachment.URL != "" {
-					fmt.Fprintf(&transcript, "  original attachment URL (may expire): %s\n", attachment.URL)
-				}
-			}
+		result = append(result, ticketTranscriptMessage(message))
+	}
+	return result, nil
+}
+
+// CaptureTicketTranscript retains the older text-only client port for callers
+// outside native journal closure; both paths share the same checked pagination.
+func (c ticketDiscordClient) CaptureTicketTranscript(ctx context.Context, channelID string) (string, error) {
+	messages, err := c.CaptureTicketMessages(ctx, channelID)
+	if err != nil {
+		return "", err
+	}
+	return tickets.FormatTranscript(messages), nil
+}
+
+// ticketTranscriptMessage copies original identity/text and surviving attachment
+// metadata into the module-owned snapshot without retaining Discord pointers.
+func ticketTranscriptMessage(message *discordgo.Message) tickets.TranscriptMessage {
+	snapshot := tickets.TranscriptMessage{MessageID: message.ID, Body: message.Content, SentAt: message.Timestamp}
+	if message.Author != nil {
+		snapshot.AuthorID = message.Author.ID
+		snapshot.AuthorName = message.Author.Username
+	}
+	for _, attachment := range message.Attachments {
+		if attachment != nil {
+			snapshot.Attachments = append(snapshot.Attachments, tickets.TranscriptAttachment{Name: attachment.Filename, Size: attachment.Size, URL: attachment.URL})
 		}
 	}
-	return transcript.String(), nil
+	return snapshot
 }
 
 // FreezeTicketChannel closes normal thread posting before transcript capture.
