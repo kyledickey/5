@@ -2,6 +2,7 @@ package honeypot
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -107,6 +108,22 @@ func (s *Store) ClaimIncident(ctx context.Context, message Message, templateID s
 		var config modules.Configuration
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("guild_id = ? AND module_id = ?", message.GuildID, modules.Honeypots).First(&config).Error; err != nil {
 			return err
+		}
+		// The service's earlier settings read may predate an administrator edit.
+		// Resolve the policy again under the claim lock before reserving an incident.
+		if !config.Enabled {
+			return ErrDisabled
+		}
+		var settings Settings
+		if err := json.Unmarshal([]byte(config.ConfigJSON), &settings); err != nil {
+			return err
+		}
+		settings = normalizeSettings(settings)
+		if settings.ChannelDiscordID != message.ChannelDiscordID || settings.TemplateID != templateID {
+			return ErrNotTrigger
+		}
+		if isExempt(message, settings) {
+			return ErrExempt
 		}
 		var recent Trigger
 		result := tx.Where("guild_id = ? AND target_discord_user_id = ? AND channel_discord_id = ? AND created_at > ? AND outcome IN ?", message.GuildID, message.AuthorDiscordUserID, message.ChannelDiscordID, time.Now().UTC().Add(-30*time.Second), []Outcome{OutcomePending, OutcomeCreated}).Order("created_at DESC").Limit(1).Find(&recent)

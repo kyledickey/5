@@ -58,6 +58,9 @@ func (v honeypotTemplateValidator) ValidateHoneypotTemplate(ctx context.Context,
 	}
 	template, err := v.repository.GetCaseTemplateExpanded(ctx, strings.TrimSpace(guildID), strings.TrimSpace(templateID))
 	if err != nil {
+		if errors.Is(err, model.ErrTemplateCompatibilityReviewRequired) {
+			return fmt.Errorf("%w: %v", honeypot.ErrTemplateUnavailable, err)
+		}
 		return err
 	}
 	if template == nil || template.Template.ArchivedAt != nil {

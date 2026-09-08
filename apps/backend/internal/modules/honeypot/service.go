@@ -116,7 +116,9 @@ func (s *Service) HandleMessage(ctx context.Context, message Message) (ApplyResu
 	}
 	if err != nil {
 		_ = s.store.Complete(ctx, trigger.ID, OutcomeFailed, "", "template_unavailable")
-		_ = s.disableForDrift(ctx, message.GuildID, settings, "selected template is archived, missing, or incompatible")
+		if errors.Is(err, ErrTemplateUnavailable) {
+			_ = s.disableForDrift(ctx, message.GuildID, settings, "selected template is archived, missing, or incompatible")
+		}
 		s.audit(ctx, message.GuildID, "", "honeypot.trigger.failed", "honeypot_trigger", "failure", err, trigger.ID)
 		return ApplyResult{}, fmt.Errorf("%w: %v", ErrTemplateUnavailable, err)
 	}

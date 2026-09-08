@@ -283,3 +283,13 @@ means further work is required, not completion.
   bursts, window expiry, failure recovery and draining independent members. The
   full backend suite passes. MySQL concurrency/live Discord verification, trap
   setup/counter, evidence deletion ordering and broader honeypot repair remain pending.
+
+- Honeypot incident claims now revalidate enabled state, selected channel/template
+  and exemptions under the configuration lock, rejecting jobs based on stale
+  settings before persisting an incident. Temporary template lookup errors record
+  a failed trigger but keep the trap enabled; only confirmed template unavailability
+  disables it. Compatibility-review errors are classified as confirmed unavailable.
+  Tests cover disabled/moved/reconfigured traps, new exemptions and automatic
+  recovery after a temporary lookup failure. Focused and full backend suites pass.
+  Changes after an incident has already been claimed still require completion of
+  that accepted operation. Setup/counter and live verification remain outstanding.

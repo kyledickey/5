@@ -236,7 +236,7 @@ func TestFailureAndDriftDisableSafelyAndRepair(t *testing.T) {
 		t.Fatalf("ordinary failure changed enablement: status=%+v err=%v", status, err)
 	}
 	fixture.applier.err = nil
-	fixture.validator.templateErr = errors.New("archived template")
+	fixture.validator.templateErr = fmt.Errorf("%w: archived template", honeypot.ErrTemplateUnavailable)
 	if _, err := fixture.service.HandleMessage(context.Background(), message("drift")); !errors.Is(err, honeypot.ErrTemplateUnavailable) {
 		t.Fatalf("template drift error=%v", err)
 	}
@@ -453,5 +453,65 @@ func TestFailedHoneypotIncidentDoesNotSuppressNextMessage(t *testing.T) {
 	}
 	if fixture.applier.count() != 2 {
 		t.Fatal("failed incident prevented recovery")
+	}
+}
+
+// TestIncidentClaimRechecksChangedConfiguration models a gateway job whose
+// initial settings read happened before the administrator changed the trap.
+func TestIncidentClaimRechecksChangedConfiguration(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		enabled  bool
+		settings honeypot.Settings
+		want     error
+	}{
+		{"disabled", false, honeypot.Settings{ChannelDiscordID: "trap", TemplateID: "template"}, honeypot.ErrDisabled},
+		{"new template", true, honeypot.Settings{ChannelDiscordID: "trap", TemplateID: "replacement"}, honeypot.ErrNotTrigger},
+		{"new channel", true, honeypot.Settings{ChannelDiscordID: "replacement", TemplateID: "template"}, honeypot.ErrNotTrigger},
+		{"new exemption", true, honeypot.Settings{ChannelDiscordID: "trap", TemplateID: "template", ExemptRoleDiscordIDs: []string{"exempt"}}, honeypot.ErrExempt},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := setup(t)
+			enable(t, fixture, "guild-a")
+			actor := honeypot.Actor{GuildID: "guild-a", DiscordUserID: "admin", CanManage: true}
+			if _, _, err := fixture.service.UpdateSettings(context.Background(), actor, test.enabled, test.settings); err != nil {
+				t.Fatal(err)
+			}
+			event := message("stale-job")
+			event.AuthorRoleDiscordIDs = []string{"exempt"}
+			_, claimed, err := honeypot.NewStore(fixture.db).ClaimIncident(context.Background(), event, "template")
+			if claimed || !errors.Is(err, test.want) {
+				t.Fatalf("stale claim=%v err=%v", claimed, err)
+			}
+			var count int64
+			if err := fixture.db.Model(&honeypot.Trigger{}).Count(&count).Error; err != nil {
+				t.Fatal(err)
+			}
+			if count != 0 {
+				t.Fatal("stale policy persisted an incident")
+			}
+		})
+	}
+}
+
+// TestTemporaryTemplateFailureKeepsHoneypotEnabled prevents a database outage
+// from becoming a permanent configuration change that needs administrator repair.
+func TestTemporaryTemplateFailureKeepsHoneypotEnabled(t *testing.T) {
+	fixture := setup(t)
+	actor := enable(t, fixture, "guild-a")
+	fixture.validator.templateErr = errors.New("temporary database failure")
+	if _, err := fixture.service.HandleMessage(context.Background(), message("outage")); err == nil {
+		t.Fatal("lookup failure ignored")
+	}
+	_, status, err := fixture.service.Settings(context.Background(), actor)
+	if err != nil || !status.Enabled || status.Statistics.Failed != 1 {
+		t.Fatalf("temporary failure disabled trap: %+v %v", status, err)
+	}
+	fixture.validator.templateErr = nil
+	if _, err := fixture.service.HandleMessage(context.Background(), message("recovered")); err != nil {
+		t.Fatal(err)
+	}
+	if fixture.applier.count() != 1 {
+		t.Fatal("trap did not recover automatically")
 	}
 }
