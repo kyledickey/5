@@ -28,8 +28,13 @@ func (s *Store) ClaimPendingAppealNotifications(ctx context.Context, limit int) 
 	expiresAt := now.Add(2 * time.Minute)
 	var records []AppealNotificationRecord
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// An interrupted send has an unknown external outcome. Preserve it for
+		// review instead of automatically creating a duplicate queue message or DM.
+		if err := tx.Model(&AppealNotificationRecord{}).Where("status = ? AND lease_expires_at <= ?", model.AppealNotificationSending, now).Updates(map[string]any{"status": model.AppealNotificationFailed, "last_error_code": "delivery_outcome_unknown", "lease_token": "", "lease_expires_at": nil, "updated_at": now}).Error; err != nil {
+			return err
+		}
 		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("status = ? OR (status = ? AND lease_expires_at <= ?)", model.AppealNotificationPending, model.AppealNotificationClaimed, now).
+			Where("status = ? OR (status = ? AND lease_expires_at <= ?) OR (status = ? AND last_error_code = ? AND updated_at <= ?)", model.AppealNotificationPending, model.AppealNotificationClaimed, now, model.AppealNotificationFailed, "delivery_deferred", now.Add(-time.Minute)).
 			Order("created_at ASC").Limit(limit).Find(&records)
 		if result.Error != nil || len(records) == 0 {
 			return result.Error
@@ -69,7 +74,24 @@ func (s *Store) CompleteAppealNotification(ctx context.Context, params model.Com
 	if params.Status != model.AppealNotificationSent && params.Status != model.AppealNotificationFailed {
 		return errors.New("appeal notification completion status is invalid")
 	}
-	result := s.db.WithContext(ctx).Model(&AppealNotificationRecord{}).Where("id = ? AND status = ? AND lease_token = ?", params.NotificationID, model.AppealNotificationClaimed, params.LeaseToken).Updates(map[string]any{"status": params.Status, "delivery_message_id": params.DeliveryMessageID, "last_error_code": params.ErrorCode, "lease_token": "", "lease_expires_at": nil, "updated_at": time.Now().UTC()})
+	result := s.db.WithContext(ctx).Model(&AppealNotificationRecord{}).Where("id = ? AND status = ? AND lease_token = ?", params.NotificationID, model.AppealNotificationSending, params.LeaseToken).Updates(map[string]any{"status": params.Status, "delivery_message_id": params.DeliveryMessageID, "last_error_code": params.ErrorCode, "lease_token": "", "lease_expires_at": nil, "updated_at": time.Now().UTC()})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return model.ErrAppealStateConflict
+	}
+	return nil
+}
+
+// BeginAppealNotificationDelivery fences the external send with the current
+// unexpired lease. Claimed work can recover safely; sending work cannot.
+func (s *Store) BeginAppealNotificationDelivery(ctx context.Context, id, token string) error {
+	if s == nil || s.db == nil {
+		return errors.New("database not connected")
+	}
+	now := time.Now().UTC()
+	result := s.db.WithContext(ctx).Model(&AppealNotificationRecord{}).Where("id = ? AND status = ? AND lease_token = ? AND lease_expires_at > ?", id, model.AppealNotificationClaimed, token, now).Updates(map[string]any{"status": model.AppealNotificationSending, "updated_at": now})
 	if result.Error != nil {
 		return result.Error
 	}

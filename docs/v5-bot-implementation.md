@@ -170,3 +170,13 @@ means further work is required, not completion.
   pre-release guild-settings baseline was extended; schema consolidation/reset
   and live setup verification remain pending. Previously failed notifications
   still need the recovery work listed above.
+
+- Appeal notification delivery now distinguishes a leased item from an external
+  send in progress. Stale leases cannot begin sending; interrupted sends retain
+  an unknown-outcome failure instead of being resent automatically. Known staff
+  channel/permission/rate-limit failures retry after a one-minute delay, allowing
+  setup repair to recover undelivered queue entries. Blocked member DMs remain
+  recorded failures. Tests cover safe retry timing, expired lease fencing and
+  unknown outcomes; focused and full backend suites pass. A staff-facing recovery
+  view for ambiguous notification failures and durable queue-message refresh
+  remain pending, as does live verification.

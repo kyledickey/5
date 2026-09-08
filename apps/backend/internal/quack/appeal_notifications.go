@@ -3,10 +3,14 @@ package quack
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
+
+// ErrAppealDeliveryDeferred means no message was delivered and a later retry is safe.
+var ErrAppealDeliveryDeferred = errors.New("appeal delivery deferred")
 
 // AppealNotificationClient sends already-rendered, staff-identity-free appeal messages.
 type AppealNotificationClient interface {
@@ -38,6 +42,9 @@ func (d *AppealNotificationDispatcher) DispatchPending(ctx context.Context, limi
 		return err
 	}
 	for _, item := range items {
+		if err := d.store.BeginAppealNotificationDelivery(ctx, item.ID, item.LeaseToken); err != nil {
+			return err
+		}
 		var messageID string
 		var sendErr error
 		switch item.Audience {
@@ -46,12 +53,18 @@ func (d *AppealNotificationDispatcher) DispatchPending(ctx context.Context, limi
 		case model.AppealNotificationStaff:
 			var record *model.Appeal
 			record, sendErr = d.store.GetAppealByID(ctx, item.AppealID)
+			if sendErr != nil {
+				sendErr = fmt.Errorf("%w: %v", ErrAppealDeliveryDeferred, sendErr)
+			}
 			if sendErr == nil && (record == nil || record.GuildID != item.GuildID) {
 				sendErr = ErrAppealNotFound
 			}
 			if sendErr == nil {
 				var appeal *AppealResponse
 				appeal, sendErr = NewAppealService(d.store).response(ctx, record, false)
+				if sendErr != nil {
+					sendErr = fmt.Errorf("%w: %v", ErrAppealDeliveryDeferred, sendErr)
+				}
 				if sendErr == nil {
 					messageID, sendErr = d.client.SendAppealStaffNotification(ctx, item.GuildID, appeal)
 				}
@@ -74,6 +87,9 @@ func (d *AppealNotificationDispatcher) DispatchPending(ctx context.Context, limi
 func appealNotificationErrorCode(err error) string {
 	if err == nil {
 		return ""
+	}
+	if errors.Is(err, ErrAppealDeliveryDeferred) {
+		return "delivery_deferred"
 	}
 	text := strings.ToLower(err.Error())
 	switch {

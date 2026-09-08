@@ -344,6 +344,12 @@ func TestAppealNotificationClaimRecoversExpiredLeaseAndRejectsStaleCompletion(t 
 	if err := repository.CompleteAppealNotification(ctx, model.CompleteAppealNotificationParams{NotificationID: first[0].ID, LeaseToken: first[0].LeaseToken, Status: model.AppealNotificationSent}); !errors.Is(err, model.ErrAppealStateConflict) {
 		t.Fatalf("stale lease completed reclaimed notification: %v", err)
 	}
+	if err := repository.BeginAppealNotificationDelivery(ctx, first[0].ID, first[0].LeaseToken); !errors.Is(err, model.ErrAppealStateConflict) {
+		t.Fatalf("stale worker began send: %v", err)
+	}
+	if err := repository.BeginAppealNotificationDelivery(ctx, second[0].ID, second[0].LeaseToken); err != nil {
+		t.Fatal(err)
+	}
 	if err := repository.CompleteAppealNotification(ctx, model.CompleteAppealNotificationParams{NotificationID: second[0].ID, LeaseToken: second[0].LeaseToken, Status: model.AppealNotificationSent}); err != nil {
 		t.Fatalf("current lease completion: %v", err)
 	}
@@ -453,4 +459,50 @@ func (c *appealNotificationClientStub) counts() (int, int) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	return c.member, c.staff
+}
+
+// TestAppealNotificationRecoverySeparatesSafeFailureFromUnknownSend prevents
+// both lost queue deliveries after setup repair and duplicate ambiguous sends.
+func TestAppealNotificationRecoverySeparatesSafeFailureFromUnknownSend(t *testing.T) {
+	ctx := context.Background()
+	repository, guild := newAppealTestStore(t)
+	item := createAppealableCase(t, repository, guild.ID, "target", true)
+	if _, err := quack.NewAppealService(repository).Submit(ctx, item.ID, "target", quack.AppealSubmissionInput{Answers: []model.AppealAnswer{{QuestionID: "reason", Value: "Please reconsider."}}}); err != nil {
+		t.Fatal(err)
+	}
+	claim, err := repository.ClaimPendingAppealNotifications(ctx, 1)
+	if err != nil || len(claim) != 1 {
+		t.Fatalf("claim: %+v %v", claim, err)
+	}
+	first := claim[0]
+	if err := repository.BeginAppealNotificationDelivery(ctx, first.ID, first.LeaseToken); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.CompleteAppealNotification(ctx, model.CompleteAppealNotificationParams{NotificationID: first.ID, LeaseToken: first.LeaseToken, Status: model.AppealNotificationFailed, ErrorCode: "delivery_deferred"}); err != nil {
+		t.Fatal(err)
+	}
+	if immediate, err := repository.ClaimPendingAppealNotifications(ctx, 1); err != nil || len(immediate) != 0 {
+		t.Fatalf("retry ignored backoff: %+v %v", immediate, err)
+	}
+	if err := repository.db.Model(&AppealNotificationRecord{}).Where("id = ?", first.ID).Update("updated_at", time.Now().Add(-2*time.Minute)).Error; err != nil {
+		t.Fatal(err)
+	}
+	retried, err := repository.ClaimPendingAppealNotifications(ctx, 1)
+	if err != nil || len(retried) != 1 || retried[0].ID != first.ID {
+		t.Fatalf("safe failure was lost: %+v %v", retried, err)
+	}
+	if err := repository.BeginAppealNotificationDelivery(ctx, first.ID, retried[0].LeaseToken); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.db.Model(&AppealNotificationRecord{}).Where("id = ?", first.ID).Update("lease_expires_at", time.Now().Add(-time.Minute)).Error; err != nil {
+		t.Fatal(err)
+	}
+	next, err := repository.ClaimPendingAppealNotifications(ctx, 1)
+	if err != nil || len(next) != 0 {
+		t.Fatalf("ambiguous send repeated: %+v %v", next, err)
+	}
+	var failed AppealNotificationRecord
+	if err := repository.db.First(&failed, "id = ?", first.ID).Error; err != nil || failed.Status != model.AppealNotificationFailed || failed.LastErrorCode != "delivery_outcome_unknown" {
+		t.Fatalf("unknown outcome lost: %+v %v", failed, err)
+	}
 }

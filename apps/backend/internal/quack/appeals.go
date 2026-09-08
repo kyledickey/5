@@ -32,6 +32,7 @@ type AppealRepository interface {
 	ListAppealEvents(context.Context, string) ([]model.AppealEvent, error)
 	TransitionAppeal(context.Context, model.TransitionAppealParams) (*model.Appeal, error)
 	ClaimPendingAppealNotifications(context.Context, int) ([]model.AppealNotification, error)
+	BeginAppealNotificationDelivery(context.Context, string, string) error
 	CompleteAppealNotification(context.Context, model.CompleteAppealNotificationParams) error
 	GetCaseByID(context.Context, string) (*model.Case, error)
 	ListCaseActionExecutions(context.Context, string) ([]model.CaseActionExecution, error)

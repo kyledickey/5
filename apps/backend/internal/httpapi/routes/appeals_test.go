@@ -190,3 +190,7 @@ func TestAppealConversationRoutesAreRemoved(t *testing.T) {
 		t.Fatalf("custom form editing still available: %d", response.Code)
 	}
 }
+
+func (r *appealRouteRepository) BeginAppealNotificationDelivery(context.Context, string, string) error {
+	return nil
+}

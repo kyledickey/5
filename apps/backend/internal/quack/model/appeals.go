@@ -73,6 +73,7 @@ type AppealNotificationStatus string
 const (
 	AppealNotificationPending AppealNotificationStatus = "pending"
 	AppealNotificationClaimed AppealNotificationStatus = "claimed"
+	AppealNotificationSending AppealNotificationStatus = "sending"
 	AppealNotificationSent    AppealNotificationStatus = "sent"
 	AppealNotificationFailed  AppealNotificationStatus = "failed"
 )
