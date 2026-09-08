@@ -592,3 +592,12 @@ means further work is required, not completion.
   bulk IDs, unrelated deletion suppression and stale-event suppression; focused and
   full backend suites pass. Live gateway deletion/recovery and remaining feature
   acceptance checks are still pending.
+
+- Added `/template create` with a short name/reason modal and native choices for
+  warning, timeout, kick or ban. Timeout minutes are bounded; new policies activate
+  immediately with member notifications and appeals enabled. The form opens without
+  network work; submission rechecks live Manage Server authority and uses the
+  existing template validation/audit service. Tests exercise each outcome through
+  persisted policy creation and reject revoked manager authority. Focused and full
+  backend suites pass. Discord escalation editing, decay configuration, full policy
+  management and live template-to-case rehearsal remain pending.

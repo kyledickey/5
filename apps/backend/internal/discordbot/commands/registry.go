@@ -106,6 +106,9 @@ func Register(session *discordgo.Session, services *quack.Services, moduleSetup 
 	}
 
 	registry := NewRegistry()
+	if err := registry.Register(TemplateCommandSpec()); err != nil {
+		return err
+	}
 	if err := registry.Register(AppealsCommandSpec()); err != nil {
 		return err
 	}
@@ -128,6 +131,9 @@ func Register(session *discordgo.Session, services *quack.Services, moduleSetup 
 		}
 	}
 	dispatcher := interactions.NewDispatcher(services, registry)
+	if err := RegisterTemplateComponents(dispatcher.Components); err != nil {
+		return err
+	}
 	if provider, ok := services.Store.(interface{ Redis() *redis.Client }); ok {
 		dispatcher.Deduper = interactions.NewRedisInteractionDeduper(provider.Redis(), 15*time.Minute)
 	}
