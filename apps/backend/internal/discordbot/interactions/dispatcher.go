@@ -170,12 +170,12 @@ func (d *Dispatcher) runTask(ctx context.Context, interaction *discordgo.Interac
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			slog.Error("Discord interaction task panicked", "interaction", name, "request_id", quack.RequestIDFromContext(ctx), "correlation_id", quack.CorrelationIDFromContext(ctx), "panic_type", fmt.Sprintf("%T", recovered), "stack", debug.Stack())
-			d.taskError(interaction, responseType)
+			d.taskError(interaction, responseType, nil)
 		}
 	}()
 	if err := task(ctx, d.responder(interaction)); err != nil {
 		slog.Error("Discord interaction task failed", "error_type", fmt.Sprintf("%T", err), "interaction", name, "request_id", quack.RequestIDFromContext(ctx), "correlation_id", quack.CorrelationIDFromContext(ctx))
-		d.taskError(interaction, responseType)
+		d.taskError(interaction, responseType, err)
 	}
 }
 
@@ -271,8 +271,11 @@ func Key(namespace, action string) string {
 
 // taskError preserves a shared component message when an action fails, reporting
 // the error only to the person who clicked it. Private defers remain private.
-func (d *Dispatcher) taskError(interaction *discordgo.InteractionCreate, responseType discordgo.InteractionResponseType) {
-	const message = "Quack could not finish that interaction."
+func (d *Dispatcher) taskError(interaction *discordgo.InteractionCreate, responseType discordgo.InteractionResponseType, err error) {
+	message := "Quack could not finish that interaction."
+	if errors.Is(err, quack.ErrCasePermissionDenied) || errors.Is(err, quack.ErrAuthorizationDenied) {
+		message = "You do not have permission to use this control."
+	}
 	responder := d.responder(interaction)
 	if responseType == discordgo.InteractionResponseDeferredMessageUpdate {
 		_, _ = responder.Followup(ui.Signal("error", message, true))

@@ -243,3 +243,32 @@ func TestComponentTaskErrorPreservesSharedMessage(t *testing.T) {
 		t.Fatalf("expected private error without editing shared result: %+v", client)
 	}
 }
+
+// TestPermissionFailuresExplainDenialPrivately distinguishes ordinary denied
+// access from an unexpected failure without exposing shared message contents.
+func TestPermissionFailuresExplainDenialPrivately(t *testing.T) {
+	for _, update := range []bool{false, true} {
+		client := &fakeClient{done: make(chan struct{}, 1)}
+		registry := interactions.NewComponentRegistry()
+		if err := registry.RegisterComponent("case", "evidence", func(ui.Context) ui.HandlerResult {
+			response := ui.DeferEphemeral()
+			if update {
+				response = ui.DeferUpdate()
+			}
+			return ui.Async(response, func(context.Context, ui.Responder) error { return quack.ErrCasePermissionDenied })
+		}); err != nil {
+			t.Fatal(err)
+		}
+		dispatcher := &interactions.Dispatcher{Client: client, Components: registry}
+		dispatcher.Handle(nil, componentInteraction("case:evidence:v1:case"))
+		client.wait(t)
+		const want = "You do not have permission to use this control."
+		if update {
+			if len(client.edits) != 0 || len(client.followups) != 1 || client.followups[0].Content != want || client.followups[0].Flags&discordgo.MessageFlagsEphemeral == 0 {
+				t.Fatal("denial must be a private followup")
+			}
+		} else if len(client.edits) != 1 || client.edits[0].Content == nil || *client.edits[0].Content != want {
+			t.Fatal("missing private permission explanation")
+		}
+	}
+}
