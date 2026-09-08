@@ -92,8 +92,8 @@ func TestHandleCaseInteractionCreatesCase(t *testing.T) {
 	if response.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource {
 		t.Fatalf("expected deferred success response, got %v", response.Type)
 	}
-	if response.Data != nil && response.Data.Flags&discordgo.MessageFlagsEphemeral != 0 {
-		t.Fatalf("expected public acknowledgement, got %+v", response.Data)
+	if response.Data == nil || response.Data.Flags&discordgo.MessageFlagsEphemeral == 0 {
+		t.Fatalf("expected private acknowledgement, got %+v", response.Data)
 	}
 	if result.Task == nil {
 		t.Fatalf("expected deferred case creation task")
@@ -102,10 +102,10 @@ func TestHandleCaseInteractionCreatesCase(t *testing.T) {
 	if err := result.Task(ctx, responder); err != nil {
 		t.Fatalf("run deferred task: %v", err)
 	}
-	if responder.deleted || responder.followup.Content != "" || responder.edit.Content == nil || responder.edit.Embeds == nil || len(*responder.edit.Embeds) != 0 || responder.editCount != 1 {
+	if responder.deleted || responder.followup.Content == "" || responder.followup.Ephemeral || responder.edit.Content == nil || responder.edit.Embeds == nil || len(*responder.edit.Embeds) != 0 || responder.editCount != 1 {
 		t.Fatalf("expected original response to become the result: %+v", responder)
 	}
-	for _, want := range []string{"Case added for", "<@target-1>", "Spam", "Default", "Warning recorded."} {
+	for _, want := range []string{"Case #1 added for", "<@target-1>", "Spam", "Default", "Warning recorded."} {
 		if !strings.Contains(*responder.edit.Content, want) {
 			t.Fatalf("missing %q in %q", want, *responder.edit.Content)
 		}

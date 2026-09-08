@@ -8,7 +8,6 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
-	"github.com/quackdiscord/bot/internal/discordbot/ui/views"
 	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
@@ -76,35 +75,13 @@ func HandleCaseInteraction(ctx ui.Context) ui.HandlerResult {
 		return ui.Immediate(ui.Error(caseCommandErrorMessage(err)))
 	}
 
-	return ui.Async(ui.DeferPublic(), func(taskCtx context.Context, responder ui.Responder) error {
+	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
 		result, err := createCaseFromInteraction(taskCtx, ctx.Services, interaction, add)
 		if err != nil {
 			_, editErr := responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(err)))
-			if editErr != nil {
-				return editErr
-			}
-			return nil
+			return editErr
 		}
-
-		receipt := views.CaseCreatedMessage(views.CaseCreated{Case: result.Case, Template: result.Template})
-		message, err := ui.Publish(responder, receipt)
-		if err != nil {
-			// A committed case must never be replaced by the dispatcher's
-			// generic command failure. Retrying this edit cannot repeat it.
-			message, err = establishPrivateCaseReceipt(taskCtx, responder, receipt)
-			if err != nil {
-				receipt.Ephemeral = true
-				receipt.Content += "\n\nThe case was created. Do not create it again; use `/case view` to check its result."
-				_, _ = responder.Followup(receipt)
-				return nil
-			}
-		}
-		if err == nil && message != nil {
-			if refreshErr := updatePublicCaseResult(taskCtx, responder, ctx.Services, result.Case, message.ID, message.ChannelID, result.Template); refreshErr != nil {
-				_, _ = responder.Followup(ui.Content("The case was created, but automatic result updates could not be saved. Use `/case view` to check the outcome.", true))
-			}
-		}
-		return err
+		return publishPrivateContextCase(taskCtx, responder, ctx.Services, result.Case, result.Template)
 	})
 }
 

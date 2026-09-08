@@ -18,6 +18,7 @@ func RegisterCaseComponents(registry *interactions.ComponentRegistry) error {
 		"message_template": handleMessageTemplateComponent,
 		"user_template":    handleUserTemplateComponent,
 		"edit_context":     handleEditContextComponent,
+		"view":             handleCaseViewComponent,
 		"evidence":         handleCaseEvidenceComponent,
 		"evidence_prev":    pageEvidence(-1),
 		"evidence_next":    pageEvidence(1),

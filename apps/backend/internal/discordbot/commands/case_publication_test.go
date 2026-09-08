@@ -79,7 +79,7 @@ func TestCaseReceiptInitialEditRecovery(t *testing.T) {
 		if err := publishPrivateContextCase(context.Background(), responder, nil, created, nil); err != nil {
 			t.Fatal(err)
 		}
-		if failures == 1 && (responder.followup.Ephemeral || !responder.deleted) {
+		if failures == 1 && (responder.followup.Ephemeral || responder.deleted) {
 			t.Fatal("recovered edit did not produce public receipt")
 		}
 		if failures == 3 && (!responder.followup.Ephemeral || responder.deleted || !strings.Contains(responder.followup.Content, "Do not create it again")) {

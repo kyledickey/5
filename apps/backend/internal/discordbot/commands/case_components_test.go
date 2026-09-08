@@ -43,7 +43,7 @@ func TestCaseAddActsImmediatelyWithOptionalContext(t *testing.T) {
 	if err := result.Task(context.Background(), responder); err != nil {
 		t.Fatal(err)
 	}
-	if responder.deleted || responder.followup.Content != "" || responder.edit.Content == nil || responder.edit.Embeds == nil || len(*responder.edit.Embeds) != 0 || responder.editCount != 1 {
+	if responder.deleted || responder.followup.Content == "" || responder.followup.Ephemeral || responder.edit.Content == nil || responder.edit.Embeds == nil || len(*responder.edit.Embeds) != 0 || responder.editCount != 1 {
 		t.Fatalf("expected one in-place public result, got %+v", responder)
 	}
 	for _, want := range []string{"<@target-2>", "Abuse", "Default"} {

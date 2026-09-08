@@ -22,15 +22,16 @@ func updatePublicCaseResult(ctx context.Context, responder ui.Responder, service
 	}
 	// Explicitly allowlist the initial public display. Never serialize the
 	// full case response, staff context, evidence, or template configuration.
-	publicCase := &quack.CaseResponse{ID: created.ID, CaseNumber: created.CaseNumber, CreatedAt: created.CreatedAt, TargetDiscordUserID: created.TargetDiscordUserID, Validity: created.Validity, EvidenceIncomplete: created.EvidenceIncomplete}
-	if created.SelectedLevel != nil {
-		publicCase.SelectedLevel = &quack.CaseSelectedLevel{TemplateLevelDetails: quack.TemplateLevelDetails{Name: created.SelectedLevel.Name}}
-	}
+	publicCase := &quack.CaseResponse{ID: created.ID, CaseNumber: created.CaseNumber, CreatedAt: created.CreatedAt, TargetDiscordUserID: created.TargetDiscordUserID, Validity: created.Validity}
 	var publicTemplate *quack.TemplateResponse
 	if template != nil {
 		publicTemplate = &quack.TemplateResponse{Name: template.Name, Slug: template.Slug}
 	}
-	encoded, err := json.Marshal(views.CaseCreated{Case: publicCase, Template: publicTemplate})
+	memberReason := ""
+	if template != nil {
+		memberReason = template.ReasonTemplate
+	}
+	encoded, err := json.Marshal(views.CaseCreated{MemberReason: memberReason, Case: publicCase, Template: publicTemplate})
 	if err != nil {
 		return err
 	}
@@ -53,6 +54,10 @@ func updatePublicCaseResult(ctx context.Context, responder ui.Responder, service
 // refreshPublicCaseResult publishes changing action statuses and retries failed
 // edits of the same message. The caller owns snapshot; no case action is executed.
 func refreshPublicCaseResult(ctx context.Context, responder ui.Responder, listActions func(context.Context, string) ([]quack.CaseActionResponse, error), snapshot *quack.CaseResponse, messageID string, template *quack.TemplateResponse, interval time.Duration) {
+	memberReason := ""
+	if template != nil {
+		memberReason = template.ReasonTemplate
+	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	dirty := false
@@ -82,7 +87,7 @@ func refreshPublicCaseResult(ctx context.Context, responder ui.Responder, listAc
 				}
 			}
 			if dirty || terminal {
-				_, err := responder.EditFollowup(messageID, ui.EditMessage(views.CaseCreatedMessage(views.CaseCreated{Case: snapshot, Template: template})))
+				_, err := responder.EditFollowup(messageID, ui.EditMessage(views.CaseCreatedMessage(views.CaseCreated{MemberReason: memberReason, Case: snapshot, Template: template})))
 				if err == nil {
 					dirty = false
 					if terminal {

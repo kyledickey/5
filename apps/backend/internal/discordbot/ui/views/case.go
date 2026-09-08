@@ -12,8 +12,9 @@ import (
 
 // CaseCreated groups the case created state used to keep this package's responsibilities explicit.
 type CaseCreated struct {
-	Case     *quack.CaseResponse
-	Template *quack.TemplateResponse
+	MemberReason string
+	Case         *quack.CaseResponse
+	Template     *quack.TemplateResponse
 }
 
 // CaseCreatedMessage announces the saved decision without exposing staff identity,
@@ -24,9 +25,6 @@ func CaseCreatedMessage(result CaseCreated) ui.Message {
 	}
 	created := result.Case
 	meta := []string{fmt.Sprintf("Case #%d", created.CaseNumber)}
-	if created.SelectedLevel != nil && strings.TrimSpace(created.SelectedLevel.Name) != "" {
-		meta = append(meta, ui.PlainText(created.SelectedLevel.Name))
-	}
 	if date := ui.RelativeTime(created.CreatedAt); date != "" {
 		meta = append(meta, date)
 	}
@@ -44,10 +42,7 @@ func CaseCreatedMessage(result CaseCreated) ui.Message {
 		}
 	}
 	status := publicActionStatus(created.Actions)
-	if created.EvidenceIncomplete {
-		status += "\n{{quack:warn}} Some evidence could not be saved."
-	}
-	message := ui.Conversation(icon, FormatCaseCreated(result), "", status, strings.Join(meta, " · "), false)
+	message := ui.Conversation(icon, FormatCaseCreated(result), ui.PlainText(ui.TruncateRunes(result.MemberReason, 350)), status, strings.Join(meta, " · "), false)
 	message.Components = []discordgo.MessageComponent{ui.Row(casePrimaryControls(created.ID, created.TargetDiscordUserID, created.Validity == model.CaseValidityVoided)...)}
 	return message
 }

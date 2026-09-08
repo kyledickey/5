@@ -160,8 +160,8 @@ func (r *publicationRepositoryStub) CasePublicationEvidenceIncomplete(context.Co
 	return r.incomplete, nil
 }
 
-// TestCasePublicationRefreshesEvidenceHealth clears an obsolete warning after
-// preservation is repaired, without loading evidence into public presentation.
+// TestCasePublicationRefreshesEvidenceHealth keeps preservation diagnostics
+// private before and after repair, including older receipt snapshots.
 func TestCasePublicationRefreshesEvidenceHealth(t *testing.T) {
 	repository := publicationFixture(t)
 	repository.incomplete = true
@@ -174,8 +174,8 @@ func TestCasePublicationRefreshesEvidenceHealth(t *testing.T) {
 	if err := refreshCasePublications(context.Background(), repository, edit, now); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(content, "Some evidence could not be saved") {
-		t.Fatal("missing evidence warning")
+	if strings.Contains(content, "Some evidence could not be saved") {
+		t.Fatal("private evidence warning leaked")
 	}
 	repository.receipt.RefreshRequested = true
 	repository.receipt.Revision++

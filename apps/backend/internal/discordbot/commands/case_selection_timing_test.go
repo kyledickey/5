@@ -84,7 +84,7 @@ func TestSingleTemplateContextPublishesPublicCase(t *testing.T) {
 	if err := result.Task(context.Background(), responder); err != nil {
 		t.Fatal(err)
 	}
-	if responder.editCount == 0 || responder.followup.Ephemeral || !strings.Contains(responder.followup.Content, "<@target>") || !responder.deleted {
+	if responder.editCount == 0 || responder.followup.Ephemeral || !strings.Contains(responder.followup.Content, "<@target>") || responder.deleted {
 		t.Fatalf("public result failed: %+v", responder)
 	}
 }

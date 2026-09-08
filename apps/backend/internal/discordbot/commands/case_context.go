@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -90,39 +89,37 @@ func modalTextValue(data discordgo.ModalSubmitInteractionData, customID string) 
 // a public case result. Discord otherwise makes the first followup inherit the
 // private deferred response. A publication failure retains a usable private case.
 func publishPrivateContextCase(ctx context.Context, responder ui.Responder, services *quack.Services, created *quack.CaseResponse, template *quack.TemplateResponse) error {
-	result := views.CaseCreatedMessage(views.CaseCreated{Case: created, Template: template})
-	if _, err := establishPrivateCaseReceipt(ctx, responder, result); err != nil {
-		// A failed edit may have reached Discord. Never publish a potentially
-		// inherited private followup as though its visibility were confirmed.
-		slog.WarnContext(ctx, "Could not establish private case receipt", "case_id", created.ID, "error_type", fmt.Sprintf("%T", err))
-		result.Ephemeral = true
-		result.Content += "\n\nThe case was created. Quack could not confirm public delivery. Do not create it again; use `/case view` to check its result."
-		if _, fallbackErr := responder.Followup(result); fallbackErr != nil {
-			slog.WarnContext(ctx, "Could not deliver committed case receipt", "case_id", created.ID, "error_type", fmt.Sprintf("%T", fallbackErr))
+	projection := initialModeratorReceipt(created, template)
+	if services != nil && services.Cases != nil {
+		if loaded, err := services.Cases.ReceiptForPublication(ctx, created.ID); err == nil {
+			loaded.Case.EvidenceIncomplete = loaded.Case.EvidenceIncomplete || created.EvidenceIncomplete
+			projection = loaded
 		}
+	}
+	private := views.CaseModeratorReceipt(projection)
+	if _, err := establishPrivateCaseReceipt(ctx, responder, private); err != nil {
+		private.Content += "\n\nThe case was created. Use View case to check its result; Do not create it again."
+		private.Ephemeral = true
+		_, _ = responder.Followup(private)
 		return nil
 	}
-	message, err := responder.Followup(result)
+	// Public presentation is built independently: even a private delivery failure
+	// cannot accidentally copy staff fields into the channel.
+	publicCase := *projection.Case
+	publicCase.Reason = ""
+	public := views.CaseCreatedMessage(views.CaseCreated{MemberReason: projection.MemberReason, Case: &publicCase, Template: &quack.TemplateResponse{Name: projection.RuleName}})
+	message, err := responder.Followup(public)
 	if err != nil {
-		// Moderation already committed. Do not let the dispatcher's generic error
-		// replace this durable case receipt or suggest issuing the punishment again.
-		slog.WarnContext(ctx, "Could not publish context-menu case result", "case_id", created.ID, "error_type", fmt.Sprintf("%T", err))
-		result.Content += "\n\nThe case was created, but Quack could not post its result publicly. This private copy is still usable."
-		if _, editErr := responder.EditOriginal(ui.EditMessage(result)); editErr != nil {
-			slog.WarnContext(ctx, "Could not explain case publication failure", "case_id", created.ID, "error_type", fmt.Sprintf("%T", editErr))
-		}
-		return nil
-	}
-	if message != nil {
-		if err := updatePublicCaseResult(ctx, responder, services, created, message.ID, message.ChannelID, template); err != nil {
-			slog.WarnContext(ctx, "Could not persist public case receipt", "case_id", created.ID, "error_type", fmt.Sprintf("%T", err))
-			result.Content += "\n\nThe case was created and posted publicly, but automatic result updates could not be saved. Use `/case view` to check the outcome."
-			_, _ = responder.EditOriginal(ui.EditMessage(result))
-			return nil
+		private.Content += "\n\nThe case was created, but Quack could not post its result publicly. This private copy is still usable."
+		_, _ = responder.EditOriginal(ui.EditMessage(private))
+	} else if message != nil {
+		if err := updatePublicCaseResult(ctx, responder, services, &publicCase, message.ID, message.ChannelID, &quack.TemplateResponse{Name: projection.RuleName, ReasonTemplate: projection.MemberReason}); err != nil {
+			private.Content += "\n\nThe case was created, but automatic public result updates could not be saved. Use View case to check the outcome."
+			_, _ = responder.EditOriginal(ui.EditMessage(private))
 		}
 	}
-	if err := responder.DeleteOriginal(); err != nil {
-		slog.WarnContext(ctx, "Could not remove private case receipt", "case_id", created.ID, "error_type", fmt.Sprintf("%T", err))
+	if services != nil && services.Cases != nil && projection.Pending() {
+		go refreshPrivateCaseReceipt(ctx, responder, services.Cases.ReceiptForPublication, created.ID, 2*time.Second, 14*time.Minute)
 	}
 	return nil
 }

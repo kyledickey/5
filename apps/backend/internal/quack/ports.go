@@ -112,6 +112,7 @@ type CaseRepository interface {
 	ListCaseActionExecutions(context.Context, string) ([]model.CaseActionExecution, error)
 	ListCaseEvents(context.Context, string) ([]model.CaseEvent, error)
 	ListRecentCaseEvents(context.Context, string, int) ([]model.CaseEvent, error)
+	CasePublicationEvidenceIncomplete(context.Context, string) (bool, error)
 	ListCaseEvidence(context.Context, string) ([]model.CaseEvidenceSnapshot, []model.CaseEvidenceAttachment, error)
 	ListCasesFiltered(context.Context, model.ListCasesParams) (*model.ListCasesResult, error)
 	TargetCaseSummary(context.Context, string, string) (*model.TargetCaseSummary, error)
