@@ -1443,3 +1443,20 @@ means further work is required, not completion.
   moderation log showed case creation, ban, appeal submission, acceptance,
   case voiding, and unban events. Old mentions now displayed monkey in that
   browser session; this is an observation, not proof of a mention-rendering fix.
+
+### September 8 live honeypot burst
+
+- Native tester monkey posted two synthetic messages in configured honeypot
+  channel `1546871478274752543` in quick succession. Both appeared in Discord
+  before disappearing, and the warning count advanced from four to five.
+- SQL recorded one created incident `01M21NA6WN7Z0F1MPF0C5ESYN5` and only case
+  #11 (`01M21NA8AMGNYH4TVHBMQTC4BS`). Its single timeout action succeeded on
+  attempt 1. The first message's text was captured at 17:23:09.524 local time.
+- Message cleanup receipts `1547024517103099974` and `1547024518193745952`
+  point to that same incident and completed on their first attempts at
+  17:23:09.746 and 17:23:10.590, after evidence and case persistence. This
+  verifies live burst suppression and cleanup ordering for two messages; it
+  does not establish interrupted-process recovery or capture of every burst
+  message as separate case evidence.
+- The one-minute timeout expired naturally; the native tester's message composer
+  returned. No manual permission or punishment changes were needed.
