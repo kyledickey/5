@@ -27,7 +27,7 @@ func queueVoidedCaseReversals(tx *gorm.DB, item model.Case, now time.Time) error
 	if err := tx.Where("case_id = ? AND status = ? AND reversal_of_execution_id IS NULL AND action_type IN ?", item.ID, model.ActionExecutionSucceeded, []model.ActionType{model.ActionTimeoutUser, model.ActionBanUser}).Find(&actions).Error; err != nil {
 		return err
 	}
-	var appeal appealV5Record
+	var appeal AppealRecord
 	if err := tx.Where("case_id = ? AND status = ?", item.ID, model.AppealStatusAccepted).Limit(1).Find(&appeal).Error; err != nil {
 		return err
 	}

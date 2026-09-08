@@ -105,7 +105,7 @@ func (s *Store) CreateAppeal(ctx context.Context, params model.CreateAppealParam
 			return model.ErrAppealCaseIneligible
 		}
 		var existing int64
-		if err := tx.Model(&appealV5Record{}).Where("case_id = ?", item.ID).Count(&existing).Error; err != nil {
+		if err := tx.Model(&AppealRecord{}).Where("case_id = ?", item.ID).Count(&existing).Error; err != nil {
 			return err
 		}
 		if existing != 0 {
@@ -144,7 +144,7 @@ func (s *Store) GetAppealByID(ctx context.Context, appealID string) (*model.Appe
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
-	var record appealV5Record
+	var record AppealRecord
 	result := s.db.WithContext(ctx).Where("id = ?", appealID).First(&record)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return nil, nil
@@ -160,7 +160,7 @@ func (s *Store) GetAppealByCaseID(ctx context.Context, caseID string) (*model.Ap
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
-	var record appealV5Record
+	var record AppealRecord
 	result := s.db.WithContext(ctx).Where("case_id = ?", caseID).First(&record)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return nil, nil
@@ -176,7 +176,7 @@ func (s *Store) ListAppeals(ctx context.Context, params model.AppealListParams) 
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
-	query := s.db.WithContext(ctx).Model(&appealV5Record{}).Where("guild_id = ?", params.GuildID)
+	query := s.db.WithContext(ctx).Model(&AppealRecord{}).Where("guild_id = ?", params.GuildID)
 	if params.Status != "" {
 		query = query.Where("status = ?", params.Status)
 	}
@@ -184,7 +184,7 @@ func (s *Store) ListAppeals(ctx context.Context, params model.AppealListParams) 
 	if err := query.Count(&total).Error; err != nil {
 		return nil, err
 	}
-	var records []appealV5Record
+	var records []AppealRecord
 	if err := query.Order("created_at DESC, id DESC").Limit(params.Limit).Offset(params.Offset).Find(&records).Error; err != nil {
 		return nil, err
 	}
@@ -200,7 +200,7 @@ func (s *Store) ListAppealEvents(ctx context.Context, appealID string) ([]model.
 	if s == nil || s.db == nil {
 		return nil, errors.New("database not connected")
 	}
-	var records []appealEventV5Record
+	var records []AppealEventRecord
 	if err := s.db.WithContext(ctx).Where("appeal_id = ?", appealID).Order("created_at ASC, id ASC").Find(&records).Error; err != nil {
 		return nil, err
 	}
@@ -217,7 +217,7 @@ func (s *Store) TransitionAppeal(ctx context.Context, params model.TransitionApp
 		return nil, errors.New("database not connected")
 	}
 	now := time.Now().UTC()
-	var updated appealV5Record
+	var updated AppealRecord
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND guild_id = ?", params.AppealID, params.GuildID).First(&updated)
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -263,7 +263,7 @@ func (s *Store) TransitionAppeal(ctx context.Context, params model.TransitionApp
 		updated.ReviewedAt = &now
 		updated.Version++
 		updated.UpdatedAt = now
-		result = tx.Model(&appealV5Record{}).Where("id = ? AND version = ?", updated.ID, updated.Version-1).Updates(map[string]any{
+		result = tx.Model(&AppealRecord{}).Where("id = ? AND version = ?", updated.ID, updated.Version-1).Updates(map[string]any{
 			"status": updated.Status, "decision_reason": updated.DecisionReason,
 			"reviewed_by_discord_user_id": updated.ReviewedByDiscordUserID,
 			"reviewed_at":                 now, "version": updated.Version, "updated_at": now,

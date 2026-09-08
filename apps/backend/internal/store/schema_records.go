@@ -251,32 +251,6 @@ type CaseEventRecord struct {
 	MetadataJSON       string                `gorm:"type:json;not null"`
 }
 
-// AppealRecord is the GORM persistence representation of appeal; domain models remain storage-agnostic.
-type AppealRecord struct {
-	ULIDModelRecord
-	GuildID                 string             `gorm:"type:char(26);not null;index:idx_appeal_guild_status,priority:1;index:idx_appeal_guild_user,priority:1"`
-	CaseID                  *string            `gorm:"type:char(26);index"`
-	TargetDiscordUserID     string             `gorm:"size:32;not null;index:idx_appeal_guild_user,priority:2"`
-	Status                  model.AppealStatus `gorm:"size:32;not null;default:'pending';index:idx_appeal_guild_status,priority:2"`
-	Content                 string             `gorm:"type:text;not null"`
-	DecisionReason          string             `gorm:"type:text"`
-	ReviewedByDiscordUserID string             `gorm:"size:32"`
-	ReviewedAt              *time.Time         `gorm:"index"`
-	ReviewMessageDiscordID  string             `gorm:"size:32"`
-	MetadataJSON            string             `gorm:"type:json;not null"`
-}
-
-// AppealEventRecord is the GORM persistence representation of appeal event; domain models remain storage-agnostic.
-type AppealEventRecord struct {
-	ULIDModelRecord
-	AppealID           string `gorm:"type:char(26);not null;index"`
-	GuildID            string `gorm:"type:char(26);not null;index"`
-	EventType          string `gorm:"size:64;not null;index"`
-	ActorDiscordUserID string `gorm:"size:32;index"`
-	Body               string `gorm:"type:text;not null"`
-	MetadataJSON       string `gorm:"type:json;not null"`
-}
-
 // GuildAppealSettingsRecord persists the validated form used by future appeals in one guild.
 type GuildAppealSettingsRecord struct {
 	ULIDModelRecord
@@ -413,12 +387,6 @@ func (GuildAppealSettingsRecord) TableName() string { return "guild_appeal_setti
 
 // TableName identifies the logical 0200 appeal notification outbox.
 func (AppealNotificationRecord) TableName() string { return "appeal_notifications" }
-
-// TableName preserves the pre-refactor table name so migrations and existing v5 data remain compatible.
-func (AppealRecord) TableName() string { return "appeals" }
-
-// TableName preserves the pre-refactor table name so migrations and existing v5 data remain compatible.
-func (AppealEventRecord) TableName() string { return "appeal_events" }
 
 // TableName preserves the pre-refactor table name so migrations and existing v5 data remain compatible.
 func (TicketRecord) TableName() string { return "tickets" }

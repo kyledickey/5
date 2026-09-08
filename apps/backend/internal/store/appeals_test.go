@@ -55,12 +55,12 @@ func createAppealableCase(t *testing.T, repository *Store, guildID, target strin
 
 func TestLogical0200MigrationCreatesAppealContracts(t *testing.T) {
 	repository, _ := newAppealTestStore(t)
-	for _, table := range []any{&appealV5Record{}, &appealEventV5Record{}, &GuildAppealSettingsRecord{}, &AppealNotificationRecord{}} {
+	for _, table := range []any{&AppealRecord{}, &AppealEventRecord{}, &GuildAppealSettingsRecord{}, &AppealNotificationRecord{}} {
 		if !repository.db.Migrator().HasTable(table) {
 			t.Fatalf("missing appeal table for %T", table)
 		}
 	}
-	if !repository.db.Migrator().HasIndex(&appealV5Record{}, "CaseID") {
+	if !repository.db.Migrator().HasIndex(&AppealRecord{}, "CaseID") {
 		t.Fatal("missing one-appeal-per-case unique index")
 	}
 }
@@ -82,14 +82,16 @@ func TestLogical0200MigrationPreservesPlaceholderAppealsSafely(t *testing.T) {
 		t.Fatalf("insert legacy appeal: %v", err)
 	}
 	legacyEvent := AppealEventRecord{ULIDModelRecord: ULIDModelRecord{ID: "01KXLEGACYAPPEALEVENT0001", CreatedAt: now, UpdatedAt: now}, AppealID: legacy.ID, GuildID: guild.ID, EventType: "reviewed", ActorDiscordUserID: "legacy-moderator", Body: "legacy review", MetadataJSON: "{}"}
-	if err := db.Create(&legacyEvent).Error; err != nil {
+	// The pre-appeals placeholder predates actor classification; keep this fixture
+	// faithful to that historical table while production uses the current record.
+	if err := db.Omit("ActorType").Create(&legacyEvent).Error; err != nil {
 		t.Fatalf("insert legacy event: %v", err)
 	}
 	migrations := registeredMigrations()
 	if err := runMigrations(db, migrations); err != nil {
 		t.Fatalf("upgrade legacy appeal: %v", err)
 	}
-	var upgraded appealV5Record
+	var upgraded AppealRecord
 	if err := db.First(&upgraded, "id = ?", legacy.ID).Error; err != nil {
 		t.Fatalf("read upgraded appeal: %v", err)
 	}
@@ -100,7 +102,7 @@ func TestLogical0200MigrationPreservesPlaceholderAppealsSafely(t *testing.T) {
 	if err != nil || len(legacyResponse.Questions) != 1 || len(legacyResponse.Answers) != 1 {
 		t.Fatalf("upgraded legacy appeal is not readable: %+v err=%v", legacyResponse, err)
 	}
-	var upgradedEvent appealEventV5Record
+	var upgradedEvent AppealEventRecord
 	if err := db.First(&upgradedEvent, "id = ?", legacyEvent.ID).Error; err != nil || upgradedEvent.ActorType != "staff" {
 		t.Fatalf("legacy staff identity was not safely classified: %+v err=%v", upgradedEvent, err)
 	}
@@ -126,7 +128,7 @@ func TestMySQLLogical0200AppealMigrationAndAcceptance(t *testing.T) {
 	if err := runMigrations(db, migrations); err != nil {
 		t.Fatalf("migrate MySQL appeal schema: %v", err)
 	}
-	var upgraded appealV5Record
+	var upgraded AppealRecord
 	if err := db.First(&upgraded, "id = ?", legacy.ID).Error; err != nil || upgraded.Content != legacy.Content || upgraded.Version != 1 {
 		t.Fatalf("MySQL legacy appeal was not preserved: %+v err=%v", upgraded, err)
 	}

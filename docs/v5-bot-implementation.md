@@ -780,3 +780,14 @@ means further work is required, not completion.
   pagination changes still await live rehearsal after the next beta reload; web
   buttons, schema simplification, broader module rehearsal and other tracked
   acceptance work remain open.
+
+- Began schema consolidation by removing the obsolete placeholder AppealRecord
+  and AppealEventRecord definitions. The service, reversals, and schema inventory
+  now share the actual current records, including statement snapshots, version,
+  actor classification, and the unique case reference. Two aliases isolate names
+  still referenced by the frozen migration source without changing the checksums
+  applied to the running rehearsal database. The historical placeholder fixture
+  explicitly omits its not-yet-existing actor_type column. Focused store/service
+  tests and the corrected full MySQL-enabled suite pass. This removes competing
+  live schema definitions; it does not complete replacement of the eleven-step
+  pre-release migration runner, which remains outstanding.

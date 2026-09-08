@@ -6,8 +6,9 @@ import (
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
-// appealV5Record is the logical 0200 live persistence shape layered over the preserved placeholder table.
-type appealV5Record struct {
+// AppealRecord stores one case-linked appeal, its immutable submission, and its
+// terminal review state. The unique case reference enforces one appeal per case.
+type AppealRecord struct {
 	ULIDModelRecord
 	GuildID                 string             `gorm:"type:char(26);not null;index:idx_appeal_guild_status,priority:1;index:idx_appeal_guild_user,priority:1"`
 	CaseID                  *string            `gorm:"type:char(26);uniqueIndex"`
@@ -24,11 +25,12 @@ type appealV5Record struct {
 	MetadataJSON            string             `gorm:"type:json;not null"`
 }
 
-// TableName preserves the appeal table while logical migration 0200 extends it.
-func (appealV5Record) TableName() string { return "appeals" }
+// TableName identifies the current appeal table.
+func (AppealRecord) TableName() string { return "appeals" }
 
-// appealEventV5Record is the logical 0200 immutable timeline shape.
-type appealEventV5Record struct {
+// AppealEventRecord records appeal lifecycle events with actor type kept separate
+// from actor identity so member responses can omit moderator attribution.
+type AppealEventRecord struct {
 	ULIDModelRecord
 	AppealID           string `gorm:"type:char(26);not null;index"`
 	GuildID            string `gorm:"type:char(26);not null;index"`
@@ -39,22 +41,22 @@ type appealEventV5Record struct {
 	MetadataJSON       string `gorm:"type:json;not null"`
 }
 
-// TableName preserves the appeal event table while logical migration 0200 extends it.
-func (appealEventV5Record) TableName() string { return "appeal_events" }
+// TableName identifies the current appeal event table.
+func (AppealEventRecord) TableName() string { return "appeal_events" }
 
-func appealRecord(item model.Appeal) *appealV5Record {
-	return &appealV5Record{ULIDModelRecord: ULIDModelRecord{ID: item.ID, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}, GuildID: item.GuildID, CaseID: item.CaseID, TargetDiscordUserID: item.TargetDiscordUserID, Status: item.Status, Content: item.Content, QuestionSnapshotJSON: item.QuestionSnapshotJSON, AnswersJSON: item.AnswersJSON, Version: item.Version, DecisionReason: item.DecisionReason, ReviewedByDiscordUserID: item.ReviewedByDiscordUserID, ReviewedAt: item.ReviewedAt, ReviewMessageDiscordID: item.ReviewMessageDiscordID, MetadataJSON: item.MetadataJSON}
+func appealRecord(item model.Appeal) *AppealRecord {
+	return &AppealRecord{ULIDModelRecord: ULIDModelRecord{ID: item.ID, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}, GuildID: item.GuildID, CaseID: item.CaseID, TargetDiscordUserID: item.TargetDiscordUserID, Status: item.Status, Content: item.Content, QuestionSnapshotJSON: item.QuestionSnapshotJSON, AnswersJSON: item.AnswersJSON, Version: item.Version, DecisionReason: item.DecisionReason, ReviewedByDiscordUserID: item.ReviewedByDiscordUserID, ReviewedAt: item.ReviewedAt, ReviewMessageDiscordID: item.ReviewMessageDiscordID, MetadataJSON: item.MetadataJSON}
 }
 
-func appealModel(record appealV5Record) *model.Appeal {
+func appealModel(record AppealRecord) *model.Appeal {
 	return &model.Appeal{ULIDModel: model.ULIDModel{ID: record.ID, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}, GuildID: record.GuildID, CaseID: record.CaseID, TargetDiscordUserID: record.TargetDiscordUserID, Status: record.Status, Content: record.Content, QuestionSnapshotJSON: record.QuestionSnapshotJSON, AnswersJSON: record.AnswersJSON, Version: record.Version, DecisionReason: record.DecisionReason, ReviewedByDiscordUserID: record.ReviewedByDiscordUserID, ReviewedAt: record.ReviewedAt, ReviewMessageDiscordID: record.ReviewMessageDiscordID, MetadataJSON: record.MetadataJSON}
 }
 
-func appealEventRecord(item model.AppealEvent) *appealEventV5Record {
-	return &appealEventV5Record{ULIDModelRecord: ULIDModelRecord{ID: item.ID, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}, AppealID: item.AppealID, GuildID: item.GuildID, EventType: item.EventType, ActorDiscordUserID: item.ActorDiscordUserID, ActorType: item.ActorType, Body: item.Body, MetadataJSON: item.MetadataJSON}
+func appealEventRecord(item model.AppealEvent) *AppealEventRecord {
+	return &AppealEventRecord{ULIDModelRecord: ULIDModelRecord{ID: item.ID, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}, AppealID: item.AppealID, GuildID: item.GuildID, EventType: item.EventType, ActorDiscordUserID: item.ActorDiscordUserID, ActorType: item.ActorType, Body: item.Body, MetadataJSON: item.MetadataJSON}
 }
 
-func appealEventModel(record appealEventV5Record) model.AppealEvent {
+func appealEventModel(record AppealEventRecord) model.AppealEvent {
 	return model.AppealEvent{ULIDModel: model.ULIDModel{ID: record.ID, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}, AppealID: record.AppealID, GuildID: record.GuildID, EventType: record.EventType, ActorDiscordUserID: record.ActorDiscordUserID, ActorType: record.ActorType, Body: record.Body, MetadataJSON: record.MetadataJSON}
 }
 
@@ -73,3 +75,8 @@ func appealNotificationRecord(item model.AppealNotification) *AppealNotification
 func appealNotificationModel(record AppealNotificationRecord) model.AppealNotification {
 	return model.AppealNotification{ULIDModel: model.ULIDModel{ID: record.ID, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}, AppealID: record.AppealID, EventID: record.EventID, GuildID: record.GuildID, TargetDiscordUserID: record.TargetDiscordUserID, Audience: record.Audience, Status: record.Status, Body: record.Body, DeliveryMessageID: record.DeliveryMessageID, DeliveryChannelID: record.DeliveryChannelID, RefreshRequested: record.RefreshRequested, LastErrorCode: record.LastErrorCode, LeaseToken: record.LeaseToken, LeaseExpiresAt: record.LeaseExpiresAt}
 }
+
+// These aliases keep the frozen migration source checksum stable until the
+// pre-release migration chain is replaced. Runtime code uses the current records.
+type appealV5Record = AppealRecord
+type appealEventV5Record = AppealEventRecord
