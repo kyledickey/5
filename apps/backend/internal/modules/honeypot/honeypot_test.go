@@ -558,3 +558,33 @@ func TestCounterFailureDoesNotRepeatCase(t *testing.T) {
 		t.Fatalf("case calls=%d counter calls=%d", fixture.applier.count(), counter.calls)
 	}
 }
+
+// TestWarningReplacementPreservesCurrentConfiguration verifies transport repair
+// changes only the receipt and cannot overwrite a concurrent administrator edit.
+func TestWarningReplacementPreservesCurrentConfiguration(t *testing.T) {
+	fixture := setup(t)
+	ctx := context.Background()
+	actor := honeypot.Actor{GuildID: "guild-a", DiscordUserID: "admin", CanManage: true}
+	original := honeypot.Settings{ChannelDiscordID: "trap", TemplateID: "template", WarningText: "Custom warning", WarningMessageID: "old"}
+	if _, _, err := fixture.service.UpdateSettings(ctx, actor, true, original); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.service.RecordWarningReplacement(ctx, actor.GuildID, original, "new"); err != nil {
+		t.Fatal(err)
+	}
+	saved, _, err := fixture.service.Settings(ctx, actor)
+	if err != nil || saved.WarningMessageID != "new" || saved.WarningText != original.WarningText || saved.TemplateID != original.TemplateID {
+		t.Fatalf("repair changed policy: %+v %v", saved, err)
+	}
+	if err := fixture.service.RecordWarningReplacement(ctx, actor.GuildID, original, "stale"); err == nil {
+		t.Fatal("stale warning receipt overwritten")
+	}
+	changed := saved
+	changed.WarningText = "Administrator edit"
+	if _, _, err := fixture.service.UpdateSettings(ctx, actor, true, changed); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.service.RecordWarningReplacement(ctx, actor.GuildID, saved, "stale"); err == nil {
+		t.Fatal("concurrent warning text overwritten")
+	}
+}

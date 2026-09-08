@@ -77,7 +77,7 @@ func (r *Runtime) SetupHoneypot(ctx ui.Context) ui.HandlerResult {
 			settings.WarningText = strings.ReplaceAll(warning, `\n`, "\n")
 		}
 		if settings.WarningText == "" {
-			settings.WarningText = "# Warning!\nThis channel catches spam and scam accounts. Do not post here. Posting here triggers this server's honeypot moderation rule."
+			settings.WarningText = defaultHoneypotWarning
 		}
 		content := honeypotWarningContent(settings.WarningText, status.Statistics.Created)
 		var sent *discordgo.Message

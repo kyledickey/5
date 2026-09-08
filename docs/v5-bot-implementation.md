@@ -566,3 +566,12 @@ means further work is required, not completion.
   cancelled history remains readable. Existing closure, retry, ownership and import
   tests plus the full backend suite pass. Live ticket rehearsal and the remaining
   cross-feature requirements are still pending.
+
+- Honeypot incident-counter refresh now recreates an explicitly deleted warning
+  from saved text and durable incident counts, or restores a missing receipt.
+  Ordinary Discord edit failures do not create duplicate warnings. Replacement
+  receipts update only the current enabled warning configuration under a row lock,
+  preserving concurrent administrator edits; presentation repair produces no staff
+  audit event. Setup and recovery share the default warning text. Transport and
+  stale-configuration tests plus the full backend suite pass. Immediate deletion
+  event handling, setup/counter concurrency and live warning recovery remain pending.
