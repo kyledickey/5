@@ -14,6 +14,7 @@ func RegisterCaseComponents(registry *interactions.ComponentRegistry) error {
 		"retry": handleRetryComponent, "dismiss": handleDismissComponent,
 		"void": handleVoidComponent, "reverse": handleReverseComponent,
 		"message_template": handleMessageTemplateComponent,
+		"user_template":    handleUserTemplateComponent,
 		"edit_context":     handleEditContextComponent,
 		"evidence":         handleCaseEvidenceComponent,
 		"user_detail":      handleCaseUserComponent,

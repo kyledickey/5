@@ -426,3 +426,13 @@ means further work is required, not completion.
   replacements, removal and display states; focused and full backend suites pass.
   Raw partial gateway payload behavior and live attachment edit/delete rehearsal
   still need verification; attachment bytes are not archived by general logging.
+
+- Added the native user-context command Create case for member. It takes the target
+  from Discord's resolved selection, applies the sole active policy immediately or
+  presents a private template picker, refreshes live authority on selection, and
+  creates through the normal case service without invented message evidence.
+  Results reuse the existing public action-status presentation and optional later
+  context/evidence controls. A regression test follows picker selection through
+  creation for the intended member; the full backend suite passes. Picker paging
+  beyond 25 templates, acknowledgement timing and live context-menu rehearsal still
+  require work alongside the remaining tracked requirements.
