@@ -2,6 +2,7 @@ package quack
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -52,6 +53,14 @@ func (w *AuditMirrorWorker) enrichCase(ctx context.Context, entry model.AuditLog
 	}
 	if execution != nil {
 		message.ActionType = execution.ActionType
+		if entry.Action == string(model.AuditActionActionSucceeded) && execution.ReversalOfExecutionID != nil {
+			var metadata struct {
+				ReversalNoop bool `json:"reversal_noop"`
+			}
+			if json.Unmarshal([]byte(entry.MetadataJSON), &metadata) == nil {
+				message.ReversalNoop = metadata.ReversalNoop
+			}
+		}
 		if entry.Action == string(model.AuditActionActionFailed) && execution.Status == model.ActionExecutionFailed && execution.DismissedAt == nil && (item.Validity != model.CaseValidityVoided || execution.ReversalOfExecutionID != nil) {
 			message.RetryExecutionID = execution.ID
 		}

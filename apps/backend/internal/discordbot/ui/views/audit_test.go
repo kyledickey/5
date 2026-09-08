@@ -51,3 +51,26 @@ func TestCaseCreatedMirrorNamesDecisionWithoutClaimingCompletion(t *testing.T) {
 		t.Fatalf("execution result was conflated with policy selection: %s", completed.Content)
 	}
 }
+
+// TestAuditSettingsMirrorOmitsStorageIdentifiers keeps administrative history
+// readable without exposing database resource names or correlation keys.
+func TestAuditSettingsMirrorOmitsStorageIdentifiers(t *testing.T) {
+	message := AuditMirrorMessage(quack.AuditMirrorMessage{ActorDiscordUserID: "moderator", Action: "guild_settings.update", Result: model.AuditResultSuccess, ResourceType: "guild_settings", ResourceID: "internal-settings-id", AuditEntryID: "internal-audit-id"})
+	if !strings.Contains(message.Content, "updated the server settings") {
+		t.Fatal("missing semantic action")
+	}
+	for _, internal := range []string{"guild_settings", "internal-settings-id", "internal-audit-id"} {
+		if strings.Contains(message.Content, internal) {
+			t.Fatalf("visible internal metadata: %s", message.Content)
+		}
+	}
+}
+
+// TestAuditReversalNoopDoesNotClaimRemoval describes successful absence checks
+// without claiming the bot removed an expired or previously lifted punishment.
+func TestAuditReversalNoopDoesNotClaimRemoval(t *testing.T) {
+	message := AuditMirrorMessage(quack.AuditMirrorMessage{Action: "case_action.succeeded", ActionType: model.ActionRemoveTimeout, Result: model.AuditResultSuccess, ReversalNoop: true})
+	if !strings.Contains(message.Content, "already absent") || !strings.Contains(message.Content, "No reversal request was sent") || strings.Contains(message.Content, "completed") {
+		t.Fatal(message.Content)
+	}
+}

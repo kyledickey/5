@@ -42,6 +42,8 @@ type AuditMirrorMessage struct {
 	// decision, not a claim that its queued enforcement has completed.
 	SelectedLevelName string
 	SelectedOutcome   string
+	// ReversalNoop distinguishes confirmed absence from a removal request.
+	ReversalNoop bool
 }
 
 // AuditMirrorSender delivers one already-redacted important event to Discord.

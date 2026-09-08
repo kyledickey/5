@@ -116,6 +116,8 @@ func (s *ActionService) processClaimedAction(ctx context.Context, workerID strin
 		result = actionmods.RetryableError("guild_lookup_failed", "Guild information is temporarily unavailable")
 	case discordGuildID == "":
 		result = actionmods.PermanentError("guild_not_found", "The case guild is unavailable")
+	case (claimed.Execution.ActionType == model.ActionRemoveTimeout || claimed.Execution.ActionType == model.ActionUnbanUser) && claimed.Execution.ReversalOfExecutionID == nil:
+		result = actionmods.PermanentError("reversal_provenance_unavailable", "The reversal has no original punishment reference. Review it manually.")
 	case claimed.Execution.ReversalOfExecutionID != nil:
 		actorID, _ := config["requested_by"].(string)
 		if s.authorizer == nil || actorID == "" {
@@ -123,7 +125,7 @@ func (s *ActionService) processClaimedAction(ctx context.Context, workerID strin
 		} else if err := s.authorizer.PreflightReversal(ctx, &GuildStaffContext{Guild: guild, ActorDiscordUserID: actorID}, claimed.Case.TargetDiscordUserID, claimed.Execution.ActionType); err != nil {
 			result = actionmods.PermanentError("reversal_permission_denied", "Could not verify permission to undo this punishment. A moderator with the required permission can retry it.")
 		} else {
-			result = s.executeAction(ctx, handler, actionContext)
+			result = s.executeAction(ctx, actionmods.Func(s.executeGuardedReversal), actionContext)
 		}
 	default:
 		result = s.executeAction(ctx, handler, actionContext)
@@ -144,6 +146,9 @@ func (s *ActionService) processClaimedAction(ctx context.Context, workerID strin
 	eventType := model.CaseEventActionSucceeded
 	eventBody := "Discord enforcement succeeded"
 	var nextRetryAt *time.Time
+	if noop, _ := result.Response["reversal_noop"].(bool); noop && result.Error == "" {
+		eventBody = "Punishment was already absent; no reversal request was sent"
+	}
 
 	if result.Error != "" {
 		attemptStatus = model.ActionAttemptFailed

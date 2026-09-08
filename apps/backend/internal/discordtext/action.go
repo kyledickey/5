@@ -15,9 +15,9 @@ func ActionSentence(action model.ActionType, status model.ActionExecutionStatus)
 		case model.ActionBanUser:
 			return "Member banned."
 		case model.ActionRemoveTimeout:
-			return "Timeout removed."
+			return "Member is no longer timed out."
 		case model.ActionUnbanUser:
-			return "Ban removed."
+			return "Member is no longer banned."
 		case model.ActionSendDM:
 			return "Message sent."
 		}

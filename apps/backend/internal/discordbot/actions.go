@@ -13,11 +13,11 @@ func (b *Bot) TimeoutMember(ctx context.Context, guildID, userID string, duratio
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	until := time.Now().UTC().Add(time.Duration(durationSeconds) * time.Second)
+	until := time.Now().UTC().Add(time.Duration(durationSeconds) * time.Second).Truncate(time.Millisecond)
 	if err := b.Session.GuildMemberTimeout(guildID, userID, &until, discordgo.WithAuditLogReason(auditReason), discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false)); err != nil {
 		return nil, classifyDiscordOperation("timeout", err, false)
 	}
-	return map[string]any{"timeout_until": until.Format(time.RFC3339)}, nil
+	return map[string]any{"timeout_until": until.Format("2006-01-02T15:04:05.000Z07:00")}, nil
 }
 
 // KickMember removes the immutable case target using a bounded audit reason.

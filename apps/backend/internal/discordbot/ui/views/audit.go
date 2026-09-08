@@ -10,7 +10,8 @@ import (
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
-// AuditMirrorMessage summarizes a redacted staff event; durable identifiers stay in a quiet footer.
+// AuditMirrorMessage summarizes a redacted staff event with human case context.
+// Internal storage identifiers stay in delivery state and controls, not the copy.
 func AuditMirrorMessage(message quack.AuditMirrorMessage) ui.Message {
 	actor := "Quack"
 	if message.ActorDiscordUserID != "" && message.ActorDiscordUserID != "quack-system" {
@@ -36,6 +37,9 @@ func AuditMirrorMessage(message quack.AuditMirrorMessage) ui.Message {
 			body = fmt.Sprintf("%s skipped **%s**.", actor, label)
 		}
 	}
+	if message.ReversalNoop && message.Action == "case_action.succeeded" {
+		body = fmt.Sprintf("%s confirmed the punishment was already absent. No reversal request was sent.", actor)
+	}
 	context := ""
 	if message.CaseID != "" {
 		context = fmt.Sprintf("Case #%d · <@%s>", message.CaseNumber, message.TargetDiscordUserID)
@@ -50,10 +54,6 @@ func AuditMirrorMessage(message quack.AuditMirrorMessage) ui.Message {
 		context += "\nSelected outcome: **" + ui.PlainText(message.SelectedOutcome) + "**"
 	}
 	meta := []string{}
-	if message.ResourceID != "" && message.CaseID == "" {
-		meta = append(meta, ui.PlainText(message.ResourceType)+" `"+strings.ReplaceAll(message.ResourceID, "`", "")+"`")
-	}
-	meta = append(meta, "Audit "+ui.PlainText(message.AuditEntryID))
 	if date := ui.RelativeTime(message.OccurredAt); date != "" {
 		meta = append(meta, date)
 	}

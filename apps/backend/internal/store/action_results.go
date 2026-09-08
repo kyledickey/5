@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -180,6 +181,11 @@ func createCaseActionAudit(tx *gorm.DB, execution model.CaseActionExecution, par
 		return nil
 	}
 
+	var response struct {
+		ReversalNoop bool `json:"reversal_noop"`
+	}
+	_ = json.Unmarshal([]byte(params.ResponsePayloadJSON), &response)
+	noop := response.ReversalNoop && params.ExecutionStatus == model.ActionExecutionSucceeded && execution.ReversalOfExecutionID != nil && (execution.ActionType == model.ActionRemoveTimeout || execution.ActionType == model.ActionUnbanUser)
 	action := "case_action.succeeded"
 	resultValue := model.AuditResultSuccess
 	switch params.ExecutionStatus {
@@ -202,6 +208,7 @@ func createCaseActionAudit(tx *gorm.DB, execution model.CaseActionExecution, par
 		CorrelationID: firstNonEmpty(params.CorrelationID, execution.CorrelationID, caseModel.CorrelationID),
 		RequestID:     params.RequestID,
 		MetadataJSON: marshalJSONObject(map[string]any{
+			"reversal_noop":  noop,
 			"case_id":        caseModel.ID,
 			"case_number":    caseModel.CaseNumber,
 			"action_type":    execution.ActionType,
