@@ -93,12 +93,19 @@ func (r *Runtime) onMessageUpdate(_ *discordgo.Session, event *discordgo.Message
 	if !ok {
 		return
 	}
-	before := ""
-	if event.BeforeUpdate != nil {
-		before = event.BeforeUpdate.Content
+	// Discord also emits partial updates for link previews and other metadata.
+	if event.EditedTimestamp == nil {
+		return
 	}
-	r.submit(messageEvent(guildID, generallogging.MessageEdit, event.Message, before, event.Content))
-	_ = r.Logging.CacheMessage(context.Background(), cachedMessage(guildID, event.Message))
+	var before *generallogging.CachedMessage
+	if event.BeforeUpdate != nil {
+		value := cachedMessage(guildID, event.BeforeUpdate)
+		before = &value
+	}
+	prepared, err := r.Logging.PrepareMessageEdit(context.Background(), cachedMessage(guildID, event.Message), before)
+	if err == nil && prepared != nil {
+		r.submit(*prepared)
+	}
 }
 
 // onMessageDelete queues a cache-enriched deletion event.

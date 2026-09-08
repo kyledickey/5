@@ -408,3 +408,13 @@ means further work is required, not completion.
   cover retained tail content and refusal before send when attachment permission
   is missing. Focused and full backend suites pass. Live message rendering/delivery
   and remaining legacy event coverage are still pending.
+
+- Message-edit logging now captures the previous cache version atomically before
+  storing the update and queues a complete immutable snapshot. Delivery does not
+  enrich it from a newer cache version, including when the original content was
+  empty. Metadata-only updates without an edit timestamp and unchanged text are
+  skipped. Partial updates preserve cached author/channel identity, and deletion
+  enrichment restores the cached author. Tests queue multiple edits before delivery
+  and verify exact before/after text. Focused and full backend suites pass. Attachment-
+  only edit coverage, unknown-versus-empty display and live event rehearsal remain
+  pending with the other tracked feature work.

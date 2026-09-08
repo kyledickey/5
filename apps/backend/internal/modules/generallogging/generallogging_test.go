@@ -238,3 +238,46 @@ func TestSettingsImportDryRunAndIdempotency(t *testing.T) {
 		t.Fatalf("imported cache limit not applied: %+v", status)
 	}
 }
+
+// TestQueuedEditsKeepTheirOriginalSnapshots covers two edits before worker
+// delivery, including a legitimately empty original message and unchanged updates.
+func TestQueuedEditsKeepTheirOriginalSnapshots(t *testing.T) {
+	_, service, client, _ := setup(t)
+	ctx := context.Background()
+	actor := logmodule.Actor{GuildID: "guild-a", DiscordUserID: "admin", CanManage: true}
+	settings, _, _, err := service.Settings(ctx, actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings.Channels[logmodule.MessageEdit] = "staff-log"
+	if _, err := service.UpdateSettings(ctx, actor, true, settings); err != nil {
+		t.Fatal(err)
+	}
+	current := logmodule.CachedMessage{GuildID: "guild-a", MessageDiscordID: "message", AuthorDiscordUserID: "author", Content: ""}
+	if err := service.CacheMessage(ctx, current); err != nil {
+		t.Fatal(err)
+	}
+	current.Content = "first"
+	first, err := service.PrepareMessageEdit(ctx, current, nil)
+	if err != nil || first == nil {
+		t.Fatalf("first edit: %v", err)
+	}
+	current.Content = "second"
+	second, err := service.PrepareMessageEdit(ctx, current, nil)
+	if err != nil || second == nil {
+		t.Fatalf("second edit: %v", err)
+	}
+	unchanged, err := service.PrepareMessageEdit(ctx, current, nil)
+	if err != nil || unchanged != nil {
+		t.Fatalf("unchanged update generated log: %+v %v", unchanged, err)
+	}
+	if err := service.Handle(ctx, *first); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Handle(ctx, *second); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(client.payloads[0], `"before":""`) || !strings.Contains(client.payloads[0], `"after":"first"`) || !strings.Contains(client.payloads[1], `"before":"first"`) || !strings.Contains(client.payloads[1], `"after":"second"`) {
+		t.Fatalf("queued edits read newer cache state: %v", client.payloads)
+	}
+}

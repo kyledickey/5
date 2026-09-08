@@ -48,7 +48,10 @@ func (c *MessageCache) SetGuildLimit(guildID string, limit int) {
 }
 
 // Put stores or replaces one message while preserving stable FIFO order.
-func (c *MessageCache) Put(message CachedMessage) {
+func (c *MessageCache) Put(message CachedMessage) { c.Replace(message) }
+
+// Replace atomically snapshots old content while storing the new version.
+func (c *MessageCache) Replace(message CachedMessage) (CachedMessage, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	g := c.guilds[message.GuildID]
@@ -56,12 +59,23 @@ func (c *MessageCache) Put(message CachedMessage) {
 		g = &guildCache{messages: make(map[string]*list.Element)}
 		c.guilds[message.GuildID] = g
 	}
+	var previous CachedMessage
+	found := false
 	if element, ok := g.messages[message.MessageDiscordID]; ok {
+		previous = cloneMessage(element.Value.(CachedMessage))
+		if message.AuthorDiscordUserID == "" {
+			message.AuthorDiscordUserID = previous.AuthorDiscordUserID
+		}
+		if message.ChannelDiscordID == "" {
+			message.ChannelDiscordID = previous.ChannelDiscordID
+		}
+		found = true
 		element.Value = cloneMessage(message)
 	} else {
 		g.messages[message.MessageDiscordID] = g.order.PushBack(cloneMessage(message))
 	}
 	c.evict(message.GuildID)
+	return previous, found
 }
 
 // Get returns a defensive copy of cached message context.

@@ -62,6 +62,8 @@ type AttachmentMetadata struct {
 
 // Event is an ephemeral Discord event delivered to configured staff channels.
 type Event struct {
+	// SnapshotComplete prevents queued edits from consulting a newer cache version.
+	SnapshotComplete                                                bool
 	GuildID, ChannelDiscordID, MessageDiscordID, ActorDiscordUserID string
 	Type                                                            EventType
 	Before, After                                                   string

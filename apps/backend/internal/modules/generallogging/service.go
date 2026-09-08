@@ -231,12 +231,15 @@ func (s *Service) loadSettings(ctx context.Context, guildID string) (Settings, b
 	return settings, configuration.Enabled, nil
 }
 func (s *Service) enrichFromCache(event *Event) {
-	if event.Type != MessageEdit && event.Type != MessageDelete {
+	if event.SnapshotComplete || event.Type != MessageEdit && event.Type != MessageDelete {
 		return
 	}
 	cached, ok := s.cache.Get(event.GuildID, event.MessageDiscordID)
 	if !ok {
 		return
+	}
+	if event.ActorDiscordUserID == "" {
+		event.ActorDiscordUserID = cached.AuthorDiscordUserID
 	}
 	if event.Before == "" {
 		event.Before = cached.Content
@@ -317,4 +320,30 @@ func (s *Service) audit(ctx context.Context, actor Actor, action, result string,
 	if auditErr := s.auditor.RecordModuleAudit(ctx, modules.AuditEvent{GuildID: actor.GuildID, ActorDiscordUserID: actor.DiscordUserID, Action: action, ResourceType: "general_logging_settings", Result: result, FailureReason: reason, MetadataJSON: "{}"}); auditErr != nil {
 		slog.ErrorContext(ctx, "Module audit could not be recorded", "module", "generallogging", "guild_id", actor.GuildID, "action", action)
 	}
+}
+
+// PrepareMessageEdit captures an immutable edit event before updating the cache.
+// A supplied before snapshot comes from Discord; otherwise the bounded cache is used.
+func (s *Service) PrepareMessageEdit(ctx context.Context, current CachedMessage, before *CachedMessage) (*Event, error) {
+	settings, enabled, err := s.loadSettings(ctx, current.GuildID)
+	if err != nil {
+		return nil, err
+	}
+	if !enabled {
+		return nil, ErrDisabled
+	}
+	s.cache.SetGuildLimit(current.GuildID, settings.CacheEntriesPerGuild)
+	previous, known := s.cache.Replace(current)
+	if before != nil {
+		previous = *before
+		known = true
+	}
+	if known && previous.Content == current.Content {
+		return nil, nil
+	}
+	actor := current.AuthorDiscordUserID
+	if actor == "" {
+		actor = previous.AuthorDiscordUserID
+	}
+	return &Event{GuildID: current.GuildID, ChannelDiscordID: current.ChannelDiscordID, MessageDiscordID: current.MessageDiscordID, ActorDiscordUserID: actor, Type: MessageEdit, Before: previous.Content, After: current.Content, Attachments: current.Attachments, EmbedTypes: current.EmbedTypes, SnapshotComplete: true}, nil
 }
