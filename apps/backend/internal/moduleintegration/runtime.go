@@ -104,7 +104,11 @@ func New(ctx context.Context, repositories *store.Store, session *discordgo.Sess
 	honeypotChannels := honeypotChannelValidator{session: session, resolver: resolver}
 	honeypotService := honeypot.NewService(registry, honeypot.NewStore(repositories.DB()), auditor, honeypotChannels, honeypotTemplates, honeypotCaseApplier{cases: services.Cases})
 	honeypotDiscord := honeypot.NewDiscordAdapter(honeypotService)
-	appeals := quack.NewAppealService(repositories)
+	appeals := services.Appeals
+	if appeals == nil {
+		appeals = quack.NewAppealService(repositories)
+		services.Appeals = appeals
+	}
 	appealAdapter := &discordadapter.AppealNotificationAdapter{Session: session, Resolver: appealStaffChannelResolver{repository: repositories, validator: &discordadapter.Bot{Session: session}}}
 	appealDispatcher := quack.NewAppealNotificationDispatcher(repositories, appealAdapter)
 	workerCtx, cancel := context.WithCancel(ctx)

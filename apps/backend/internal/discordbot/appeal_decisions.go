@@ -23,7 +23,12 @@ func appealDecisionHandler(services *quack.Services, appeals *quack.AppealServic
 			return ui.Immediate(ui.Error("That appeal control is invalid."))
 		}
 		actor := ctx.Interaction.Member.User
-		return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
+		privateQueue := ctx.Interaction.Message != nil && ctx.Interaction.Message.Flags&discordgo.MessageFlagsEphemeral != 0
+		ack := ui.DeferEphemeral()
+		if privateQueue {
+			ack = ui.DeferUpdate()
+		}
+		return ui.Async(ack, func(taskCtx context.Context, responder ui.Responder) error {
 			guild, err := services.Guilds.ResolveDiscordStaffContext(taskCtx, quack.DiscordStaffContextInput{DiscordGuildID: ctx.Interaction.GuildID, DiscordUserID: actor.ID, DisplayName: actor.GlobalName, LastActiveAt: time.Now().UTC()})
 			if err != nil {
 				_, err = responder.EditOriginal(ui.ErrorEdit("Could not verify your current moderation permissions."))
@@ -54,6 +59,12 @@ func appealDecisionHandler(services *quack.Services, appeals *quack.AppealServic
 			text := "Appeal rejected. The case and punishment remain unchanged."
 			if action == "accept" {
 				text = "Appeal accepted. The case was voided and any ban or timeout removal is queued."
+			}
+			if privateQueue {
+				message := views.AppealStaffMessage(decided)
+				message.Components = append(message.Components, ui.Row(ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "appeal", Action: "page", Version: "v1", Payload: "1"}), "Next pending appeal", discordgo.SecondaryButton, false)))
+				_, err = ui.Publish(responder, message)
+				return err
 			}
 			if ctx.Session != nil && ctx.Interaction.Message != nil {
 				message := views.AppealStaffMessage(decided).ForApplication(ui.SessionApplicationID(ctx.Session))

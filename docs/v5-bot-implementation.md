@@ -180,3 +180,13 @@ means further work is required, not completion.
   unknown outcomes; focused and full backend suites pass. A staff-facing recovery
   view for ambiguous notification failures and durable queue-message refresh
   remain pending, as does live verification.
+
+- `/appeals` provides a private, paginated pending queue directly from storage,
+  independent of notification delivery. It includes decision controls, refreshes
+  live authorization on navigation, and recovers when intervening decisions
+  shrink the queue. Private decisions offer the next pending appeal without
+  attempting a public channel edit. Appeals now share the core service composition
+  used by commands and module integration. Focused and full backend tests pass;
+  tests cover undelivered submissions, pagination after a decision and revoked
+  permissions. Notification failure diagnostics/resend controls, durable channel
+  message refresh, rejoin links and live rehearsal still remain pending.

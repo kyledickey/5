@@ -16,6 +16,7 @@ type Services struct {
 	Settings  *GuildSettingsService
 	Templates *TemplateService
 	Cases     *CaseService
+	Appeals   *AppealService
 	Audits    *AuditService
 	Actions   *ActionService
 	Evidence  *EvidenceService
@@ -35,6 +36,7 @@ func NewWithDiscordClient(store Repository, discord DiscordClient) *Services {
 // NewWithConfigDependencies constructs with config dependencies with required dependencies explicit so callers control lifecycle and substitution.
 func NewWithConfigDependencies(cfg config.Config, store Repository, discord DiscordClient, actions DiscordActionClient, scheduler CaseWorkScheduler) *Services {
 	services := &Services{Config: cfg, Store: store}
+	services.Appeals = NewAppealService(store)
 	services.Guilds = NewGuildService(store, discord)
 	services.Settings = NewGuildSettingsService(store)
 	if channels, ok := actions.(StaffChannelValidator); ok {

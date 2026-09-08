@@ -24,6 +24,9 @@ func (r *Runtime) RegisterComponents(registry *interactions.ComponentRegistry) e
 	if err := tickets.RegisterComponents(registry, handlers); err != nil {
 		return err
 	}
+	if err := discordcommands.RegisterAppealQueueComponents(registry); err != nil {
+		return err
+	}
 	if err := discordcommands.RegisterCaseComponents(registry); err != nil {
 		return err
 	}

@@ -10,6 +10,7 @@ import (
 // Repository is the composition root contract. Individual services accept the
 // smaller consumer ports below; adapters implement their combined method set.
 type Repository interface {
+	AppealRepository
 	StatisticsRepository
 	AuditMirrorRepository
 	GuildRepository
