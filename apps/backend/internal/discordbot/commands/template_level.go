@@ -12,8 +12,8 @@ import (
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
-// templateLevelOption expresses thresholds as the case being created, rather
-// than requiring administrators to calculate the engine's prior-case count.
+// templateLevelOption expresses thresholds as the case being created, matching
+// the engine count that includes this case.
 func templateLevelOption() *discordgo.ApplicationCommandOption {
 	return &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "level", Description: "Set an outcome from a chosen case number onward", Options: []*discordgo.ApplicationCommandOption{
 		{Type: discordgo.ApplicationCommandOptionString, Name: "template", Description: "Rule to edit", Required: true, Autocomplete: true},
@@ -87,9 +87,10 @@ func handleTemplateLevel(ctx ui.Context, option *discordgo.ApplicationCommandInt
 			return fail("That active template is unavailable.")
 		}
 		policy := template.EditInput()
-		level := quack.TemplateLevelInput{Name: fmt.Sprintf("Case %d onward", count), TriggerCaseCount: int(count - 1), NotifyUser: true}
+		level := quack.TemplateLevelInput{Name: fmt.Sprintf("Case %d onward", count), TriggerCaseCount: int(count), NotifyUser: true}
 		if count == 1 {
 			level.IsDefault = true
+			level.TriggerCaseCount = 0
 			level.Name = "Default"
 		}
 		action := model.ActionType("")

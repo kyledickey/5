@@ -632,3 +632,11 @@ means further work is required, not completion.
   exclusion and restore; revoked-manager tests cover each management command.
   Focused and full backend suites pass. Opt-in decay, live command usability and
   end-to-end policy-to-case rehearsal are still pending.
+
+- Corrected native threshold conversion after tracing actual case selection: the
+  engine includes the newly created case, so a third-case escalation stores 3,
+  not 2. Native editing, removal and display now use that same count. This corrects
+  the earlier ledger note describing a two-prior-case storage threshold. A new
+  command-to-case regression creates three real cases and proves the first two
+  remain warnings and only the third escalates. Focused and full backend suites
+  pass. No running bot had loaded the earlier native command implementation.

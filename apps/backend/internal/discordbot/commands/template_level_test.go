@@ -46,7 +46,7 @@ func TestTemplateLevelUsesHumanCaseNumberAndPreservesOtherLevels(t *testing.T) {
 			if outcome == "kick" {
 				want = model.ActionKickUser
 			}
-			if level.TriggerCaseCount != 2 || len(level.Actions) != 1 || level.Actions[0].ActionType != want {
+			if level.TriggerCaseCount != 3 || len(level.Actions) != 1 || level.Actions[0].ActionType != want {
 				t.Fatalf("third-case threshold incorrect: %+v", level)
 			}
 		}

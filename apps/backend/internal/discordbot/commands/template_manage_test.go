@@ -110,3 +110,28 @@ func TestTemplateManagementRejectsRevokedManager(t *testing.T) {
 		}
 	}
 }
+
+// TestNativeTemplateThresholdMatchesCreatedCase counts real cases after native
+// configuration so UI conversion errors cannot trigger punishment a case early.
+func TestNativeTemplateThresholdMatchesCreatedCase(t *testing.T) {
+	_, services, id := newCaseCommandHarnessWithLivePermissions(t, uint64(discordgo.PermissionManageGuild))
+	runTemplateManagement(t, services, id, "level",
+		&discordgo.ApplicationCommandInteractionDataOption{Name: "case", Type: discordgo.ApplicationCommandOptionInteger, Value: float64(3)},
+		&discordgo.ApplicationCommandInteractionDataOption{Name: "outcome", Type: discordgo.ApplicationCommandOptionString, Value: "ban"},
+	)
+	for number := 1; number <= 3; number++ {
+		created, err := services.Cases.Create(context.Background(), caseCommandGuildContext(t, services), quack.CaseInput{TemplateID: id, TargetDiscordUserID: "target"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if created.SelectedLevel == nil || created.SelectedLevel.MatchedCaseCount != int64(number) {
+			t.Fatalf("case %d count: %+v", number, created.SelectedLevel)
+		}
+		if number < 3 && (!created.SelectedLevel.IsDefault || len(created.Actions) != 0) {
+			t.Fatalf("case %d punished early: %+v", number, created)
+		}
+		if number == 3 && (created.SelectedLevel.IsDefault || len(created.Actions) != 1) {
+			t.Fatalf("third case did not escalate: %+v", created)
+		}
+	}
+}

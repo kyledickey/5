@@ -113,7 +113,7 @@ func handleTemplateManage(ctx ui.Context, option *discordgo.ApplicationCommandIn
 			}
 			found := false
 			for index, level := range input.Levels {
-				if !level.IsDefault && level.TriggerCaseCount == int(value.IntValue()-1) {
+				if !level.IsDefault && level.TriggerCaseCount == int(value.IntValue()) {
 					input.Levels = append(input.Levels[:index], input.Levels[index+1:]...)
 					found = true
 					break
@@ -158,7 +158,7 @@ func templatePolicyMessage(template quack.TemplateResponse) ui.Message {
 		return levels[i].TriggerCaseCount < levels[j].TriggerCaseCount
 	})
 	for _, level := range levels {
-		count := level.TriggerCaseCount + 1
+		count := level.TriggerCaseCount
 		if level.IsDefault {
 			count = 1
 		}
@@ -180,6 +180,6 @@ func templatePolicyMessage(template quack.TemplateResponse) ui.Message {
 		}
 		lines = append(lines, fmt.Sprintf("From case **%d**: %s · %s", count, outcome, dm))
 	}
-	lines = append(lines, "", "Appeals: **"+appeals+"**", "Each outcome lasts until the next level. Counts use earlier, non-voided cases for this rule.", "Use `/template edit` for rule text and appeals, `/template level` for outcomes and DMs, or `/template remove-level` to remove an escalation.")
+	lines = append(lines, "", "Appeals: **"+appeals+"**", "Each outcome lasts until the next level. Counts include this case and earlier, non-voided cases for this rule. Imported v4 history does not count.", "Use `/template edit` for rule text and appeals, `/template level` for outcomes and DMs, or `/template remove-level` to remove an escalation.")
 	return ui.Signal("settings", strings.Join(lines, "\n"), true)
 }
