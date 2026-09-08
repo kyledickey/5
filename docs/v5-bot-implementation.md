@@ -524,3 +524,13 @@ means further work is required, not completion.
   retained real transcript and successful retry; focused and full backend suites
   pass. Legacy service lifecycle simplification, concurrent closure behavior and
   live ticket rehearsal remain pending.
+
+- Ticket close pipelines are serialized per guild/ticket in the shared Discord
+  adapter used by both components and HTTP. Simultaneous closes reuse the stored
+  transcript/queue receipt instead of racing capture, transition and deletion.
+  Different tickets remain independent; waiting requests honor cancellation and
+  reference-counted lock entries are removed when idle. A 12-caller regression,
+  cancellation/independence checks and the ticket package race suite pass; the full
+  backend suite also passes. This follows the required single-process runtime;
+  multi-process coordination is not introduced. Live close/retry rehearsal and
+  remaining ticket lifecycle simplification are still pending.

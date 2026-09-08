@@ -436,3 +436,30 @@ func TestEntryPanelReceiptPreservesCurrentSettings(t *testing.T) {
 		t.Fatalf("stale receipt overwrote settings: %+v", settings)
 	}
 }
+
+// TestConcurrentCloseReusesCapturedTranscript verifies simultaneous Discord/API
+// callers execute one capture/publication pipeline before idempotent cleanup.
+func TestConcurrentCloseReusesCapturedTranscript(t *testing.T) {
+	_, service, _ := setup(t)
+	client := &discordFake{}
+	adapter := tickets.NewDiscordAdapter(service, client)
+	actor := tickets.Actor{GuildID: "guild-a", DiscordUserID: "member"}
+	ticket, err := adapter.Open(context.Background(), actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	results := make(chan error, 12)
+	for range 12 {
+		go func() { <-start; _, err := adapter.Close(context.Background(), actor, ticket.ID); results <- err }()
+	}
+	close(start)
+	for range 12 {
+		if err := <-results; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if client.transcriptPublishes != 1 {
+		t.Fatalf("published transcript %d times", client.transcriptPublishes)
+	}
+}

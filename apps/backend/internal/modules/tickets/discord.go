@@ -25,6 +25,7 @@ type DiscordClient interface {
 type DiscordAdapter struct {
 	service *Service
 	client  DiscordClient
+	closes  ticketCloseLocks
 }
 
 // NewDiscordAdapter constructs the ticket Discord integration without central command registration.
@@ -98,6 +99,11 @@ func (a *DiscordAdapter) Reply(ctx context.Context, actor Actor, ticketID, body 
 
 // Close preserves and publishes the transcript before deleting the private thread.
 func (a *DiscordAdapter) Close(ctx context.Context, actor Actor, ticketID string) (*Ticket, error) {
+	release, err := a.closes.acquire(ctx, actor.GuildID+":"+ticketID)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	ticket, _, err := a.service.Detail(ctx, actor, ticketID)
 	if err != nil {
 		return nil, err
