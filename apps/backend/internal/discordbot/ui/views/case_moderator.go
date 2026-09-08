@@ -14,6 +14,31 @@ import (
 
 const casePageSize = 10
 
+// CaseDetailPage keeps long staff context and history in Discord while retaining
+// correction and recovery controls on each page. Render before measuring because
+// application emoji expansion contributes to Discord's message limit.
+func CaseDetailPage(detail *quack.CaseDetailResponse, page int, applicationID string) ui.Message {
+	message := CaseDetailMessage(detail)
+	message.Ephemeral = true
+	if detail == nil {
+		return message
+	}
+	pages := ui.TextPages(discordtext.Resolve(message.Content, applicationID), 1750)
+	if page < 1 {
+		page = 1
+	}
+	if page > len(pages) {
+		page = len(pages)
+	}
+	message.Content = pages[page-1]
+	if len(pages) > 1 {
+		message.Content += fmt.Sprintf("\n\n-# Case #%d · Page %d/%d", detail.CaseNumber, page, len(pages))
+		controls, _ := ui.Pagination("case", "detail", fmt.Sprintf("%d|%s", page, detail.ID), page, len(pages))
+		message.Components = append(message.Components, controls...)
+	}
+	return message
+}
+
 // CaseDetailMessage retains authorized context and recovery controls while
 // describing the decision as a conversation rather than a field grid.
 func CaseDetailMessage(detail *quack.CaseDetailResponse) ui.Message {

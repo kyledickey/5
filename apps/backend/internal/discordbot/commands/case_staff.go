@@ -34,13 +34,13 @@ func handleCaseStaffSubcommand(ctx ui.Context, data discordgo.ApplicationCommand
 			detail, addErr := ctx.Services.Cases.AddEvidence(taskCtx, guildContext, optionStringValue(selected.GetOption("case")), evidenceLinksFromOption(selected.GetOption("message_link")), interactionEvidenceFiles(ctx.Interaction, selected.GetOption("file")))
 			err = addErr
 			if detail != nil {
-				response = views.CaseDetailMessage(detail)
+				response = views.CaseDetailPage(detail, 1, ui.SessionApplicationID(ctx.Session))
 			}
 		case "view":
 			detail, getErr := ctx.Services.Cases.Get(taskCtx, guildContext, optionStringValue(selected.GetOption("case")))
 			err = getErr
 			if detail != nil {
-				response = views.CaseDetailMessage(detail)
+				response = views.CaseDetailPage(detail, 1, ui.SessionApplicationID(ctx.Session))
 			}
 		case "list":
 			list, listErr := ctx.Services.Cases.List(taskCtx, guildContext, quack.CaseListInput{Limit: "10"})

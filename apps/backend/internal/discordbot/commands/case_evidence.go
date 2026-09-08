@@ -33,18 +33,23 @@ func handleCaseEvidenceComponent(ctx ui.Context) ui.HandlerResult {
 // pageEvidence reloads the case through live staff authorization on every click;
 // component payloads carry navigation only, never captured content or authority.
 func pageEvidence(delta int) ui.Handler {
+	return pageCaseRecord(delta, views.CaseEvidencePage)
+}
+
+// pageCaseRecord shares navigation and authorization for private case record views.
+func pageCaseRecord(delta int, render func(*quack.CaseDetailResponse, int, string) ui.Message) ui.Handler {
 	return func(ctx ui.Context) ui.HandlerResult {
 		parsed, err := ui.DecodeCustomID(ctx.Interaction.MessageComponentData().CustomID)
 		if err != nil {
-			return ui.Immediate(ui.Error("That evidence page is no longer available."))
+			return ui.Immediate(ui.Error("That case page is no longer available."))
 		}
 		parts := strings.SplitN(parsed.Payload, "|", 2)
 		if len(parts) != 2 || parts[1] == "" {
-			return ui.Immediate(ui.Error("That evidence page is no longer available."))
+			return ui.Immediate(ui.Error("That case page is no longer available."))
 		}
 		page, err := strconv.Atoi(parts[0])
 		if err != nil || page < 1 || page > 1000000 {
-			return ui.Immediate(ui.Error("That evidence page is no longer available."))
+			return ui.Immediate(ui.Error("That case page is no longer available."))
 		}
 		return ui.Async(ui.DeferUpdate(), func(taskCtx context.Context, responder ui.Responder) error {
 			guild, err := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
@@ -55,7 +60,7 @@ func pageEvidence(delta int) ui.Handler {
 			if err != nil {
 				return err
 			}
-			_, err = responder.UpdateMessage(ui.EditMessage(views.CaseEvidencePage(detail, page+delta, ui.SessionApplicationID(ctx.Session))))
+			_, err = responder.UpdateMessage(ui.EditMessage(render(detail, page+delta, ui.SessionApplicationID(ctx.Session))))
 			return err
 		})
 	}

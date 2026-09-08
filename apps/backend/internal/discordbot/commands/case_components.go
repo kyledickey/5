@@ -3,6 +3,7 @@ package commands
 import (
 	"github.com/quackdiscord/bot/internal/discordbot/interactions"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
+	"github.com/quackdiscord/bot/internal/discordbot/ui/views"
 )
 
 // RegisterCaseComponents installs case browsing, context editing and recovery controls.
@@ -20,6 +21,8 @@ func RegisterCaseComponents(registry *interactions.ComponentRegistry) error {
 		"evidence":         handleCaseEvidenceComponent,
 		"evidence_prev":    pageEvidence(-1),
 		"evidence_next":    pageEvidence(1),
+		"detail_prev":      pageCaseRecord(-1, views.CaseDetailPage),
+		"detail_next":      pageCaseRecord(1, views.CaseDetailPage),
 		"user_detail":      handleCaseUserComponent,
 	}
 	for action, handler := range components {

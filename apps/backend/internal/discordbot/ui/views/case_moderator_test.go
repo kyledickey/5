@@ -52,6 +52,37 @@ func TestEvidencePagesStayNative(t *testing.T) {
 	}
 }
 
+// TestLongCaseDetailRetainsContextAndRecovery checks that the complete staff
+// record can be read without downloading a file or losing its retry controls.
+func TestLongCaseDetailRetainsContextAndRecovery(t *testing.T) {
+	detail := &quack.CaseDetailResponse{
+		CaseResponse: quack.CaseResponse{ID: "case-1", CaseNumber: 9, Reason: "Spam", ContextValues: []quack.CaseContextValueResponse{{Label: "Context", Value: strings.Repeat("🦆 long context\n", 500) + "FINAL CONTEXT"}}},
+		Actions:      []quack.CaseActionDetailResponse{{CaseActionResponse: quack.CaseActionResponse{ID: "failed-1", ActionType: model.ActionBanUser, Status: model.ActionExecutionFailed}}},
+	}
+	var contents strings.Builder
+	for page := 1; ; page++ {
+		message := CaseDetailPage(detail, page, "819019613371236432").ForApplication("819019613371236432")
+		if !message.Ephemeral || len(message.Files) != 0 || len(utf16.Encode([]rune(message.Content))) > 2000 || len(message.Components) != 3 {
+			t.Fatalf("page %d lost native content or controls: %+v", page, message)
+		}
+		contents.WriteString(message.Content)
+		recovery := message.Components[1].(discordgo.ActionsRow)
+		if recovery.Components[0].(discordgo.Button).Label != "Retry" {
+			t.Fatal("retry control missing")
+		}
+		navigation := message.Components[2].(discordgo.ActionsRow)
+		if navigation.Components[1].(discordgo.Button).Disabled {
+			break
+		}
+		if page > 100 {
+			t.Fatal("case detail has no last page")
+		}
+	}
+	if !strings.Contains(contents.String(), "FINAL CONTEXT") {
+		t.Fatal("long context was truncated")
+	}
+}
+
 func TestCaseListPaginationIsStableAndScoped(t *testing.T) {
 	message := CaseListMessage(&quack.CaseListResponse{Cases: []quack.CaseResponse{{CaseNumber: 9, TargetDiscordUserID: "member", Validity: model.CaseValidityVoided}}, Total: 21, Limit: 10, Offset: 10}, 2, "member")
 	if message.Ephemeral || len(message.Components) != 1 || !strings.Contains(message.Content, "Page 2/3") {

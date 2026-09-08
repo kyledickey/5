@@ -757,3 +757,13 @@ means further work is required, not completion.
   than a whole page (those currently retain their text but may span pages). The
   updated evidence UI still needs a live rehearsal after a deliberate beta reload.
   Focused tests and the final full MySQL-enabled backend suite pass.
+
+- Native case detail now paginates the rendered record for `/case view` and the
+  post-upload receipt. Every page retains context/evidence/member navigation and
+  the applicable void/retry controls. Evidence and detail share a single live-
+  authorized page handler, and page responses are explicitly private. The long
+  Unicode context regression verifies the final text is reachable, no message.txt
+  is generated, every message fits Discord's limit, and retry stays available.
+  Focused tests and the full MySQL-enabled backend suite pass. Live verification,
+  appeal statement pagination, configured web buttons, and the broader outstanding
+  acceptance items remain pending; the running beta has not been reloaded yet.
