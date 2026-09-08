@@ -1069,3 +1069,59 @@ means further work is required, not completion.
 - Scale review still identifies indefinite stable-receipt reconciliation and
   complete detail/timeline reads behind some native pages. These remain follow-up
   work. The live beta has not yet been reloaded with this batch.
+
+### Updated beta and ticket closure verification
+
+- Built `/tmp/quack-v5-scale-review` from `012fe9e` and cleanly reloaded the
+  authorized `%1` beta pane. The existing database and dashboard process were
+  preserved. Readiness passed Discord, database, Redis, queue and action checks.
+- The tester opened ticket `01M20KM6Y87T10EPCPMNFPQCJ5`, sent synthetic text and
+  closed it inside its thread. The thread disappeared, SQL confirmed resolution
+  by the tester and a published transcript, and runtime logs recorded success
+  without the old post-deletion interaction error. The brief progress message
+  was not captured visually, so this is not proof of its on-screen duration.
+- The original private entry receipt still showed a stale deleted-thread mention.
+  Its View button successfully returned closed state and an attached transcript
+  containing the synthetic text. Refreshing that private receipt in place is the
+  next small interaction fix; public controls must retain private replies.
+
+### Narrow reads and clearer private controls
+
+- `a5378c1` removes discarded ticket timeline reads from permission/lifecycle
+  operations while preserving current owner/staff checks and full detail history.
+  `4e7f72c` gives native evidence pages a case-and-evidence-only authorized read.
+  Focused query guards, rendering equivalence, revoked authority and lifecycle
+  tests pass. Full API case details remain unchanged.
+- `40533c3` refreshes private ticket entry receipts in place when View is clicked;
+  public controls still receive private responses. Boundary tests pass. This is
+  user-triggered refresh, not background editing of all old ephemeral receipts.
+- Live tester access to case #2's View evidence control exposed no staff data,
+  but produced an unhelpful generic error. `77f46b4` explains recognized permission
+  denials privately. Dispatcher tests verify both private original replies and
+  private followups without overwriting a shared message.
+- `9933511` makes receipt refresh transactional with relevant case/action/evidence
+  mutations. Revisions fence stale completions, including late edits after newer
+  workers; stale repair requests advance revision too. Terminal receipts become
+  idle. SQLite/MySQL mutation, rollback, interleaving, upgrade and recovery tests
+  pass. Two historical appeal fixtures needed the current receipt table when
+  invoking current acceptance code; historical migrations were left unchanged.
+- Full MySQL-enabled backend suite passed at
+  `/tmp/receipt-read-integration-tests-final.log`. Built and loaded
+  `/tmp/quack-v5-receipt-review` at `9933511` with the existing database. Readiness
+  passed; the member's denied evidence click now visibly explains permission.
+- Administrator voided synthetic warning #2 with a correction reason. The
+  original public receipt, created hours earlier before multiple beta restarts,
+  visibly added the voided state and disabled Void. SQL confirmed revision 1,
+  completed digest and `refresh_requested=false`. No punishment was attached to
+  this warning, so this does not establish actual ban/timeout reversal.
+- The tester clicked View on the stale 7:34 private ticket entry receipt using
+  the new beta. Discord visibly edited that same receipt into closed state with
+  the retained transcript, removing the unknown-thread mention and obsolete
+  controls. The separate older detail response also reflected its updated reply.
+- Next architecture boundary identified by read-only review: case notification
+  formatting still belongs to the core action service. Move member-safe intent
+  into the Discord transport and return rendered delivery receipts, preserving
+  claim/prepared-channel/retry behavior. Appeal decision bodies are different:
+  they freeze decision reason and rejoin URL transactionally, so their eventual
+  intent migration needs versioned persisted payloads and legacy-body fallback.
+  Do not rebuild historical appeal messages from current settings.
