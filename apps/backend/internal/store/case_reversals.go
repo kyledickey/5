@@ -13,7 +13,10 @@ func cancelVoidedCaseWork(tx *gorm.DB, caseID string, now time.Time) error {
 	if err := tx.Model(&model.CaseActionExecution{}).Where("case_id = ? AND reversal_of_execution_id IS NULL AND status IN ?", caseID, []model.ActionExecutionStatus{model.ActionExecutionPending, model.ActionExecutionRetrying}).Updates(map[string]any{"status": model.ActionExecutionCancelled, "last_error_code": "case_voided", "last_error": "case was voided before enforcement", "finished_at": now, "next_retry_at": nil}).Error; err != nil {
 		return err
 	}
-	return tx.Model(&model.CaseNotification{}).Where("case_id = ? AND status IN ?", caseID, []model.NotificationStatus{model.NotificationPending, model.NotificationPrepared, model.NotificationClaimed}).Updates(map[string]any{"status": model.NotificationFailed, "last_error_code": "case_voided", "last_error": "case was voided before notification", "lease_token": "", "lease_expires_at": nil, "updated_at": now}).Error
+	if err := tx.Model(&model.CaseNotification{}).Where("case_id = ? AND status IN ?", caseID, []model.NotificationStatus{model.NotificationPending, model.NotificationPrepared, model.NotificationClaimed}).Updates(map[string]any{"status": model.NotificationFailed, "last_error_code": "case_voided", "last_error": "case was voided before notification", "lease_token": "", "lease_expires_at": nil, "updated_at": now}).Error; err != nil {
+		return err
+	}
+	return requestCasePublicationRefresh(tx, caseID, now)
 }
 
 // queueVoidedCaseReversals durably compensates known successful punishments in the

@@ -20,7 +20,7 @@ import (
 // minimal persisted case state; refreshing never authorizes moderator actions.
 type CasePublicationRepository interface {
 	ListDueCasePublications(context.Context, time.Time, int) ([]model.CasePublication, error)
-	CompleteCasePublicationRefresh(context.Context, string, string, time.Time) error
+	CompleteCasePublicationRefresh(context.Context, string, uint64, string, time.Time, bool) error
 	DeleteCasePublication(context.Context, string) error
 	GetCaseByID(context.Context, string) (*model.Case, error)
 	ListCaseActionExecutions(context.Context, string) ([]model.CaseActionExecution, error)
@@ -29,8 +29,8 @@ type CasePublicationRepository interface {
 
 // RunCasePublications refreshes persisted public receipts until process shutdown.
 // Edits target existing messages, so retries and concurrent bot processes cannot
-// create duplicate messages. Terminal cases reconcile every five minutes for
-// later reversal or evidence recovery (plus queue backlog and outage delays).
+// create duplicate messages. Terminal receipts sleep until a committed source
+// mutation requests refresh; pending work and recoverable failures remain due.
 func (b *Bot) RunCasePublications(ctx context.Context, repository CasePublicationRepository) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
@@ -74,7 +74,7 @@ func refreshCasePublications(ctx context.Context, repository CasePublicationRepo
 		if missing {
 			err = repository.DeleteCasePublication(ctx, receipt.MessageID)
 		} else {
-			err = repository.CompleteCasePublicationRefresh(ctx, receipt.MessageID, digest, now.Add(delay))
+			err = repository.CompleteCasePublicationRefresh(ctx, receipt.MessageID, receipt.Revision, digest, now.Add(delay), delay > 0)
 		}
 		if err != nil {
 			failures = append(failures, err)
@@ -114,7 +114,7 @@ func refreshCasePublication(ctx context.Context, repository CasePublicationRepos
 		return
 	}
 	presentation.Case.Actions = nil
-	delay = 5 * time.Minute
+	delay = 0
 	for _, action := range actions {
 		presentation.Case.Actions = append(presentation.Case.Actions, quack.CaseActionResponse{ID: action.ID, ActionType: action.ActionType, Status: action.Status})
 		switch action.Status {

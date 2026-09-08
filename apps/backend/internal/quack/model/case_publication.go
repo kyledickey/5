@@ -11,7 +11,11 @@ type CasePublication struct {
 	ChannelID        string    `gorm:"size:32;not null"`
 	PresentationJSON string    `gorm:"type:longtext;not null"`
 	LastDigest       string    `gorm:"size:64;not null"`
-	RetryAt          time.Time `gorm:"not null;index"`
+	RetryAt          time.Time `gorm:"not null;index;index:idx_case_publication_due,priority:2"`
+	// RefreshRequested limits scanning to new, changed or still-pending receipts.
+	RefreshRequested bool `gorm:"not null;default:true;index:idx_case_publication_due,priority:1"`
+	// Revision fences completion against mutations committed during a refresh.
+	Revision uint64 `gorm:"not null;default:0"`
 }
 
 // TableName keeps transport receipts separate from moderation history.

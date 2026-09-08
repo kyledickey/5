@@ -110,6 +110,9 @@ func (s *Store) ClaimNextCaseAction(ctx context.Context, params ClaimCaseActionP
 			return err
 		}
 
+		if err := requestCasePublicationRefresh(tx, execution.CaseID, now); err != nil {
+			return err
+		}
 		claimed = &ClaimedCaseAction{
 			Case:      caseModel,
 			Execution: execution,
@@ -136,6 +139,9 @@ func failExpiredAction(tx *gorm.DB, item model.Case, execution *model.CaseAction
 	execution.NextRetryAt = nil
 	if err := tx.Select("*").Save(execution).Error; err != nil {
 		return fmt.Errorf("record expired action for review: %w", err)
+	}
+	if err := requestCasePublicationRefresh(tx, execution.CaseID, now); err != nil {
+		return err
 	}
 	if err := appendCaseEvent(tx, &model.CaseEvent{CaseID: item.ID, EventType: model.CaseEventActionFailed,
 		ActorType: "system", Visibility: model.EventVisibilityPublic,

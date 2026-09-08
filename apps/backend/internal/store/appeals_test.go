@@ -132,6 +132,11 @@ func TestMySQLLogical0200AppealMigrationAndAcceptance(t *testing.T) {
 	if err := db.First(&upgraded, "id = ?", legacy.ID).Error; err != nil || upgraded.Content != legacy.Content || upgraded.Version != 1 {
 		t.Fatalf("MySQL legacy appeal was not preserved: %+v err=%v", upgraded, err)
 	}
+	// Historical migration verification above is complete. Current acceptance
+	// transactions also write durable public-receipt refresh requests.
+	if err := db.AutoMigrate(&model.CasePublication{}); err != nil {
+		t.Fatalf("prepare current publication runtime schema: %v", err)
+	}
 	item := createAppealableCase(t, repository, guild.ID, "target", true)
 	service := quack.NewAppealService(repository)
 	appeal, err := service.Submit(context.Background(), item.ID, "target", quack.AppealSubmissionInput{Answers: []model.AppealAnswer{{QuestionID: "reason", Value: "Please reconsider."}}})
@@ -151,6 +156,12 @@ func TestMySQLLogical0200AppealMigrationAndAcceptance(t *testing.T) {
 func TestAppealServiceOwnershipSnapshotTimelineAndAtomicAcceptance(t *testing.T) {
 	ctx := context.Background()
 	repository, guild := newAppealTestStore(t)
+	// The shared fixture intentionally tests historical migrations; this service
+	// test additionally needs the current publication transaction dependency.
+	if err := repository.db.AutoMigrate(&model.CasePublication{}); err != nil {
+		t.Fatalf("prepare current publication runtime schema: %v", err)
+	}
+
 	caseModel := createAppealableCase(t, repository, guild.ID, "target", true)
 	now := time.Now().UTC()
 	originalAction := model.CaseActionExecution{ULIDModel: model.ULIDModel{ID: "01KXAPPEALACTION0000000001", CreatedAt: now, UpdatedAt: now}, CaseID: caseModel.ID, Position: 0, ActionType: model.ActionBanUser, Status: model.ActionExecutionSucceeded, IdempotencyKey: "appeal-original-ban", ConfigSnapshotJSON: "{}", SafeForRetry: false, Irreversible: true}

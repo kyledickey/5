@@ -28,15 +28,22 @@ type publicationRepositoryStub struct {
 
 // ListDueCasePublications returns only receipts whose retry deadline has elapsed.
 func (r *publicationRepositoryStub) ListDueCasePublications(_ context.Context, now time.Time, _ int) ([]model.CasePublication, error) {
-	if r.deleted || now.Before(r.receipt.RetryAt) {
+	if r.deleted || !r.receipt.RefreshRequested || now.Before(r.receipt.RetryAt) {
 		return nil, nil
 	}
 	return []model.CasePublication{r.receipt}, nil
 }
 
 // CompleteCasePublicationRefresh saves the acknowledged digest and retry deadline.
-func (r *publicationRepositoryStub) CompleteCasePublicationRefresh(_ context.Context, _ string, digest string, retryAt time.Time) error {
-	r.receipt.LastDigest, r.receipt.RetryAt = digest, retryAt
+func (r *publicationRepositoryStub) CompleteCasePublicationRefresh(_ context.Context, _ string, revision uint64, digest string, retryAt time.Time, requested bool) error {
+	if revision == r.receipt.Revision {
+		r.receipt.LastDigest, r.receipt.RetryAt, r.receipt.RefreshRequested = digest, retryAt, requested
+	} else {
+		r.receipt.Revision++
+		r.receipt.LastDigest = ""
+		r.receipt.RefreshRequested = true
+		r.receipt.RetryAt = time.Time{}
+	}
 	return nil
 }
 
@@ -66,7 +73,7 @@ func publicationFixture(t *testing.T) *publicationRepositoryStub {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &publicationRepositoryStub{receipt: model.CasePublication{CaseID: "case", MessageID: "message", ChannelID: "channel", PresentationJSON: string(raw)}, item: &model.Case{ULIDModel: model.ULIDModel{ID: "case"}, Reason: "SECRET staff reason", ContextValuesJSON: "SECRET evidence", ModeratorDiscordUserID: "SECRET moderator"}, actions: []model.CaseActionExecution{{ULIDModel: model.ULIDModel{ID: "action"}, ActionType: model.ActionBanUser, Status: model.ActionExecutionSucceeded}}}
+	return &publicationRepositoryStub{receipt: model.CasePublication{RefreshRequested: true, CaseID: "case", MessageID: "message", ChannelID: "channel", PresentationJSON: string(raw)}, item: &model.Case{ULIDModel: model.ULIDModel{ID: "case"}, Reason: "SECRET staff reason", ContextValuesJSON: "SECRET evidence", ModeratorDiscordUserID: "SECRET moderator"}, actions: []model.CaseActionExecution{{ULIDModel: model.ULIDModel{ID: "action"}, ActionType: model.ActionBanUser, Status: model.ActionExecutionSucceeded}}}
 }
 
 // TestCasePublicationReconcilesTerminalAndVoid verifies later independent passes
@@ -88,8 +95,8 @@ func TestCasePublicationReconcilesTerminalAndVoid(t *testing.T) {
 	if err := refreshCasePublications(context.Background(), repository, edit, now); err != nil {
 		t.Fatal(err)
 	}
-	if repository.receipt.LastDigest == "" || repository.receipt.RetryAt.Sub(now) < 5*time.Minute {
-		t.Fatal("terminal refresh did not persist progress and slow cadence")
+	if repository.receipt.LastDigest == "" || repository.receipt.RefreshRequested {
+		t.Fatal("terminal refresh did not persist progress and sleep")
 	}
 	if err := refreshCasePublications(context.Background(), repository, edit, now.Add(5*time.Minute)); err != nil {
 		t.Fatal(err)
@@ -97,6 +104,8 @@ func TestCasePublicationReconcilesTerminalAndVoid(t *testing.T) {
 	if edits != 1 {
 		t.Fatal("unchanged receipt edited again")
 	}
+	repository.receipt.RefreshRequested = true
+	repository.receipt.Revision++
 	repository.item.Validity = model.CaseValidityVoided
 	repository.actions = append(repository.actions, model.CaseActionExecution{ActionType: model.ActionUnbanUser, Status: model.ActionExecutionSucceeded})
 	if err := refreshCasePublications(context.Background(), repository, edit, now.Add(10*time.Minute)); err != nil {
@@ -168,11 +177,49 @@ func TestCasePublicationRefreshesEvidenceHealth(t *testing.T) {
 	if !strings.Contains(content, "Some evidence could not be saved") {
 		t.Fatal("missing evidence warning")
 	}
+	repository.receipt.RefreshRequested = true
+	repository.receipt.Revision++
 	repository.incomplete = false
 	if err := refreshCasePublications(context.Background(), repository, edit, now.Add(5*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(content, "Some evidence could not be saved") {
 		t.Fatal("recovered evidence warning persisted")
+	}
+}
+
+// TestCasePublicationRepairsLateStaleEdit models two refreshes whose Discord
+// edits finish out of order: the older completion must wake the current revision.
+func TestCasePublicationRepairsLateStaleEdit(t *testing.T) {
+	repository := publicationFixture(t)
+	now := time.Now().UTC()
+	edits := 0
+	visible := ""
+	var edit func(context.Context, model.CasePublication, ui.Message) error
+	edit = func(ctx context.Context, _ model.CasePublication, message ui.Message) error {
+		edits++
+		if edits == 1 {
+			repository.item.Validity = model.CaseValidityVoided
+			repository.receipt.Revision++
+			repository.receipt.RefreshRequested = true
+			repository.receipt.LastDigest = ""
+			if err := refreshCasePublications(ctx, repository, edit, now); err != nil {
+				return err
+			}
+		}
+		visible = message.Content
+		return nil
+	}
+	if err := refreshCasePublications(context.Background(), repository, edit, now); err != nil {
+		t.Fatal(err)
+	}
+	if !repository.receipt.RefreshRequested || strings.Contains(visible, "voided") {
+		t.Fatal("did not model late stale delivery")
+	}
+	if err := refreshCasePublications(context.Background(), repository, edit, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if edits != 3 || !strings.Contains(visible, "voided") || repository.receipt.RefreshRequested {
+		t.Fatal("stale delivery was not repaired then retired from polling")
 	}
 }

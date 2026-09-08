@@ -100,6 +100,9 @@ func (s *Store) CompleteCaseAction(ctx context.Context, params CompleteCaseActio
 			return fmt.Errorf("update case action execution: %w", err)
 		}
 
+		if err := requestCasePublicationRefresh(tx, execution.CaseID, now); err != nil {
+			return err
+		}
 		if params.EventType != "" {
 			event := model.CaseEvent{
 				CaseID:       execution.CaseID,
@@ -159,6 +162,9 @@ func (s *Store) SkipCaseActions(ctx context.Context, params SkipCaseActionsParam
 			}
 		}
 
+		if len(executions) > 0 {
+			return requestCasePublicationRefresh(tx, params.CaseID, now)
+		}
 		return nil
 	})
 }

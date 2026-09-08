@@ -44,6 +44,11 @@ func (s *Store) AppendCaseEvidence(ctx context.Context, guildID, caseID string, 
 				return err
 			}
 		}
+		if len(evidence) > 0 {
+			if err := requestCasePublicationRefresh(tx, caseID, now); err != nil {
+				return err
+			}
+		}
 		if audit != nil {
 			entry := *audit
 			entry.GuildID, entry.ResourceID = guildID, caseID

@@ -32,7 +32,7 @@ func TestCasePublicationSurvivesRestart(t *testing.T) {
 	if err := repository.SaveCasePublication(context.Background(), receipt); err != nil {
 		t.Fatal(err)
 	}
-	if err := repository.CompleteCasePublicationRefresh(context.Background(), "message", "digest", now.Add(time.Minute)); err != nil {
+	if err := repository.CompleteCasePublicationRefresh(context.Background(), "message", 0, "digest", now.Add(time.Minute), true); err != nil {
 		t.Fatal(err)
 	}
 	sqlDB, _ := db.DB()

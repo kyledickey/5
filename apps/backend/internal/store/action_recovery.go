@@ -73,6 +73,9 @@ func (s *Store) RetryCaseAction(ctx context.Context, params model.RetryCaseActio
 		if err := tx.Select("*").Save(item).Error; err != nil {
 			return err
 		}
+		if err := requestCasePublicationRefresh(tx, item.CaseID, now); err != nil {
+			return err
+		}
 		event := model.CaseEvent{CaseID: item.CaseID, EventType: model.CaseEventActionRetried, ActorDiscordUserID: params.ActorDiscordUserID, ActorType: "staff", Visibility: model.EventVisibilityStaff, Body: "Action retry requested", MetadataJSON: marshalJSONObject(map[string]any{"execution_id": item.ID})}
 		if err := appendCaseEvent(tx, &event, now); err != nil {
 			return err
@@ -213,6 +216,9 @@ func queueCaseReversal(tx *gorm.DB, params model.QueueCaseReversalParams, now ti
 	}
 	if err := tx.Select("*").Create(reversal).Error; err != nil {
 		return fmt.Errorf("queue reversal: %w", err)
+	}
+	if err := requestCasePublicationRefresh(tx, params.CaseID, now); err != nil {
+		return err
 	}
 	event := model.CaseEvent{CaseID: params.CaseID, EventType: model.CaseEventReversalQueued, ActorDiscordUserID: params.ActorDiscordUserID, ActorType: "staff", Visibility: model.EventVisibilityStaff, Body: "Action reversal queued", MetadataJSON: marshalJSONObject(map[string]any{"original_execution_id": original.ID, "reversal_execution_id": reversal.ID})}
 	if err := appendCaseEvent(tx, &event, now); err != nil {

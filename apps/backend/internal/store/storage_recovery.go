@@ -74,7 +74,7 @@ func (s *Store) BuildRecoveryManifest(ctx context.Context) (*RecoveryManifest, e
 	definitions := append([]recoveryTableDefinition{}, recoveryTables...)
 	if s.db.Migrator().HasTable(&currentSchema{}) {
 		definitions = append(definitions,
-			recoveryTableDefinition{"case_publications", []string{"message_id", "case_id", "channel_id", "presentation_json", "last_digest", "retry_at"}, "message_id"},
+			recoveryTableDefinition{"case_publications", []string{"message_id", "case_id", "channel_id", "presentation_json", "last_digest", "retry_at", "refresh_requested", "revision"}, "message_id"},
 			recoveryTableDefinition{"honeypot_message_cleanups", []string{"id", "guild_id", "message_discord_id", "channel_discord_id", "target_discord_user_id", "trigger_id", "attempt_count", "next_attempt_at", "completed_at"}, "id"},
 			recoveryTableDefinition{"ticket_message_journal", []string{"guild_id", "thread_discord_channel_id", "message_discord_id", "ticket_id", "author_discord_user_id", "author_name", "body", "sent_at", "expires_at"}, "guild_id, thread_discord_channel_id, message_discord_id"},
 		)
