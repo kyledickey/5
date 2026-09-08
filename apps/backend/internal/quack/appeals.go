@@ -72,7 +72,7 @@ func (s *AppealService) Submit(ctx context.Context, caseID, memberDiscordUserID 
 		Event:        model.AppealEvent{EventType: string(model.AppealEventSubmitted), ActorDiscordUserID: memberDiscordUserID, ActorType: "member", Body: "Appeal submitted", MetadataJSON: "{}"},
 		CaseEvent:    model.CaseEvent{EventType: model.CaseEventAppealCreated, ActorDiscordUserID: memberDiscordUserID, ActorType: "member", Visibility: model.EventVisibilityPublic, Body: "Appeal submitted", MetadataJSON: "{}"},
 		Audit:        appealAudit(ctx, item.GuildID, memberDiscordUserID, 0, "appeal.submit", "appeal", "", model.AuditResultSuccess),
-		Notification: model.AppealNotification{TargetDiscordUserID: memberDiscordUserID, Audience: model.AppealNotificationStaff, Status: model.AppealNotificationPending, Body: discordtext.Conversation("appeal", fmt.Sprintf("<@%s> asked staff to review case #%d.", memberDiscordUserID, item.CaseNumber), "", "You can review their appeal from the Quack dashboard.", "")},
+		Notification: model.AppealNotification{TargetDiscordUserID: memberDiscordUserID, Audience: model.AppealNotificationStaff, Status: model.AppealNotificationPending, Body: discordtext.Conversation("appeal", fmt.Sprintf("<@%s> asked staff to review case #%d.", memberDiscordUserID, item.CaseNumber), "", "Review the statement in the appeal queue.", "")},
 	})
 	if errors.Is(err, model.ErrAppealAlreadyExists) {
 		return nil, ErrAppealConflict

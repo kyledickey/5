@@ -41,6 +41,8 @@ type AppealReversalOffer struct {
 
 // AppealResponse is the complete case-linked appeal projection.
 type AppealResponse struct {
+	CaseNumber              uint64                 `json:"case_number"`
+	TemplateName            string                 `json:"template_name"`
 	ID                      string                 `json:"id"`
 	GuildID                 string                 `json:"guild_id"`
 	CaseID                  string                 `json:"case_id"`

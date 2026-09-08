@@ -90,3 +90,72 @@ func TestAppealDMFormOwnershipAndSingleSubmission(t *testing.T) {
 		t.Fatalf("stale form ignored void: %s", text)
 	}
 }
+
+// appealReviewAuthorization supplies fresh permissions on each simulated click.
+type appealReviewAuthorization struct {
+	quack.DiscordClient
+	permissions uint64
+}
+
+func (a *appealReviewAuthorization) GuildAuthorization(_ context.Context, guild, actor, target string) (*quack.DiscordGuildAuthorization, error) {
+	return &quack.DiscordGuildAuthorization{Guild: quack.DiscordBotGuild{ID: guild, Name: "Pond", OwnerID: "owner"}, Actor: quack.DiscordMemberAuthorization{DiscordUserID: actor, Present: true, PermissionBits: a.permissions}, Bot: quack.DiscordMemberAuthorization{DiscordUserID: "bot", Present: true}}, nil
+}
+
+// TestAppealQueueDecisionChecksLivePermissions covers denial followed by approval,
+// then a competing button click without changing the committed acceptance.
+func TestAppealQueueDecisionChecksLivePermissions(t *testing.T) {
+	ctx := context.Background()
+	repository := testutil.NewSQLiteStore(t)
+	if err := repository.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	guild, err := repository.UpsertGuild(ctx, model.UpsertGuildParams{DiscordGuildID: "guild", Name: "Pond", OwnerDiscordUserID: "owner"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := repository.CreateCase(ctx, model.CreateCaseParams{Case: model.Case{GuildID: guild.ID, TemplateVersion: 1, TemplateSnapshotJSON: `{"template":{"appealable":true}}`, TargetDiscordUserID: "target", ModeratorDiscordUserID: "mod", Reason: "Rule", Validity: model.CaseValidityValid, Source: model.CaseSourceDiscord, MetadataJSON: `{}`, ContextValuesJSON: `[]`}, Event: model.CaseEvent{EventType: model.CaseEventCreated, ActorType: "staff", Body: "Case created", MetadataJSON: `{}`}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	appeals := quack.NewAppealService(repository)
+	appeal, err := appeals.Submit(ctx, created.Case.ID, "target", quack.AppealSubmissionInput{Answers: []model.AppealAnswer{{QuestionID: "reason", Value: "Please reconsider."}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth := &appealReviewAuthorization{}
+	services := &quack.Services{Guilds: quack.NewGuildService(repository, auth)}
+	click := func(action string) string {
+		id := ui.MustCustomID(ui.CustomID{Namespace: "appeal", Action: action, Version: "v1", Payload: appeal.ID})
+		result := appealDecisionHandler(services, appeals, action)(ui.Context{Context: ctx, Interaction: &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{Type: discordgo.InteractionMessageComponent, GuildID: "guild", Member: &discordgo.Member{User: &discordgo.User{ID: "mod"}}, Data: discordgo.MessageComponentInteractionData{CustomID: id}}}})
+		if result.Task == nil {
+			t.Fatal("missing decision task")
+		}
+		r := &appealTestResponder{}
+		if err := result.Task(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+		return r.content
+	}
+	if text := click("accept"); !strings.Contains(text, "Moderate Members") {
+		t.Fatalf("permission denial: %s", text)
+	}
+	pending, err := repository.GetAppealByID(ctx, appeal.ID)
+	if err != nil || pending.Status != model.AppealStatusPending {
+		t.Fatalf("denial changed appeal: %+v %v", pending, err)
+	}
+	auth.permissions = uint64(discordgo.PermissionModerateMembers)
+	if text := click("accept"); !strings.Contains(text, "accepted") {
+		t.Fatalf("acceptance: %s", text)
+	}
+	if text := click("reject"); !strings.Contains(text, "already been decided") {
+		t.Fatalf("competing decision: %s", text)
+	}
+	item, err := repository.GetCaseByID(ctx, created.Case.ID)
+	if err != nil || item.Validity != model.CaseValidityVoided {
+		t.Fatalf("acceptance did not void: %+v %v", item, err)
+	}
+	member, err := appeals.GetMember(ctx, appeal.ID, "target")
+	if err != nil || member.ReviewedByDiscordUserID != "" {
+		t.Fatalf("member reviewer privacy: %+v %v", member, err)
+	}
+}

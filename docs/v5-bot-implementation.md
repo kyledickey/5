@@ -150,3 +150,14 @@ means further work is required, not completion.
   and a form submitted after voiding. Focused tests and the full backend suite
   pass. Staff queue publishing, decision buttons, setup and live rehearsal remain
   pending; this does not yet complete the appeal journey.
+
+- Staff appeal notifications now render the stored statement, case number and
+  rule with accept/reject buttons. Outbox delivery loads the current appeal, so
+  delayed delivery after a decision does not offer stale decision controls.
+  Every decision click resolves live Discord permissions; competing decisions
+  remain fenced by storage. Successful clicks refresh the queue message and
+  deliver a private receipt; member decision DMs still omit reviewer identity.
+  Focused tests cover queue content, permissions, competing clicks and delayed
+  outbox state; the full backend suite passes. Dedicated-channel setup, durable
+  refresh after decisions from other interfaces, notification recovery, optional
+  rejoin links and live Discord rehearsal remain pending.

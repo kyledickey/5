@@ -11,7 +11,7 @@ import (
 // AppealNotificationClient sends already-rendered, staff-identity-free appeal messages.
 type AppealNotificationClient interface {
 	SendAppealMemberNotification(context.Context, string, string) (string, error)
-	SendAppealStaffNotification(context.Context, string, string) (string, error)
+	SendAppealStaffNotification(context.Context, string, *AppealResponse) (string, error)
 }
 
 // AppealNotificationDispatcher drains durable appeal outbox items through a Discord adapter.
@@ -44,7 +44,18 @@ func (d *AppealNotificationDispatcher) DispatchPending(ctx context.Context, limi
 		case model.AppealNotificationMember:
 			messageID, sendErr = d.client.SendAppealMemberNotification(ctx, item.TargetDiscordUserID, item.Body)
 		case model.AppealNotificationStaff:
-			messageID, sendErr = d.client.SendAppealStaffNotification(ctx, item.GuildID, item.Body)
+			var record *model.Appeal
+			record, sendErr = d.store.GetAppealByID(ctx, item.AppealID)
+			if sendErr == nil && (record == nil || record.GuildID != item.GuildID) {
+				sendErr = ErrAppealNotFound
+			}
+			if sendErr == nil {
+				var appeal *AppealResponse
+				appeal, sendErr = NewAppealService(d.store).response(ctx, record, false)
+				if sendErr == nil {
+					messageID, sendErr = d.client.SendAppealStaffNotification(ctx, item.GuildID, appeal)
+				}
+			}
 		default:
 			sendErr = errors.New("appeal notification audience is invalid")
 		}

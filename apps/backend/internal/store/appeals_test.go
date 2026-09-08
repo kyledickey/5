@@ -271,6 +271,9 @@ func TestAppealServiceOwnershipSnapshotTimelineAndAtomicAcceptance(t *testing.T)
 	}
 	var remaining int64
 	err = repository.db.Model(&AppealNotificationRecord{}).Where("status IN ?", []model.AppealNotificationStatus{model.AppealNotificationPending, model.AppealNotificationClaimed}).Count(&remaining).Error
+	if client.lastStaff == nil || client.lastStaff.CaseNumber != caseModel.CaseNumber || client.lastStaff.Status != model.AppealStatusAccepted || len(client.lastStaff.Answers) != 1 {
+		t.Fatalf("delayed queue delivery lost current appeal context: %+v", client.lastStaff)
+	}
 	memberSends, staffSends := client.counts()
 	if err != nil || remaining != 0 || memberSends == 0 || staffSends == 0 || memberSends+staffSends != len(notifications) {
 		t.Fatalf("notification adapter did not deliver each item once: remaining=%d member=%d staff=%d expected=%d err=%v", remaining, memberSends, staffSends, len(notifications), err)
@@ -421,9 +424,10 @@ func TestAppealAcceptanceAndDirectVoidCannotProduceAcceptedValidCase(t *testing.
 }
 
 type appealNotificationClientStub struct {
-	mutex  sync.Mutex
-	member int
-	staff  int
+	mutex     sync.Mutex
+	member    int
+	staff     int
+	lastStaff *quack.AppealResponse
 }
 
 func insertLegacyAppeal(db *gorm.DB, appeal *migration0200LegacyAppeal) error {
@@ -437,10 +441,11 @@ func (c *appealNotificationClientStub) SendAppealMemberNotification(context.Cont
 	return "member-message", nil
 }
 
-func (c *appealNotificationClientStub) SendAppealStaffNotification(context.Context, string, string) (string, error) {
+func (c *appealNotificationClientStub) SendAppealStaffNotification(_ context.Context, _ string, appeal *quack.AppealResponse) (string, error) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	c.staff++
+	c.lastStaff = appeal
 	return "staff-message", nil
 }
 

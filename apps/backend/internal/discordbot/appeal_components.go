@@ -23,6 +23,11 @@ func RegisterAppealComponents(registry *interactions.ComponentRegistry, services
 	if err := registry.RegisterModal("appeal", "submit", appealSubmissionModal(appeals)); err != nil {
 		return err
 	}
+	for _, action := range []string{"accept", "reject"} {
+		if err := registry.RegisterComponent("appeal", action, appealDecisionHandler(services, appeals, action)); err != nil {
+			return err
+		}
+	}
 	return registry.RegisterComponent("appeal", "reverse", appealReversalHandler(services, appeals))
 }
 

@@ -7,6 +7,8 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
+	"github.com/quackdiscord/bot/internal/discordbot/ui/views"
+	"github.com/quackdiscord/bot/internal/quack"
 )
 
 // AppealStaffChannelResolver returns the configured staff-only destination for an appeal event.
@@ -37,7 +39,7 @@ func (a *AppealNotificationAdapter) SendAppealMemberNotification(ctx context.Con
 }
 
 // SendAppealStaffNotification delivers one queue entry only to a configured staff destination.
-func (a *AppealNotificationAdapter) SendAppealStaffNotification(ctx context.Context, guildID, body string) (string, error) {
+func (a *AppealNotificationAdapter) SendAppealStaffNotification(ctx context.Context, guildID string, appeal *quack.AppealResponse) (string, error) {
 	if a == nil || a.Session == nil || a.Resolver == nil {
 		return "", errors.New("appeal staff notification adapter is not configured")
 	}
@@ -48,7 +50,7 @@ func (a *AppealNotificationAdapter) SendAppealStaffNotification(ctx context.Cont
 	if strings.TrimSpace(channelID) == "" {
 		return "", errors.New("appeal staff channel is unavailable")
 	}
-	message, err := a.Session.ChannelMessageSendComplex(channelID, ui.Signal("appeal", body, false).SendParams(ui.SessionApplicationID(a.Session)), discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+	message, err := a.Session.ChannelMessageSendComplex(channelID, views.AppealStaffMessage(appeal).SendParams(ui.SessionApplicationID(a.Session)), discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 	if err != nil {
 		return "", err
 	}

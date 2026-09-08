@@ -34,3 +34,19 @@ func TestAppealStaffMessageOffersOnlyExplicitReversalControls(t *testing.T) {
 		t.Fatalf("reversal was not an explicit confirmation control: %+v", button)
 	}
 }
+
+func TestAppealQueueContainsStatementAndDecisionControls(t *testing.T) {
+	appeal := &quack.AppealResponse{ID: "appeal", CaseID: "case", CaseNumber: 12, TemplateName: "Spam", TargetDiscordUserID: "target", Status: model.AppealStatusPending, Answers: []model.AppealAnswer{{QuestionID: "reason", Value: "I am sorry for repeating messages."}}}
+	message := AppealStaffMessage(appeal)
+	if !strings.Contains(message.Content, "I am sorry") || !strings.Contains(message.Content, "Case #12") || !strings.Contains(message.Content, "Spam") {
+		t.Fatalf("missing review context: %s", message.Content)
+	}
+	row := message.Components[0].(discordgo.ActionsRow)
+	if len(row.Components) != 2 || row.Components[0].(discordgo.Button).CustomID != "appeal:accept:v1:appeal" || row.Components[1].(discordgo.Button).CustomID != "appeal:reject:v1:appeal" {
+		t.Fatalf("decision controls: %+v", row)
+	}
+	appeal.Status = model.AppealStatusAccepted
+	if decided := AppealStaffMessage(appeal); len(decided.Components) != 0 {
+		t.Fatal("decided appeal still offers decision buttons")
+	}
+}

@@ -39,6 +39,16 @@ func (s *AppealService) response(ctx context.Context, item *model.Appeal, member
 		caseID = *item.CaseID
 	}
 	response := &AppealResponse{ID: item.ID, GuildID: item.GuildID, CaseID: caseID, TargetDiscordUserID: item.TargetDiscordUserID, Status: item.Status, Questions: questions, Answers: answers, DecisionReason: item.DecisionReason, ReviewedByDiscordUserID: reviewedBy, Events: responseEvents, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}
+	if caseID != "" {
+		caseRecord, err := s.store.GetCaseByID(ctx, caseID)
+		if err != nil {
+			return nil, err
+		}
+		if caseRecord != nil {
+			response.CaseNumber = caseRecord.CaseNumber
+			response.TemplateName = memberTemplateName(*caseRecord)
+		}
+	}
 	if !member && item.Status == model.AppealStatusAccepted && caseID != "" {
 		actions, actionErr := s.store.ListCaseActionExecutions(ctx, caseID)
 		if actionErr != nil {
