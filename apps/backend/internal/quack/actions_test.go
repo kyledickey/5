@@ -34,6 +34,12 @@ func (f *fakeActionClient) SendDM(ctx context.Context, discordUserID, message st
 	return map[string]any{"message_id": "dm-message-1"}, nil
 }
 
+// SendCaseNotification keeps notification-capable fake clients on the same path
+// as production when an appealable case has no configured website.
+func (f *fakeActionClient) SendCaseNotification(ctx context.Context, userID, channelID, message, baseURL, guildID, caseID string) (map[string]any, error) {
+	return f.SendDM(ctx, userID, message)
+}
+
 func TestActionServiceProcessesSafeActions(t *testing.T) {
 	ctx := context.Background()
 	store := newMigratedStore(t)

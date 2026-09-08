@@ -9,21 +9,17 @@ import (
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
-func TestAppealEntryMessageRequiresHTTPSAndTargetsOwnedCase(t *testing.T) {
-	if _, err := AppealEntryMessage("http://dashboard.example", "guild", "case"); err == nil {
-		t.Fatal("insecure appeal entry URL was accepted")
-	}
-	message, err := AppealEntryMessage("https://dashboard.example/base?secret=drop", "guild id", "case/id")
-	if err != nil {
-		t.Fatalf("appeal entry message: %v", err)
-	}
-	row, ok := message.Components[0].(discordgo.ActionsRow)
-	if !ok || len(row.Components) != 1 {
-		t.Fatalf("missing appeal link row: %+v", message.Components)
-	}
-	button, ok := row.Components[0].(discordgo.Button)
-	if !ok || button.Style != discordgo.LinkButton || !strings.HasPrefix(button.URL, "https://dashboard.example/") || strings.Contains(button.URL, "secret") {
-		t.Fatalf("unsafe appeal link: %+v", button)
+func TestAppealEntryOpensDiscordFormWithoutWebsite(t *testing.T) {
+	for _, baseURL := range []string{"", "http://unused.example", "https://unused.example"} {
+		message, err := AppealEntryMessage(baseURL, "guild", "case")
+		if err != nil {
+			t.Fatal(err)
+		}
+		row := message.Components[0].(discordgo.ActionsRow)
+		button := row.Components[0].(discordgo.Button)
+		if button.URL != "" || button.CustomID != "appeal:submit:v1:case" {
+			t.Fatalf("not a Discord appeal button: %+v", button)
+		}
 	}
 }
 

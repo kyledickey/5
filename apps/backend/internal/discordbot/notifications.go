@@ -64,7 +64,7 @@ func (b *Bot) SendPreparedDM(ctx context.Context, channelID, message string) (ma
 	return result, nil
 }
 
-// SendCaseNotification sends the case body with a secure dashboard appeal
+// SendCaseNotification sends the case body with a Discord appeal
 // button through a prepared or newly opened direct-message channel.
 func (b *Bot) SendCaseNotification(ctx context.Context, userID, channelID, message, dashboardBaseURL, guildID, caseID string) (map[string]any, error) {
 	if err := ctx.Err(); err != nil {

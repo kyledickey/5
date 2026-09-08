@@ -2,7 +2,6 @@ package views
 
 import (
 	"fmt"
-	"net/url"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -44,16 +43,14 @@ func AppealStaffMessage(appeal *quack.AppealResponse) ui.Message {
 	return message
 }
 
-// AppealEntryMessage creates a secure dashboard link for an eligible case notification.
+// AppealEntryMessage opens the Discord form without depending on a dashboard URL.
+// Ownership is checked again when opening and submitting the case-linked form.
 func AppealEntryMessage(baseURL, guildID, caseID string) (ui.Message, error) {
-	parsed, err := url.Parse(strings.TrimSpace(baseURL))
-	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
-		return ui.Message{}, fmt.Errorf("secure dashboard base URL is required")
+	id, err := ui.EncodeCustomID(ui.CustomID{Namespace: "appeal", Action: "submit", Version: "v1", Payload: caseID})
+	if err != nil {
+		return ui.Message{}, err
 	}
-	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/guilds/" + url.PathEscape(guildID) + "/cases/" + url.PathEscape(caseID) + "/appeal"
-	parsed.RawQuery = ""
-	parsed.Fragment = ""
 	message := ui.Signal("appeal", "You can ask staff to review this decision.", false)
-	message.Components = []discordgo.MessageComponent{ui.Row(ui.LinkButton(parsed.String(), "Appeal decision", false))}
+	message.Components = []discordgo.MessageComponent{ui.Row(ui.Button(id, "Appeal decision", discordgo.PrimaryButton, false))}
 	return message, nil
 }

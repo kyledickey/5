@@ -50,30 +50,11 @@ func NewAppealService(store AppealRepository) *AppealService {
 
 // Submit creates the only appeal for an eligible case owned by the authenticated identity.
 func (s *AppealService) Submit(ctx context.Context, caseID, memberDiscordUserID string, input AppealSubmissionInput) (*AppealResponse, error) {
-	caseID = strings.TrimSpace(caseID)
-	memberDiscordUserID = strings.TrimSpace(memberDiscordUserID)
-	if caseID == "" || memberDiscordUserID == "" {
-		return nil, appealValidation("case and member identity are required")
-	}
-	item, err := s.store.GetCaseByID(ctx, caseID)
+	item, err := s.eligibleCase(ctx, caseID, memberDiscordUserID)
 	if err != nil {
 		return nil, err
 	}
-	if item == nil || item.TargetDiscordUserID != memberDiscordUserID {
-		if item != nil {
-			_ = s.auditMember(ctx, item.GuildID, memberDiscordUserID, "appeal.submit", item.ID, model.AuditResultDenied)
-		}
-		return nil, ErrAppealNotFound
-	}
-	if item.Validity != model.CaseValidityValid || !caseSnapshotAppealable(item.TemplateSnapshotJSON) {
-		_ = s.auditMember(ctx, item.GuildID, memberDiscordUserID, "appeal.submit", item.ID, model.AuditResultDenied)
-		return nil, model.ErrAppealCaseIneligible
-	}
-	if existing, getErr := s.store.GetAppealByCaseID(ctx, item.ID); getErr != nil {
-		return nil, getErr
-	} else if existing != nil {
-		return nil, ErrAppealConflict
-	}
+	memberDiscordUserID = strings.TrimSpace(memberDiscordUserID)
 	settings, err := s.GetSettings(ctx, item.GuildID)
 	if err != nil {
 		return nil, err
@@ -101,6 +82,45 @@ func (s *AppealService) Submit(ctx context.Context, caseID, memberDiscordUserID 
 	}
 	slog.InfoContext(ctx, "Appeal submitted", "guild_id", created.GuildID, "case_id", created.CaseID, "appeal_id", created.ID)
 	return s.response(ctx, created, true)
+}
+
+// CanSubmit checks a case-owned form opening without creating an appeal. Submit
+// repeats these checks so stale forms cannot bypass ownership or eligibility.
+func (s *AppealService) CanSubmit(ctx context.Context, caseID, memberDiscordUserID string) error {
+	_, err := s.eligibleCase(ctx, caseID, memberDiscordUserID)
+	return err
+}
+
+// eligibleCase keeps form openings and submissions on the same ownership boundary.
+func (s *AppealService) eligibleCase(ctx context.Context, caseID, memberDiscordUserID string) (*model.Case, error) {
+	if s == nil || s.store == nil {
+		return nil, ErrAppealNotFound
+	}
+	caseID = strings.TrimSpace(caseID)
+	memberDiscordUserID = strings.TrimSpace(memberDiscordUserID)
+	if caseID == "" || memberDiscordUserID == "" {
+		return nil, appealValidation("case and member identity are required")
+	}
+	item, err := s.store.GetCaseByID(ctx, caseID)
+	if err != nil {
+		return nil, err
+	}
+	if item == nil || item.TargetDiscordUserID != memberDiscordUserID {
+		if item != nil {
+			_ = s.auditMember(ctx, item.GuildID, memberDiscordUserID, "appeal.submit", item.ID, model.AuditResultDenied)
+		}
+		return nil, ErrAppealNotFound
+	}
+	if item.Validity != model.CaseValidityValid || !caseSnapshotAppealable(item.TemplateSnapshotJSON) {
+		_ = s.auditMember(ctx, item.GuildID, memberDiscordUserID, "appeal.submit", item.ID, model.AuditResultDenied)
+		return nil, model.ErrAppealCaseIneligible
+	}
+	if existing, getErr := s.store.GetAppealByCaseID(ctx, item.ID); getErr != nil {
+		return nil, getErr
+	} else if existing != nil {
+		return nil, ErrAppealConflict
+	}
+	return item, nil
 }
 
 // GetMember returns an appeal only to its target identity and redacts every staff actor.

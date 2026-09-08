@@ -235,7 +235,7 @@ func TestEnforcementUsesExactSettingsAndNotificationOrder(t *testing.T) {
 	if err := quack.NewActionService(store, client).ProcessCaseActions(ctx, created.ID); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(client.calls, ",") != "timeout,send_dm" || client.duration != 937 || !strings.Contains(client.reason, "case #1") || !strings.Contains(client.reason, "No spam") {
+	if strings.Join(client.calls, ",") != "timeout,send_case_notification" || client.duration != 937 || !strings.Contains(client.reason, "case #1") || !strings.Contains(client.reason, "No spam") {
 		t.Fatalf("unexpected execution calls/settings: calls=%v duration=%d reason=%q", client.calls, client.duration, client.reason)
 	}
 	actions, err := store.ListCaseActionExecutions(ctx, created.ID)
@@ -264,7 +264,7 @@ func TestBanPreparesDMAndUsesExactHistoryDeletion(t *testing.T) {
 	if err := quack.NewActionService(store, client).ProcessCaseActions(ctx, created.ID); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(client.calls, ",") != "prepare_dm,ban,send_prepared_dm" || client.deleteSeconds != 86400 {
+	if strings.Join(client.calls, ",") != "prepare_dm,ban,send_case_notification" || client.deleteSeconds != 86400 {
 		t.Fatalf("ban/notification order or setting mismatch: calls=%v delete=%d", client.calls, client.deleteSeconds)
 	}
 }

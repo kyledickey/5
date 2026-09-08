@@ -141,3 +141,12 @@ means further work is required, not completion.
   terminal decisions, shared form behavior and existing acceptance/reversal.
   Focused tests and the full backend suite pass. Discord DM form and staff queue
   publishing/decision controls remain the next appeal integration work.
+
+- Appealable case DMs now carry a Discord form button even when no website URL is
+  configured. The one-statement modal checks the authenticated Discord identity
+  on opening and submission, works for departed members, and gives explicit
+  duplicate/ineligible feedback. Handler tests use real interaction payloads and
+  migrated storage, covering another member's forged submission, duplicate sends,
+  and a form submitted after voiding. Focused tests and the full backend suite
+  pass. Staff queue publishing, decision buttons, setup and live rehearsal remain
+  pending; this does not yet complete the appeal journey.

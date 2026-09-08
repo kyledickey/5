@@ -85,7 +85,7 @@ func (s *ActionService) processNotification(ctx context.Context, workerID, caseI
 	var response map[string]any
 	var sendErr error
 	appealable := caseSnapshotAppealable(item.TemplateSnapshotJSON)
-	if appealable && s.dashboardBaseURL != "" {
+	if appealable {
 		if client, ok := s.discord.(DiscordCaseNotificationClient); ok {
 			response, sendErr = client.SendCaseNotification(ctx, item.TargetDiscordUserID, claimed.PreparedChannelDiscordID, message, s.dashboardBaseURL, item.GuildID, item.ID)
 		} else {
@@ -199,7 +199,7 @@ func renderCaseNotification(item model.Case, guild *model.Guild, settings *model
 		}
 	}
 	if snapshot != nil && snapshot.Template.Appealable {
-		parts = append(parts, "You can ask staff to review this decision from your Quack dashboard.")
+		parts = append(parts, "Use the Appeal decision button below to ask the moderators to review this case.")
 	}
 	if settings != nil && strings.TrimSpace(settings.NotificationFooter) != "" {
 		parts = append(parts, notificationPlain(strings.TrimSpace(settings.NotificationFooter)))

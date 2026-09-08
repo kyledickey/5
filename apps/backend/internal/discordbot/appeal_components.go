@@ -12,10 +12,16 @@ import (
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
-// RegisterAppealComponents exposes explicit accepted-appeal reversal controls without owning the central registry.
+// RegisterAppealComponents installs member form entry/submission and staff recovery controls.
 func RegisterAppealComponents(registry *interactions.ComponentRegistry, services *quack.Services, appeals *quack.AppealService) error {
 	if registry == nil || services == nil || services.Guilds == nil || services.Actions == nil || appeals == nil {
 		return errors.New("appeal component dependencies are not configured")
+	}
+	if err := registry.RegisterComponent("appeal", "submit", appealSubmissionHandler(appeals)); err != nil {
+		return err
+	}
+	if err := registry.RegisterModal("appeal", "submit", appealSubmissionModal(appeals)); err != nil {
+		return err
 	}
 	return registry.RegisterComponent("appeal", "reverse", appealReversalHandler(services, appeals))
 }
