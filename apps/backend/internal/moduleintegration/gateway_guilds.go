@@ -144,13 +144,10 @@ func (r *Runtime) onChannelDelete(_ *discordgo.Session, event *discordgo.Channel
 	if r.HoneypotDiscord != nil {
 		_ = r.HoneypotDiscord.HandleDeletedChannel(ctx, guildID, event.ID)
 	}
-	var ticket struct {
-		ID      string
-		GuildID string
-	}
-	result := r.db.WithContext(ctx).Table("tickets").Select("id, guild_id").Where("guild_id = ? AND thread_discord_channel_id = ?", guildID, event.ID).Limit(1).Find(&ticket)
-	if r.TicketDiscord != nil && result.Error == nil && result.RowsAffected == 1 {
-		_ = r.TicketDiscord.HandleDeletedChannel(ctx, ticket.GuildID, ticket.ID, event.ID)
+	if r.Tickets != nil && r.TicketDiscord != nil {
+		if ticketID, err := r.Tickets.DeletedChannelTicketID(ctx, guildID, event.ID); err == nil {
+			_ = r.TicketDiscord.HandleDeletedChannel(ctx, guildID, ticketID, event.ID)
+		}
 	}
 	if r.Logging != nil {
 		_, _, _ = r.Logging.RepairDeletedChannel(ctx, generallogging.Actor{GuildID: guildID, DiscordUserID: "quack-system", CanManage: true}, event.ID)

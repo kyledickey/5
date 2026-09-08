@@ -1476,3 +1476,18 @@ means further work is required, not completion.
   adapter error mapping. These are composition changes, not a new live rehearsal.
 - The integrated full backend suite passed with MySQL enabled; the beta remains
   on its previously verified binary until the next authorized runtime switch.
+
+### Ticket gateway and operations lookup boundaries
+
+- `4856039` moves operations-key guild identity lookup behind the guild service.
+  Diagnostics still work without live Discord access, unknown guilds return 404,
+  and session-based administrator authorization is unchanged. Core and route
+  regressions passed, including the added unknown-guild case.
+- Ticket gateway handlers now call purpose-built service reads instead of
+  querying ticket tables. Deleted-channel lookup remains guild-scoped and
+  includes resolved records; membership repair uses only open tickets with an
+  exclusive ID cursor and fixed 100-row page. Discord effects stay in integration.
+  Tests cover 103-row traversal, excluded guild/status rows, database errors,
+  and deleted-channel forwarding without changing repair behavior.
+- Full backend tests passed with MySQL enabled. This refactor has not replaced
+  the running beta binary or closed outstanding live recovery/permission gates.

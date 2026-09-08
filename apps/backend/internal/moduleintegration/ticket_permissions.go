@@ -83,9 +83,8 @@ func (r *Runtime) repairTicketThreadsGuild(discordGuildID string) {
 	client := ticketDiscordClient{session: r.session, resolver: r.resolver}
 	after := ""
 	for {
-		var records []struct{ ID, ThreadDiscordChannelID, OwnerDiscordUserID string }
-		if err := r.db.WithContext(ctx).Table("tickets").Select("id, thread_discord_channel_id, owner_discord_user_id").
-			Where("guild_id = ? AND status = ? AND id > ?", guildID, tickets.StatusOpen, after).Order("id ASC").Limit(100).Find(&records).Error; err != nil {
+		records, err := r.Tickets.OpenThreadRepairPage(ctx, guildID, after)
+		if err != nil {
 			slog.ErrorContext(ctx, "Ticket permission repair lookup failed", "guild_id", guildID)
 			return
 		}
@@ -101,7 +100,7 @@ func (r *Runtime) repairTicketThreadsGuild(discordGuildID string) {
 				return
 			}
 		}
-		if len(records) < 100 {
+		if len(records) < tickets.ThreadRepairPageSize {
 			return
 		}
 		after = records[len(records)-1].ID
