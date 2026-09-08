@@ -20,6 +20,7 @@ func templateLevelOption() *discordgo.ApplicationCommandOption {
 		{Type: discordgo.ApplicationCommandOptionInteger, Name: "case", Description: "Start on this case: 1 for default, 3 for the third case", Required: true, MinValue: floatPointer(1), MaxValue: 1000000},
 		{Type: discordgo.ApplicationCommandOptionString, Name: "outcome", Description: "Outcome at this level", Required: true, Choices: []*discordgo.ApplicationCommandOptionChoice{{Name: "Warning", Value: "warning"}, {Name: "Timeout", Value: "timeout"}, {Name: "Kick", Value: "kick"}, {Name: "Ban", Value: "ban"}}},
 		{Type: discordgo.ApplicationCommandOptionInteger, Name: "minutes", Description: "Timeout length in minutes", MinValue: floatPointer(1), MaxValue: 40320},
+		{Type: discordgo.ApplicationCommandOptionBoolean, Name: "notify", Description: "Send the member a DM at this level; defaults to on for new levels"},
 	}}
 }
 
@@ -29,17 +30,27 @@ func templatePolicyAutocomplete(ctx ui.Context) *discordgo.InteractionResponse {
 	if err != nil || guild == nil || !guild.Can(model.PermissionActionCaseTemplateWrite) {
 		return ui.Autocomplete(nil)
 	}
-	level := ctx.Interaction.ApplicationCommandData().GetOption("level")
+	options := ctx.Interaction.ApplicationCommandData().Options
+	if len(options) != 1 {
+		return ui.Autocomplete(nil)
+	}
+	level := options[0]
 	if level == nil || level.GetOption("template") == nil {
 		return ui.Autocomplete(nil)
 	}
 	query := strings.ToLower(level.GetOption("template").StringValue())
-	templates, err := ctx.Services.Templates.ListActive(ctx.Context, guild)
+	templates, err := ctx.Services.Templates.List(ctx.Context, guild)
 	if err != nil {
 		return ui.Autocomplete(nil)
 	}
 	choices := []*discordgo.ApplicationCommandOptionChoice{}
 	for _, template := range templates {
+		if level.Name == "restore" && template.ArchivedAt == nil {
+			continue
+		}
+		if level.Name != "restore" && level.Name != "view" && level.Name != "edit" && template.ArchivedAt != nil {
+			continue
+		}
 		if strings.Contains(strings.ToLower(template.Name+" "+template.Slug), query) {
 			choices = append(choices, &discordgo.ApplicationCommandOptionChoice{Name: templateAutocompleteLabel(template), Value: template.ID})
 			if len(choices) == 25 {
@@ -108,6 +119,14 @@ func handleTemplateLevel(ctx ui.Context, option *discordgo.ApplicationCommandInt
 			level.Position = len(policy.Levels) + 1
 			policy.Levels = append(policy.Levels, level)
 		}
+		if value := option.GetOption("notify"); value != nil {
+			for index := range policy.Levels {
+				if policy.Levels[index].IsDefault == level.IsDefault && (level.IsDefault || policy.Levels[index].TriggerCaseCount == level.TriggerCaseCount) {
+					policy.Levels[index].NotifyUser = value.BoolValue()
+					break
+				}
+			}
+		}
 		_, err = ctx.Services.Templates.Update(taskCtx, guild, template.ID, policy)
 		if errors.Is(err, quack.ErrTemplateConflict) {
 			return fail("Someone changed this template while you were editing. Run the command again to use the latest settings.")
@@ -118,6 +137,13 @@ func handleTemplateLevel(ctx ui.Context, option *discordgo.ApplicationCommandInt
 		text := fmt.Sprintf("**%s** now uses **%s** from case **%d** onward, until a higher level applies. Existing cases are unchanged.", ui.PlainText(template.Name), outcome, count)
 		if outcome == "timeout" {
 			text += fmt.Sprintf(" Timeout: %d minutes.", minutes)
+		}
+		if value := option.GetOption("notify"); value != nil {
+			if value.BoolValue() {
+				text += " Member DMs are on at this level."
+			} else {
+				text += " Member DMs are off at this level."
+			}
 		}
 		_, err = responder.EditOriginal(ui.EditMessage(ui.Signal("settings", text, true)))
 		return err

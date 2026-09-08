@@ -619,3 +619,16 @@ means further work is required, not completion.
   read onward. A persistence regression verifies stale edits preserve the winning
   name, escalation, version and audit count. Focused and full backend suites pass.
   Broader native template management, decay and live rehearsal remain pending.
+
+- Added native `/template view`, `edit`, `remove-level`, `archive` and `restore`
+  controls. Managers can change rule names, member reasons and appeal choices;
+  `/template level` also accepts a per-level member DM choice. Views display
+  human case thresholds and outcomes, while archive/restore retain the same rule
+  identity. Autocomplete includes archived rules for inspection/editing/restoration
+  and filters them out of active outcome controls. All handlers acknowledge
+  privately before checking live Manage Server permission; policy edits use the
+  existing optimistic version guard. Persistence lifecycle tests cover edits,
+  per-level DMs, default-level removal rejection, escalation removal, archive
+  exclusion and restore; revoked-manager tests cover each management command.
+  Focused and full backend suites pass. Opt-in decay, live command usability and
+  end-to-end policy-to-case rehearsal are still pending.

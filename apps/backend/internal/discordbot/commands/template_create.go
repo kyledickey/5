@@ -17,13 +17,13 @@ import (
 func TemplateCommandSpec() CommandSpec {
 	permissions := int64(discordgo.PermissionManageGuild)
 	dm := false
-	return CommandSpec{Definition: &discordgo.ApplicationCommand{Name: "template", Description: "Create and manage moderation rules", DefaultMemberPermissions: &permissions, DMPermission: &dm, Options: []*discordgo.ApplicationCommandOption{
+	return CommandSpec{Definition: &discordgo.ApplicationCommand{Name: "template", Description: "Create and manage moderation rules", DefaultMemberPermissions: &permissions, DMPermission: &dm, Options: append(templateManagementOptions(), []*discordgo.ApplicationCommandOption{
 		templateLevelOption(),
 		{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "create", Description: "Create a rule with a default outcome", Options: []*discordgo.ApplicationCommandOption{
 			{Type: discordgo.ApplicationCommandOptionString, Name: "outcome", Description: "Default outcome; warning if omitted", Choices: []*discordgo.ApplicationCommandOptionChoice{{Name: "Warning", Value: "warning"}, {Name: "Timeout", Value: "timeout"}, {Name: "Kick", Value: "kick"}, {Name: "Ban", Value: "ban"}}},
 			{Type: discordgo.ApplicationCommandOptionInteger, Name: "minutes", Description: "Timeout length in minutes (required for a timeout)", MinValue: floatPointer(1), MaxValue: 40320},
 		}},
-	}}, Handler: handleTemplateCommand}
+	}...)}, Handler: handleTemplateCommand}
 }
 
 // floatPointer supplies Discord's optional numeric lower bound.
@@ -40,6 +40,12 @@ func handleTemplateCommand(ctx ui.Context) ui.HandlerResult {
 	}
 	if level := ctx.Interaction.ApplicationCommandData().GetOption("level"); level != nil {
 		return handleTemplateLevel(ctx, level)
+	}
+	for _, option := range ctx.Interaction.ApplicationCommandData().Options {
+		switch option.Name {
+		case "view", "edit", "remove-level", "archive", "restore":
+			return handleTemplateManage(ctx, option)
+		}
 	}
 	create := ctx.Interaction.ApplicationCommandData().GetOption("create")
 	if create == nil {
