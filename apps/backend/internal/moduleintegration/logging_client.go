@@ -27,7 +27,7 @@ func (c loggingDiscordClient) SendStaffLog(ctx context.Context, guildID, channel
 	return err
 }
 
-// ValidateStaffOnlyChannel checks fresh privacy and delivery permissions, including
+// ValidateStaffOnlyChannel checks fresh ownership and delivery permissions, including
 // attachment access needed to preserve log content beyond Discord message limits.
 func (c loggingDiscordClient) ValidateStaffOnlyChannel(ctx context.Context, guildID, channelID string) error {
 	if err := ctx.Err(); err != nil {

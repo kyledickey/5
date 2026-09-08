@@ -8,57 +8,24 @@ import (
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
-// ValidateStaffChannel checks current guild ownership and an explicitly private text-channel ACL.
-// Every explicit viewer must be the bot or hold current guild moderation authority.
+// ValidateStaffChannel checks guild ownership and Quack's delivery permissions.
+// Administrators choose who can see an existing destination; setup and workers
+// must not reject that choice based on viewer roles or public visibility.
 func (b *Bot) ValidateStaffChannel(ctx context.Context, guildID, channelID string) error {
 	if b == nil || b.Session == nil {
 		return quack.ErrAuthorizationUnavailable
 	}
 	channel, err := b.Session.Channel(channelID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 	if err != nil || channel == nil || channel.GuildID != guildID || channel.Type != discordgo.ChannelTypeGuildText {
-		return errors.New("destination must be a private text channel in this guild")
+		return errors.New("destination must be a text channel in this guild")
 	}
 	guild, err := b.Session.Guild(guildID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 	if err != nil || guild == nil {
 		return quack.ErrAuthorizationUnavailable
 	}
-	roles := make(map[string]int64, len(guild.Roles))
-	for _, role := range guild.Roles {
-		if role != nil {
-			roles[role.ID] = role.Permissions
-		}
-	}
 	botID := ""
 	if b.Session.State != nil && b.Session.State.User != nil {
 		botID = b.Session.State.User.ID
-	}
-	private := false
-	for _, overwrite := range channel.PermissionOverwrites {
-		if overwrite == nil {
-			continue
-		}
-		if overwrite.Type == discordgo.PermissionOverwriteTypeRole && overwrite.ID == guildID {
-			private = overwrite.Deny&discordgo.PermissionViewChannel != 0 && overwrite.Allow&discordgo.PermissionViewChannel == 0
-		}
-		if overwrite.Allow&discordgo.PermissionViewChannel == 0 {
-			continue
-		}
-		if overwrite.Type == discordgo.PermissionOverwriteTypeRole {
-			if roles[overwrite.ID]&(discordgo.PermissionAdministrator|discordgo.PermissionModerateMembers) == 0 {
-				return errors.New("destination grants access to a non-staff role")
-			}
-		} else {
-			if overwrite.ID == botID && botID != "" {
-				continue
-			}
-			member, err := b.liveMemberAuthorization(ctx, guild, overwrite.ID)
-			if err != nil || !member.Present || member.PermissionBits&uint64(discordgo.PermissionAdministrator|discordgo.PermissionModerateMembers) == 0 {
-				return errors.New("destination grants access to a non-staff member")
-			}
-		}
-	}
-	if !private {
-		return errors.New("destination must deny public access")
 	}
 	return b.validateStaffDeliveryPermissions(ctx, guild, channel, botID)
 }

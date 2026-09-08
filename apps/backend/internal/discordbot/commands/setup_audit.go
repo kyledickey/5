@@ -7,6 +7,7 @@ import (
 
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/quack"
+	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 // handleAuditSetup saves the core moderation destination after an immediate
@@ -20,13 +21,24 @@ func handleAuditSetup(ctx ui.Context) ui.HandlerResult {
 		return ui.Immediate(ui.Error("Choose the audit channel."))
 	}
 	channelID := optionStringValue(option.GetOption("channel"))
-	if channelID == "" {
-		return ui.Immediate(ui.Error("Choose a private staff channel for moderation history."))
-	}
 	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
 		guild, err := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
 		if err != nil {
 			_, err = responder.EditOriginal(ui.ErrorEdit("Could not verify your current server permissions."))
+			return err
+		}
+		if guild == nil || !guild.Can(model.PermissionActionGuildSettingsWrite) {
+			_, err = responder.EditOriginal(ui.ErrorEdit("You need Manage Server permission to change the audit channel."))
+			return err
+		}
+		settings, err := ctx.Services.Settings.Get(taskCtx, guild)
+		if err != nil {
+			_, err = responder.EditOriginal(ui.ErrorEdit("Could not load audit settings. Try again."))
+			return err
+		}
+		channelID, err = ui.SetupChannel(taskCtx, ctx.Session, ctx.Interaction.GuildID, channelID, settings.AuditMirrorChannelDiscordID, "moderation-log", ui.SetupStaffChannel)
+		if err != nil {
+			_, err = responder.EditOriginal(ui.ErrorEdit(err.Error()))
 			return err
 		}
 		_, err = ctx.Services.Settings.Update(taskCtx, guild, quack.GuildSettingsInput{AuditMirrorChannelDiscordID: &channelID})
@@ -36,7 +48,7 @@ func handleAuditSetup(ctx ui.Context) ui.HandlerResult {
 			case errors.Is(err, quack.ErrGuildSettingsPermissionDenied):
 				text = "You need Manage Server permission to change the audit channel."
 			case errors.Is(err, quack.ErrGuildSettingsValidation):
-				text = "Choose a private text channel in this server that Quack can access."
+				text = "Choose a text channel in this server where Quack can view, send, read history and attach files."
 			}
 			_, err = responder.EditOriginal(ui.ErrorEdit(text))
 			return err

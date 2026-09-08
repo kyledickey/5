@@ -6,6 +6,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/quack"
+	"github.com/quackdiscord/bot/internal/quack/model"
 	"strings"
 )
 
@@ -16,20 +17,20 @@ type SetupHandlers struct{ Tickets, Honeypot, Logging ui.Handler }
 func SetupCommandSpec(moduleSetup ...SetupHandlers) CommandSpec {
 	permissions := int64(discordgo.PermissionManageServer)
 	dm := false
-	spec := CommandSpec{Definition: &discordgo.ApplicationCommand{Name: "setup", Description: "Configure Quack for this server", DefaultMemberPermissions: &permissions, DMPermission: &dm, Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "appeals", Description: "Choose the private channel for appeal reviews", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionChannel, Name: "channel", Description: "Private text channel for the appeal queue", Required: true, ChannelTypes: []discordgo.ChannelType{discordgo.ChannelTypeGuildText}}}}}}, Handler: handleSetup}
+	spec := CommandSpec{Definition: &discordgo.ApplicationCommand{Name: "setup", Description: "Configure Quack for this server", DefaultMemberPermissions: &permissions, DMPermission: &dm, Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "appeals", Description: "Set up appeal reviews", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionChannel, Name: "channel", Description: "Use an existing channel; otherwise Quack creates one", ChannelTypes: []discordgo.ChannelType{discordgo.ChannelTypeGuildText}}}}}}, Handler: handleSetup}
 	spec.Definition.Options[0].Options = append(spec.Definition.Options[0].Options, &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionString, Name: "rejoin", Description: "Discord invite for accepted appeals; use none to remove it", MaxLength: 256})
 	spec.Definition.Options = append(spec.Definition.Options, &discordgo.ApplicationCommandOption{
 		Type: discordgo.ApplicationCommandOptionSubCommand, Name: "tickets", Description: "Set up private support tickets",
 		Options: []*discordgo.ApplicationCommandOption{
-			{Type: discordgo.ApplicationCommandOptionChannel, Name: "entry", Description: "Text channel for the Open ticket button", Required: true, ChannelTypes: []discordgo.ChannelType{discordgo.ChannelTypeGuildText}},
-			{Type: discordgo.ApplicationCommandOptionChannel, Name: "queue", Description: "Private text channel for staff ticket notifications", Required: true, ChannelTypes: []discordgo.ChannelType{discordgo.ChannelTypeGuildText}},
+			{Type: discordgo.ApplicationCommandOptionChannel, Name: "entry", Description: "Use an existing entry channel; otherwise Quack creates one", ChannelTypes: []discordgo.ChannelType{discordgo.ChannelTypeGuildText}},
+			{Type: discordgo.ApplicationCommandOptionChannel, Name: "queue", Description: "Use an existing queue; otherwise Quack creates one", ChannelTypes: []discordgo.ChannelType{discordgo.ChannelTypeGuildText}},
 		},
 	})
-	spec.Definition.Options = append(spec.Definition.Options, &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "honeypot", Description: "Create or update the honeypot trap", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionString, Name: "warning", Description: "Warning shown in the trap channel", MaxLength: 1500}}})
-	spec.Definition.Options = append(spec.Definition.Options, &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "logging", Description: "Send Discord event logs to one private channel", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionChannel, Name: "channel", Description: "Private staff channel for Discord event logs", Required: true, ChannelTypes: []discordgo.ChannelType{discordgo.ChannelTypeGuildText}}}})
+	spec.Definition.Options = append(spec.Definition.Options, &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "honeypot", Description: "Create or update the honeypot trap", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionChannel, Name: "channel", Description: "Use an existing channel; otherwise Quack creates one", ChannelTypes: []discordgo.ChannelType{discordgo.ChannelTypeGuildText}}, {Type: discordgo.ApplicationCommandOptionString, Name: "warning", Description: "Warning shown in the trap channel", MaxLength: 1500}}})
+	spec.Definition.Options = append(spec.Definition.Options, &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "logging", Description: "Set up Discord event logs", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionChannel, Name: "channel", Description: "Use an existing channel; otherwise Quack creates one", ChannelTypes: []discordgo.ChannelType{discordgo.ChannelTypeGuildText}}}})
 	spec.Definition.Options = append(spec.Definition.Options, &discordgo.ApplicationCommandOption{
-		Type: discordgo.ApplicationCommandOptionSubCommand, Name: "audit", Description: "Choose the staff channel for moderation history",
-		Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionChannel, Name: "channel", Description: "Private staff channel for cases, actions and decisions", Required: true, ChannelTypes: []discordgo.ChannelType{discordgo.ChannelTypeGuildText}}},
+		Type: discordgo.ApplicationCommandOptionSubCommand, Name: "audit", Description: "Set up moderation history",
+		Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionChannel, Name: "channel", Description: "Use an existing channel; otherwise Quack creates one", ChannelTypes: []discordgo.ChannelType{discordgo.ChannelTypeGuildText}}},
 	})
 	spec.Handler = func(ctx ui.Context) ui.HandlerResult {
 		if ctx.Interaction != nil && ctx.Interaction.Interaction != nil {
@@ -59,8 +60,8 @@ func SetupCommandSpec(moduleSetup ...SetupHandlers) CommandSpec {
 	return spec
 }
 
-// handleSetup refreshes live administrator authority and validates channel privacy
-// before saving. Workers read the new setting without restarting the bot.
+// handleSetup refreshes live administrator authority before creating or choosing
+// a destination. Workers read the new setting without restarting the bot.
 func handleSetup(ctx ui.Context) ui.HandlerResult {
 	if ctx.Interaction == nil || ctx.Interaction.Interaction == nil || ctx.Interaction.GuildID == "" {
 		return ui.Immediate(ui.Error("Run setup in your server."))
@@ -70,13 +71,24 @@ func handleSetup(ctx ui.Context) ui.HandlerResult {
 		return ui.Immediate(ui.Error("Choose which feature to set up."))
 	}
 	channelID := optionStringValue(options[0].GetOption("channel"))
-	if channelID == "" {
-		return ui.Immediate(ui.Error("Choose a private text channel for appeal reviews."))
-	}
 	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
 		guild, err := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
 		if err != nil {
 			_, err = responder.EditOriginal(ui.ErrorEdit("Could not verify your server permissions."))
+			return err
+		}
+		if guild == nil || !guild.Can(model.PermissionActionGuildSettingsWrite) {
+			_, err = responder.EditOriginal(ui.ErrorEdit("You need Manage Server permission to set up appeals."))
+			return err
+		}
+		settings, err := ctx.Services.Settings.Get(taskCtx, guild)
+		if err != nil {
+			_, err = responder.EditOriginal(ui.ErrorEdit("Could not load appeal settings. Try again."))
+			return err
+		}
+		channelID, err = ui.SetupChannel(taskCtx, ctx.Session, ctx.Interaction.GuildID, channelID, settings.AppealQueueChannelDiscordID, "appeals", ui.SetupStaffChannel)
+		if err != nil {
+			_, err = responder.EditOriginal(ui.ErrorEdit(err.Error()))
 			return err
 		}
 		input := quack.GuildSettingsInput{AppealQueueChannelDiscordID: &channelID}
@@ -89,7 +101,7 @@ func handleSetup(ctx ui.Context) ui.HandlerResult {
 		}
 		_, err = ctx.Services.Settings.Update(taskCtx, guild, input)
 		if err != nil {
-			_, err = responder.EditOriginal(ui.ErrorEdit("Could not save appeal settings. Check Manage Server permission, the private queue channel, and the HTTPS Discord invite (or none)."))
+			_, err = responder.EditOriginal(ui.ErrorEdit("Could not save appeal settings. Check Manage Server permission, Quack's queue channel permissions, and the HTTPS Discord invite (or none)."))
 			return err
 		}
 		_, err = ui.Publish(responder, ui.Signal("settings", fmt.Sprintf("Appeal reviews will go to <#%s>. Members can appeal from their case DM; moderators can accept or reject in this channel.", channelID), true))

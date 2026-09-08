@@ -11,7 +11,7 @@ import (
 )
 
 // SetupTickets configures both destinations and publishes the member entry panel.
-// Current Manage Server authority and destination privacy are checked before saving.
+// Current Manage Server authority and bot permissions are checked before saving.
 func (r *Runtime) SetupTickets(ctx ui.Context) ui.HandlerResult {
 	if ctx.Interaction == nil || ctx.Interaction.Interaction == nil || ctx.Interaction.GuildID == "" {
 		return ui.Immediate(ui.Error("Run ticket setup in your server."))
@@ -20,18 +20,35 @@ func (r *Runtime) SetupTickets(ctx ui.Context) ui.HandlerResult {
 	if len(options) != 1 {
 		return ui.Immediate(ui.Error("Choose the entry and staff queue channels."))
 	}
-	entry, queue := options[0].GetOption("entry"), options[0].GetOption("queue")
-	if entry == nil || queue == nil {
-		return ui.Immediate(ui.Error("Choose the entry and staff queue channels."))
+	entryID, queueID := "", ""
+	if option := options[0].GetOption("entry"); option != nil {
+		entryID, _ = option.Value.(string)
 	}
-	entryID, entryOK := entry.Value.(string)
-	queueID, queueOK := queue.Value.(string)
-	if !entryOK || !queueOK || entryID == "" || queueID == "" || entryID == queueID {
-		return ui.Immediate(ui.Error("Choose a member entry channel and a separate private staff queue."))
+	if option := options[0].GetOption("queue"); option != nil {
+		queueID, _ = option.Value.(string)
 	}
 	return r.ticketTask(ctx, func(taskCtx context.Context, responder ui.Responder, actor tickets.Actor) error {
 		if !actor.CanManage {
 			_, err := responder.EditOriginal(ui.ErrorEdit("You need Manage Server permission to set up tickets."))
+			return err
+		}
+		settings, _, err := r.Tickets.Settings(taskCtx, actor)
+		if err != nil {
+			_, err = responder.EditOriginal(ui.ErrorEdit("Could not load ticket settings. Try again."))
+			return err
+		}
+		entryID, err = ui.SetupChannel(taskCtx, r.session, ctx.Interaction.GuildID, entryID, settings.EntryChannelDiscordID, "support", ui.SetupTicketEntry)
+		if err != nil {
+			_, err = responder.EditOriginal(ui.ErrorEdit(err.Error()))
+			return err
+		}
+		queueID, err = ui.SetupChannel(taskCtx, r.session, ctx.Interaction.GuildID, queueID, settings.QueueChannelDiscordID, "ticket-log", ui.SetupStaffChannel)
+		if err != nil {
+			_, err = responder.EditOriginal(ui.ErrorEdit(err.Error()))
+			return err
+		}
+		if entryID == queueID {
+			_, err = responder.EditOriginal(ui.ErrorEdit("Choose separate entry and staff queue channels."))
 			return err
 		}
 		entryChannel, err := r.session.Channel(entryID, discordgo.WithContext(taskCtx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
@@ -40,16 +57,11 @@ func (r *Runtime) SetupTickets(ctx ui.Context) ui.HandlerResult {
 			return err
 		}
 		if err := (&discordadapter.Bot{Session: r.session}).ValidateStaffChannel(taskCtx, ctx.Interaction.GuildID, queueID); err != nil {
-			_, err = responder.EditOriginal(ui.ErrorEdit("The queue must be a private text channel in this server, visible only to moderators and Quack."))
+			_, err = responder.EditOriginal(ui.ErrorEdit("Quack needs to view, send, read history and attach files in the queue channel."))
 			return err
 		}
 		if err := (ticketDiscordClient{session: r.session}).validateTicketBotPermissions(taskCtx, ctx.Interaction.GuildID, entryID, queueID); err != nil {
 			_, err = responder.EditOriginal(ui.ErrorEdit(err.Error()))
-			return err
-		}
-		settings, _, err := r.Tickets.Settings(taskCtx, actor)
-		if err != nil {
-			_, err = responder.EditOriginal(ui.ErrorEdit("Could not load ticket settings. Try again."))
 			return err
 		}
 		settings.EntryChannelDiscordID, settings.QueueChannelDiscordID = entryID, queueID

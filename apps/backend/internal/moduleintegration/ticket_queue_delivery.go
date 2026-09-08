@@ -13,7 +13,7 @@ import (
 )
 
 // PublishTicketQueue updates the original queue message, attaching the preserved
-// transcript on closure. It verifies current destination privacy before every send.
+// transcript on closure. It verifies current bot delivery permissions before every send.
 func (c ticketDiscordClient) PublishTicketQueue(ctx context.Context, ticket *tickets.Ticket, settings tickets.Settings, transcript *tickets.Transcript) (*tickets.QueueReceipt, error) {
 	guildID, err := c.resolver.discordID(ctx, ticket.GuildID)
 	if err != nil {

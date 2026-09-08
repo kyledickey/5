@@ -831,3 +831,17 @@ means further work is required, not completion.
   and its appeal accepted. This binary includes the accumulated warning and native
   pagination changes. Old runner deletion and remaining feature rehearsals are
   still pending; the dashboard pane was not changed.
+
+- Setup policy correction from the live ticket rehearsal: all setup channel
+  options are now optional. First setup creates suitable channels; later runs
+  reuse configured destinations, replacing only confirmed deleted channels.
+  Explicit destinations retain their existing overwrites and viewer roles.
+  Appeals, audit, tickets, logging and honeypot share this selection behavior.
+  Created staff channels allow moderator/manager roles and Quack; ticket entry
+  supports private threads and honeypot permits member messages with bot cleanup.
+  Shared destination validation now checks guild ownership and bot delivery
+  permissions, including during background delivery, without policing viewers.
+  This supersedes earlier requirements for rejecting public/non-staff viewers on
+  administrator-selected destinations. Managed evidence source/storage protection
+  remains separate. Selection/failure/default permission tests, updated setup and
+  audit delivery regressions, and the full MySQL-enabled backend suite pass.

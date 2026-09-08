@@ -19,9 +19,12 @@ func (r *Runtime) SetupHoneypot(ctx ui.Context) ui.HandlerResult {
 	if ctx.Interaction == nil || ctx.Interaction.Interaction == nil || ctx.Interaction.GuildID == "" {
 		return ui.Immediate(ui.Error("Run honeypot setup in your server."))
 	}
-	warning := ""
+	warning, specified := "", ""
 	options := ctx.Interaction.ApplicationCommandData().Options
 	if len(options) == 1 {
+		if option := options[0].GetOption("channel"); option != nil {
+			specified, _ = option.Value.(string)
+		}
 		if option := options[0].GetOption("warning"); option != nil {
 			warning, _ = option.Value.(string)
 		}
@@ -53,23 +56,18 @@ func (r *Runtime) SetupHoneypot(ctx ui.Context) ui.HandlerResult {
 		if err := (honeypotTemplateValidator{repository: r.repository}).ValidateHoneypotTemplate(taskCtx, actor.GuildID, settings.TemplateID); err != nil {
 			return fail("The selected honeypot template is unavailable. Restore or repair it before setup.")
 		}
-		var channel *discordgo.Channel
-		if settings.ChannelDiscordID != "" {
-			channel, err = r.session.Channel(settings.ChannelDiscordID, discordgo.WithContext(taskCtx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
-			var rest *discordgo.RESTError
-			if err != nil && !(errors.As(err, &rest) && rest.Message != nil && rest.Message.Code == discordgo.ErrCodeUnknownChannel) {
-				return fail("Could not access the existing honeypot channel. Check Quack's permissions.")
-			}
+		channelID, err := ui.SetupChannel(taskCtx, r.session, ctx.Interaction.GuildID, specified, settings.ChannelDiscordID, "honeypot", ui.SetupHoneypotChannel)
+		if err != nil {
+			return fail(err.Error())
 		}
-		if channel == nil {
-			channel, err = r.session.GuildChannelCreateComplex(ctx.Interaction.GuildID, discordgo.GuildChannelCreateData{Name: "honeypot", Type: discordgo.ChannelTypeGuildText}, discordgo.WithContext(taskCtx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
-			if err != nil {
-				return fail("Could not create the honeypot channel. Quack needs Manage Channels permission.")
-			}
-			settings.ChannelDiscordID = channel.ID
-			settings.WarningMessageID = ""
+		channel, err := r.session.Channel(channelID, discordgo.WithContext(taskCtx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+		if err != nil || channel == nil {
+			return fail("Could not access the honeypot channel. Check Quack's permissions.")
+		}
+		if settings.ChannelDiscordID != channelID {
+			settings.ChannelDiscordID, settings.WarningMessageID = channelID, ""
 			if _, _, err = r.Honeypot.UpdateSettings(taskCtx, actor, false, settings); err != nil {
-				return fail("The honeypot channel was created, but its settings could not be saved. Check the channel before retrying.")
+				return fail("Could not save the honeypot channel. Specify it when you retry setup.")
 			}
 		}
 		if channel.GuildID != ctx.Interaction.GuildID || channel.Type != discordgo.ChannelTypeGuildText {

@@ -33,7 +33,7 @@ func TestAuditSetupUsesLiveManagerAuthorityAndValidatedDestination(t *testing.T)
 	}{
 		{"manager", discordgo.PermissionManageGuild, false, "Moderation history"},
 		{"revoked", discordgo.PermissionModerateMembers, false, "Manage Server"},
-		{"public channel", discordgo.PermissionManageGuild, true, "private text channel"},
+		{"inaccessible channel", discordgo.PermissionManageGuild, true, "text channel"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			repository, services, _ := newCaseCommandHarnessWithLivePermissions(t, uint64(scenario.permissions))
@@ -43,7 +43,7 @@ func TestAuditSetupUsesLiveManagerAuthorityAndValidatedDestination(t *testing.T)
 			}
 			validator := &auditSetupValidator{}
 			if scenario.invalid {
-				validator.err = errors.New("public channel")
+				validator.err = errors.New("inaccessible channel")
 			}
 			services.Settings.WithStaffChannelValidator(validator)
 			interaction := caseAddInteraction("", "target", uint64(discordgo.PermissionManageGuild))
@@ -52,7 +52,7 @@ func TestAuditSetupUsesLiveManagerAuthorityAndValidatedDestination(t *testing.T)
 			found := false
 			for _, option := range spec.Definition.Options {
 				if option.Name == "audit" {
-					found = len(option.Options) == 1 && option.Options[0].Required
+					found = len(option.Options) == 1 && !option.Options[0].Required
 				}
 			}
 			if !found {

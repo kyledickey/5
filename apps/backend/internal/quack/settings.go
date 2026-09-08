@@ -28,7 +28,7 @@ type GuildSettingsService struct {
 	channels StaffChannelValidator
 }
 
-// StaffChannelValidator validates live Discord ownership and privacy of outbound staff destinations.
+// StaffChannelValidator validates live Discord ownership and bot access to outbound destinations.
 type StaffChannelValidator interface {
 	ValidateStaffChannel(context.Context, string, string) error
 }

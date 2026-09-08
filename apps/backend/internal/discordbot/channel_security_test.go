@@ -12,7 +12,9 @@ import (
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
-func TestStaffDestinationRejectsCrossGuildPublicAndPermissionDrift(t *testing.T) {
+// TestStaffDestinationRespectsChosenViewers verifies delivery accepts administrator
+// choices while still rejecting destinations belonging to a different server.
+func TestStaffDestinationRespectsChosenViewers(t *testing.T) {
 	for _, scenario := range []string{"private", "cross-guild", "public", "non-staff-role", "demoted-member"} {
 		t.Run(scenario, func(t *testing.T) {
 			session, _ := discordgo.New("Bot test")
@@ -50,12 +52,12 @@ func TestStaffDestinationRejectsCrossGuildPublicAndPermissionDrift(t *testing.T)
 				return securityJSONResponse(request, body), nil
 			})}
 			err := (&Bot{Session: session}).SendAuditMirror(context.Background(), quack.AuditMirrorMessage{DiscordGuildID: "guild", ChannelDiscordID: "channel"})
-			if scenario == "private" {
+			if scenario != "cross-guild" {
 				if err != nil || sends != 1 {
-					t.Fatalf("private destination denied: %v", err)
+					t.Fatalf("chosen destination denied: %v", err)
 				}
 			} else if err == nil || sends != 0 {
-				t.Fatalf("unsafe destination delivered: sends=%d err=%v", sends, err)
+				t.Fatalf("cross-guild destination delivered: sends=%d err=%v", sends, err)
 			}
 		})
 	}

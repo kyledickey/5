@@ -22,7 +22,7 @@ func TestSetupRoutesTicketsToModule(t *testing.T) {
 		t.Fatal("missing ticket setup destinations")
 	}
 	for _, option := range definition.Options {
-		if !option.Required || option.Type != discordgo.ApplicationCommandOptionChannel {
+		if option.Required || option.Type != discordgo.ApplicationCommandOptionChannel {
 			t.Fatalf("invalid destination option: %+v", option)
 		}
 	}
@@ -41,7 +41,7 @@ func TestSetupRoutesHoneypotToModule(t *testing.T) {
 	for _, option := range spec.Definition.Options {
 		if option.Name == "honeypot" {
 			found = true
-			if len(option.Options) != 1 || option.Options[0].Name != "warning" || option.Options[0].Required {
+			if len(option.Options) != 2 || option.Options[1].Name != "warning" || option.Options[1].Required || option.Options[0].Name != "channel" || option.Options[0].Required {
 				t.Fatalf("incorrect warning option: %+v", option)
 			}
 		}
