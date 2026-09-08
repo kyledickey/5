@@ -244,6 +244,8 @@ func importTemplate(c *gin.Context, services *quack.Services) {
 // writeTemplateError maps template error into the preserved HTTP error response contract.
 func writeTemplateError(c *gin.Context, err error) {
 	switch {
+	case errors.Is(err, quack.ErrTemplateConflict):
+		apierror.Write(c, http.StatusConflict, apierror.CodeConflict, err.Error())
 	case errors.Is(err, quack.ErrTemplatePermissionDenied):
 		apierror.Write(c, http.StatusForbidden, apierror.CodeAuthorization, "template access denied")
 	case errors.Is(err, quack.ErrTemplateValidation):

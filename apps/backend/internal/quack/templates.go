@@ -21,6 +21,7 @@ const (
 
 var (
 	ErrTemplateValidation                  = errors.New("template validation failed")
+	ErrTemplateConflict                    = model.ErrTemplateConflict
 	ErrTemplateNotFound                    = errors.New("case template not found")
 	ErrTemplatePermissionDenied            = errors.New("template permission denied")
 	ErrTemplateCompatibilityReviewRequired = model.ErrTemplateCompatibilityReviewRequired
@@ -137,7 +138,7 @@ func (s *TemplateService) Create(ctx context.Context, guildContext *GuildStaffCo
 	return &response, nil
 }
 
-// Update updates update while retaining validation, compatibility, and audit requirements.
+// Update replaces a policy only if its source version is still current. Existing case snapshots remain unchanged.
 func (s *TemplateService) Update(ctx context.Context, guildContext *GuildStaffContext, templateID string, input TemplateInput) (*TemplateResponse, error) {
 	if err := s.requireWrite(ctx, guildContext, "case_template.update", templateID); err != nil {
 		return nil, err
@@ -152,6 +153,10 @@ func (s *TemplateService) Update(ctx context.Context, guildContext *GuildStaffCo
 		return nil, ErrTemplateNotFound
 	}
 
+	if input.ExpectedVersion == 0 {
+		input.ExpectedVersion = existing.Template.Version
+	}
+
 	normalized, err := s.validate(ctx, guildContext, templateID, input)
 	if err != nil {
 		_ = s.audit(ctx, guildContext, "case_template.update", "case_template", templateID, model.AuditResultFailure, err.Error())
@@ -159,12 +164,13 @@ func (s *TemplateService) Update(ctx context.Context, guildContext *GuildStaffCo
 	}
 
 	expanded, err := s.store.UpdateCaseTemplate(ctx, model.UpdateCaseTemplateParams{
-		GuildID:       guildContext.Guild.ID,
-		TemplateID:    templateID,
-		Template:      normalized.template,
-		ContextFields: normalized.contextFields,
-		Levels:        normalized.levels,
-		Audit:         s.auditEntry(ctx, guildContext, "case_template.update", "case_template", templateID, model.AuditResultSuccess, ""),
+		GuildID:         guildContext.Guild.ID,
+		TemplateID:      templateID,
+		ExpectedVersion: input.ExpectedVersion,
+		Template:        normalized.template,
+		ContextFields:   normalized.contextFields,
+		Levels:          normalized.levels,
+		Audit:           s.auditEntry(ctx, guildContext, "case_template.update", "case_template", templateID, model.AuditResultSuccess, ""),
 	})
 	if err != nil {
 		return nil, err
@@ -210,17 +216,8 @@ func (s *TemplateService) Export(ctx context.Context, guildContext *GuildStaffCo
 		_ = s.audit(ctx, guildContext, "case_template.export", "case_template", templateID, model.AuditResultFailure, err.Error())
 		return nil, err
 	}
-	policy := &TemplatePolicy{SchemaVersion: 1, Slug: template.Slug, Name: template.Name, Description: template.Description, OfficialReason: template.ReasonTemplate, Appealable: template.Appealable}
-	for _, f := range template.ContextFields {
-		policy.ContextFields = append(policy.ContextFields, TemplateContextFieldInput{Key: f.Key, Label: f.Label, FieldType: f.FieldType, Position: f.Position, Required: f.Required})
-	}
-	for _, level := range template.Levels {
-		in := TemplateLevelInput{Name: level.Name, Position: level.Position, IsDefault: level.IsDefault, TriggerCaseCount: level.TriggerCaseCount, NotifyUser: level.NotifyUser}
-		for _, action := range level.Actions {
-			in.Actions = append(in.Actions, TemplateActionInput{ActionType: action.ActionType, TimeoutDurationSeconds: action.TimeoutDurationSeconds, DeleteMessageSeconds: action.DeleteMessageSeconds, MaxRetries: int(action.MaxRetries)})
-		}
-		policy.Levels = append(policy.Levels, in)
-	}
+	input := template.EditInput()
+	policy := &TemplatePolicy{SchemaVersion: 1, Slug: input.Slug, Name: input.Name, Description: input.Description, OfficialReason: input.ReasonTemplate, Appealable: input.Appealable, ContextFields: input.ContextFields, Levels: input.Levels}
 	if err := s.audit(ctx, guildContext, "case_template.export", "case_template", templateID, model.AuditResultSuccess, ""); err != nil {
 		return nil, err
 	}

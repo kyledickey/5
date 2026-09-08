@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -74,10 +75,7 @@ func handleTemplateLevel(ctx ui.Context, option *discordgo.ApplicationCommandInt
 		if err != nil || template == nil {
 			return fail("That active template is unavailable.")
 		}
-		policy, err := ctx.Services.Templates.Export(taskCtx, guild, template.ID)
-		if err != nil {
-			return fail("Could not load the template. Try again.")
-		}
+		policy := template.EditInput()
 		level := quack.TemplateLevelInput{Name: fmt.Sprintf("Case %d onward", count), TriggerCaseCount: int(count - 1), NotifyUser: true}
 		if count == 1 {
 			level.IsDefault = true
@@ -110,7 +108,10 @@ func handleTemplateLevel(ctx ui.Context, option *discordgo.ApplicationCommandInt
 			level.Position = len(policy.Levels) + 1
 			policy.Levels = append(policy.Levels, level)
 		}
-		_, err = ctx.Services.Templates.Update(taskCtx, guild, template.ID, quack.TemplateInput{Slug: policy.Slug, Name: policy.Name, Description: policy.Description, ReasonTemplate: policy.OfficialReason, Appealable: policy.Appealable, ContextFields: policy.ContextFields, Levels: policy.Levels})
+		_, err = ctx.Services.Templates.Update(taskCtx, guild, template.ID, policy)
+		if errors.Is(err, quack.ErrTemplateConflict) {
+			return fail("Someone changed this template while you were editing. Run the command again to use the latest settings.")
+		}
 		if err != nil {
 			return fail("Could not save that level. Check the outcome and try again.")
 		}

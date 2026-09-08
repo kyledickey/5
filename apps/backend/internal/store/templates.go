@@ -143,6 +143,14 @@ func (s *Store) UpdateCaseTemplate(ctx context.Context, params UpdateCaseTemplat
 			return fmt.Errorf("get case template for update: %w", err)
 		}
 
+		expected := params.ExpectedVersion
+		if expected == 0 {
+			expected = record.Version
+		}
+		if record.Version != expected {
+			return model.ErrTemplateConflict
+		}
+
 		record.Slug = params.Template.Slug
 		record.Name = params.Template.Name
 		record.Description = params.Template.Description
@@ -152,8 +160,15 @@ func (s *Store) UpdateCaseTemplate(ctx context.Context, params UpdateCaseTemplat
 		record.Version++
 		record.UpdatedAt = now
 
-		if err := tx.Save(&record).Error; err != nil {
-			return fmt.Errorf("update case template: %w", err)
+		// Claim the next version before replacing children. A concurrent writer
+		// must fail this comparison, leaving both policy and audit untouched.
+		result := tx.Model(&CaseTemplateRecord{}).Where("id = ? AND guild_id = ? AND version = ?", record.ID, params.GuildID, expected).
+			Select("slug", "name", "description", "reason_template", "appealable", "updated_by_discord_user_id", "version", "updated_at").Updates(&record)
+		if result.Error != nil {
+			return fmt.Errorf("update case template: %w", result.Error)
+		}
+		if result.RowsAffected != 1 {
+			return model.ErrTemplateConflict
 		}
 
 		levelIDs := tx.Model(&CaseTemplateLevelRecord{}).Select("id").Where("template_id = ?", record.ID)

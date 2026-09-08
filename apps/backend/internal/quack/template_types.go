@@ -8,13 +8,15 @@ import (
 
 // TemplateInput describes an admin-owned moderation policy before validation and normalization.
 type TemplateInput struct {
-	Slug           string                      `json:"slug"`
-	Name           string                      `json:"name"`
-	Description    string                      `json:"description"`
-	ReasonTemplate string                      `json:"reason_template"`
-	Appealable     bool                        `json:"appealable"`
-	ContextFields  []TemplateContextFieldInput `json:"context_fields"`
-	Levels         []TemplateLevelInput        `json:"levels"`
+	// ExpectedVersion protects edits based on a previously read policy; zero uses the service read version.
+	ExpectedVersion uint                        `json:"expected_version,omitempty"`
+	Slug            string                      `json:"slug"`
+	Name            string                      `json:"name"`
+	Description     string                      `json:"description"`
+	ReasonTemplate  string                      `json:"reason_template"`
+	Appealable      bool                        `json:"appealable"`
+	ContextFields   []TemplateContextFieldInput `json:"context_fields"`
+	Levels          []TemplateLevelInput        `json:"levels"`
 }
 
 // TemplateContextFieldInput defines an ordered optional staff context field.
@@ -112,4 +114,21 @@ type TemplateActionResponse struct {
 	TimeoutDurationSeconds int              `json:"timeout_duration_seconds,omitempty"`
 	DeleteMessageSeconds   int              `json:"delete_message_seconds,omitempty"`
 	MaxRetries             uint8            `json:"max_retries"`
+}
+
+// EditInput copies this exact policy snapshot and its version for a guarded edit.
+// Child slices are rebuilt so changing the input cannot mutate the response.
+func (template TemplateResponse) EditInput() TemplateInput {
+	input := TemplateInput{ExpectedVersion: template.Version, Slug: template.Slug, Name: template.Name, Description: template.Description, ReasonTemplate: template.ReasonTemplate, Appealable: template.Appealable}
+	for _, f := range template.ContextFields {
+		input.ContextFields = append(input.ContextFields, TemplateContextFieldInput{Key: f.Key, Label: f.Label, FieldType: f.FieldType, Position: f.Position, Required: f.Required})
+	}
+	for _, level := range template.Levels {
+		in := TemplateLevelInput{Name: level.Name, Position: level.Position, IsDefault: level.IsDefault, TriggerCaseCount: level.TriggerCaseCount, NotifyUser: level.NotifyUser}
+		for _, action := range level.Actions {
+			in.Actions = append(in.Actions, TemplateActionInput{ActionType: action.ActionType, TimeoutDurationSeconds: action.TimeoutDurationSeconds, DeleteMessageSeconds: action.DeleteMessageSeconds, MaxRetries: int(action.MaxRetries)})
+		}
+		input.Levels = append(input.Levels, in)
+	}
+	return input
 }

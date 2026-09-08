@@ -380,3 +380,48 @@ func TestHoneypotTemplateIsEditableAndReused(t *testing.T) {
 		t.Fatalf("setup reset edited policy: %+v", reused)
 	}
 }
+
+// TestTemplateEditRejectsStaleSnapshot preserves the winning policy, children,
+// version and audit when another administrator saves an older full-policy edit.
+func TestTemplateEditRejectsStaleSnapshot(t *testing.T) {
+	ctx := context.Background()
+	repository := newMigratedStore(t)
+	guild := templateGuildContext(t, repository, "guild-1", "user-1", uint64(discordgo.PermissionManageGuild))
+	service := quack.NewTemplateService(repository)
+	original, err := service.Create(ctx, guild, validTemplateInput("spam"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, stale := original.EditInput(), original.EditInput()
+	first.Name = "Updated rule"
+	first.Levels[1].Actions[0].TimeoutDurationSeconds = 7200
+	saved, err := service.Update(ctx, guild, original.ID, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale.Name = "Old edit"
+	stale.Levels = stale.Levels[:1]
+	if _, err := service.Update(ctx, guild, original.ID, stale); !errors.Is(err, quack.ErrTemplateConflict) {
+		t.Fatalf("stale edit: %v", err)
+	}
+	current, err := service.Get(ctx, guild, original.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Name != first.Name || current.Version != saved.Version || len(current.Levels) != 2 || current.Levels[1].Actions[0].TimeoutDurationSeconds != 7200 {
+		t.Fatalf("winning policy overwritten: %+v", current)
+	}
+	audits, err := repository.ListAuditLogEntries(ctx, guild.Guild.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updates := 0
+	for _, entry := range audits {
+		if entry.Action == "case_template.update" && entry.Result == model.AuditResultSuccess {
+			updates++
+		}
+	}
+	if updates != 1 {
+		t.Fatalf("success audit count = %d", updates)
+	}
+}

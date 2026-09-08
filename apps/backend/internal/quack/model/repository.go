@@ -6,6 +6,9 @@ import (
 	"time"
 )
 
+// ErrTemplateConflict rejects an edit based on an outdated policy snapshot.
+var ErrTemplateConflict = errors.New("template changed; reload it before saving")
+
 // ErrTemplateCompatibilityReviewRequired marks a preserved legacy template that cannot be represented safely by the live v5 policy contract.
 var ErrTemplateCompatibilityReviewRequired = errors.New("template compatibility review required")
 
@@ -55,6 +58,7 @@ type CreateCaseTemplateParams struct {
 // UpdateCaseTemplateParams groups the validated inputs needed for update case template params.
 type UpdateCaseTemplateParams struct {
 	GuildID, TemplateID string
+	ExpectedVersion     uint
 	Template            CaseTemplate
 	ContextFields       []CaseTemplateContextField
 	Levels              []ExpandedCaseTemplateLevel

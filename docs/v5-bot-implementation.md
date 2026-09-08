@@ -610,3 +610,12 @@ means further work is required, not completion.
   after a private acknowledgement. Persistence regression tests and the full backend
   suite pass. Level removal, broader template editing, concurrent edit protection,
   decay configuration and live policy-to-case rehearsal remain pending.
+
+- Template edits now compare the source version before replacing policy children
+  or appending a success audit. `/template level` copies one exact response snapshot
+  instead of exporting a second read, and tells managers to rerun a conflicting
+  edit. HTTP callers may supply `expected_version` and receive 409 on conflict;
+  older callers omitting it receive protection only from the service's initial
+  read onward. A persistence regression verifies stale edits preserve the winning
+  name, escalation, version and audit count. Focused and full backend suites pass.
+  Broader native template management, decay and live rehearsal remain pending.
