@@ -1356,3 +1356,29 @@ means further work is required, not completion.
   Raw results: `/tmp/quack-audit-load.log`. Run `TestAuditMirrorHistoricalLoad`
   with `QUACK_LOAD_TESTS=1` and `QUACK_TEST_MYSQL_DSN` to repeat the assessment;
   the helper creates and drops its own database and does not touch beta data.
+- `e658418` bounds native evidence content reads to one snapshot and its
+  attachments. Previous/Next traverse long-text subpages and evidence items in
+  stable oldest-first order; every navigation rechecks current staff authority.
+  SQLite/MySQL tests cover query bounds, attachment scope, old component payloads,
+  empty evidence and cross-item navigation. The full backend/MySQL run passed in
+  `/tmp/evidence-pages-full.log`; this is not yet live UI acceptance. SQL
+  count/offset work remains, and the full HTTP evidence contract is unchanged.
+- `25fd8bc` replaces repeated audit anti-joins over retained history with
+  indexed unfinished/due delivery rows. Source decisions, semantic audit events
+  and initial receipts commit together. Startup backfills missing receipts once,
+  preserving finished receipts and future retry deadlines. A ready schema with a
+  missing delivery ledger fails closed. Tests cover both SQLite and MySQL, older
+  marker upgrades, rollback, adoption preservation and bounded orphan retirement.
+  The unchanged 85,000-event assessment measured median 3.04 ms, p95 4.70 ms and
+  maximum 4.99 ms (`/tmp/audit-mirror-load-after.log`), versus 342/522/679 ms
+  before. This is an isolated local idle-poll comparison, not full bot capacity.
+  Send-before-receipt crash ambiguity remains; the queue does not claim atomic
+  delivery across Discord and SQL.
+- After updating two minimal older test fixtures to include the required delivery
+  table, focused SQLite/MySQL reversal/publication checks and the full backend
+  suite passed (`/tmp/audit-evidence-integrated-final.log`). Loaded
+  `/tmp/quack-v5-audit-queue-review` in beta pane `%1`; all readiness checks passed.
+  Before and after the live schema upgrade, SQL showed exactly 50 audit events
+  and 50 finished delivery receipts. The queue readiness marker is now true.
+  The temporary ban-rule form remains unsubmitted pending the specific approval
+  requested after automatic review rejection; no ban/rejoin outcome is claimed.

@@ -6,7 +6,11 @@ This matrix maps all 76 answers in [the product interview](v5-product-interview.
 
 ## Work in progress and acceptance gates
 
-- Current loaded beta is `/tmp/quack-v5-evidence-links-review` at `1fb6fdb`.
+- Current loaded beta is `/tmp/quack-v5-audit-queue-review` at `25fd8bc`.
+  Native evidence navigation now fetches one snapshot at a time. Audit polling
+  uses indexed due receipts; the unchanged 85,000-event local assessment improved
+  median idle polling from 342 ms to 3.04 ms. Live startup preserved all 50
+  audit events and 50 completed receipts and set the queue readiness marker.
   Full backend/MySQL tests and readiness passed. Evidence repair now preserves
   concurrent settings and retries on later uploads; accepted appeals have an
   optional Rejoin Server button; general logs retain available attachment URLs
@@ -126,7 +130,7 @@ The [implementation ledger](v5-bot-implementation.md), specifically “September
 ## Remaining concrete implementation gaps and boundaries
 
 1. **Q44 configured-link acceptance:** native case/history/evidence web buttons are committed and tested; live configuration/link inspection remains open.
-2. **Q73 / review 20 boundaries:** `quack.Services.Store` still exposes the combined repository. Case publication commands use narrow receipt-registration and action-status use cases (`3dcf02b`); case and appeal notification rendering belongs to the Discord adapter. New appeal decisions persist versioned facts including the decision-time reason and rejoin URL; legacy rows retain their saved-body fallback. Remaining native command dependencies are interaction deduplication and command-hash caching. Evidence pages still load complete evidence collections, a separate bounded-read candidate. Broader HTTP infrastructure access is not itself evidence of an authorization bypass.
+2. **Q73 / review 20 boundaries:** `quack.Services.Store` still exposes the combined repository. Case publication commands use narrow receipt-registration and action-status use cases (`3dcf02b`); case and appeal notification rendering belongs to the Discord adapter. New appeal decisions persist versioned facts including the decision-time reason and rejoin URL; legacy rows retain their saved-body fallback. Remaining native command dependencies are interaction deduplication and command-hash caching. Native evidence pages now fetch one snapshot and its attachments (`e658418`), with long-text subpages and fresh authorization; SQL count/offset work remains. Broader HTTP infrastructure access is not itself evidence of an authorization bypass.
 3. **Ticket closure feedback:** `5848e7c` acknowledges saved progress before deleting the source thread and avoids the impossible final edit. Member closure on the updated beta resolved the ticket, retained its transcript and avoided the old post-deletion interaction error. The brief progress message was not captured visually. `40533c3` subsequently passed live verification of in-place View refresh on an old private entry receipt: closed state and the transcript replaced the deleted-thread mention and obsolete controls. Receipts still require user-triggered refresh; no perpetual refresh infrastructure is added.
 
 Known limits are kept separate from new feature scope: Discord public-send/receipt-storage and evidence-upload/storage are not atomic; a crash can leave an untracked public receipt or orphan copy. Concurrent context submissions lack a durable evidence reservation. The ticket journal retains received messages admitted before final capture; delayed deleted events first delivered afterward and buffered writes lost during a database outage plus hard crash are outside its guarantee. These are documented recovery boundaries, not claims of exactly-once Discord effects.
