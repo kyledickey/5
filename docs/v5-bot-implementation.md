@@ -925,3 +925,9 @@ means further work is required, not completion.
   MySQL-enabled backend suite pass. Primary incidents interrupted before being
   marked created still require recovery; their messages deliberately remain rather
   than deleting evidence or blindly repeating moderation.
+- Integrated parallel work was built as `/tmp/quack-v5-parallel-review` and loaded
+  into the approved beta tmux pane `%1` with the existing adopted database and
+  command pruning disabled. Live `/readyz` reports all checks ready, including
+  Discord, MySQL, Redis, queue, action capabilities and current schema version 1.
+  Dashboard pane `%3` was untouched. Feature-level Discord rehearsals remain
+  incomplete; readiness is startup evidence, not proof of every user journey.
