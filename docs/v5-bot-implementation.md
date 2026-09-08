@@ -601,3 +601,12 @@ means further work is required, not completion.
   persisted policy creation and reject revoked manager authority. Focused and full
   backend suites pass. Discord escalation editing, decay configuration, full policy
   management and live template-to-case rehearsal remain pending.
+
+- Added `/template level` with active-template autocomplete and native outcome
+  choices. Administrators specify the human case number: 1 edits the default;
+  3 stores the engine's two-prior-case escalation threshold. Reusing a threshold
+  edits that level while preserving other levels, notification choices and rule
+  fields. New levels notify members by default. Current manager authority is checked
+  after a private acknowledgement. Persistence regression tests and the full backend
+  suite pass. Level removal, broader template editing, concurrent edit protection,
+  decay configuration and live policy-to-case rehearsal remain pending.

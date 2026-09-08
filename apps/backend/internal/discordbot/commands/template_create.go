@@ -18,6 +18,7 @@ func TemplateCommandSpec() CommandSpec {
 	permissions := int64(discordgo.PermissionManageGuild)
 	dm := false
 	return CommandSpec{Definition: &discordgo.ApplicationCommand{Name: "template", Description: "Create and manage moderation rules", DefaultMemberPermissions: &permissions, DMPermission: &dm, Options: []*discordgo.ApplicationCommandOption{
+		templateLevelOption(),
 		{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "create", Description: "Create a rule with a default outcome", Options: []*discordgo.ApplicationCommandOption{
 			{Type: discordgo.ApplicationCommandOptionString, Name: "outcome", Description: "Default outcome; warning if omitted", Choices: []*discordgo.ApplicationCommandOptionChoice{{Name: "Warning", Value: "warning"}, {Name: "Timeout", Value: "timeout"}, {Name: "Kick", Value: "kick"}, {Name: "Ban", Value: "ban"}}},
 			{Type: discordgo.ApplicationCommandOptionInteger, Name: "minutes", Description: "Timeout length in minutes (required for a timeout)", MinValue: floatPointer(1), MaxValue: 40320},
@@ -33,6 +34,12 @@ func floatPointer(value float64) *float64 { return &value }
 func handleTemplateCommand(ctx ui.Context) ui.HandlerResult {
 	if ctx.Interaction == nil || ctx.Interaction.Interaction == nil || ctx.Interaction.GuildID == "" {
 		return ui.Immediate(ui.Error("Create templates in your server."))
+	}
+	if ctx.Interaction.Type == discordgo.InteractionApplicationCommandAutocomplete {
+		return ui.Immediate(templatePolicyAutocomplete(ctx))
+	}
+	if level := ctx.Interaction.ApplicationCommandData().GetOption("level"); level != nil {
+		return handleTemplateLevel(ctx, level)
 	}
 	create := ctx.Interaction.ApplicationCommandData().GetOption("create")
 	if create == nil {
