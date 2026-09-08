@@ -2,6 +2,7 @@ package moduleintegration
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 
@@ -53,6 +54,13 @@ func (r *Runtime) submitHoneypotMessage(event *discordgo.MessageCreate) {
 	}
 	configuration, err := r.registry.Configuration(ctx, guildID, modules.Honeypots)
 	if err != nil || configuration == nil || !configuration.Enabled {
+		return
+	}
+	var settings honeypot.Settings
+	if err := json.Unmarshal([]byte(configuration.ConfigJSON), &settings); err != nil || settings.ChannelDiscordID != event.ChannelID {
+		return
+	}
+	if event.Author == nil || event.Author.Bot || event.WebhookID != "" {
 		return
 	}
 	channel, err := r.session.Channel(event.ChannelID)

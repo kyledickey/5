@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/modules/honeypot"
 	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/quackdiscord/bot/internal/quack/model"
@@ -231,44 +230,14 @@ func channelPermissions(guild *discordgo.Guild, channel *discordgo.Channel, memb
 	return permissions
 }
 
-// RequiredGatewayIntents derives optional Discord subscriptions from durable
-// enabled module envelopes at startup.
+// RequiredGatewayIntents keeps subscriptions stable across live module changes.
+// Message content supports evidence/transcripts as well as general logging;
+// member events support permission repair even when logging is disabled.
 func (r *Runtime) RequiredGatewayIntents(ctx context.Context) (discordgo.Intent, error) {
-	if r == nil || r.db == nil {
-		return 0, errors.New("optional module runtime is not configured")
-	}
-	intents := discordgo.IntentGuilds
-	loggingEnabled, err := r.anyModuleEnabled(ctx, modules.GeneralLogging)
-	if err != nil {
+	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
-	honeypotEnabled, err := r.anyModuleEnabled(ctx, modules.Honeypots)
-	if err != nil {
-		return 0, err
-	}
-	if loggingEnabled {
-		intents |= discordgo.IntentGuildMembers | discordgo.IntentGuildModeration | discordgo.IntentGuildMessages | discordgo.IntentMessageContent
-	}
-	if honeypotEnabled {
-		required := honeypot.RequiredIntents(true)
-		if required.Guilds {
-			intents |= discordgo.IntentGuilds
-		}
-		if required.GuildMessages {
-			intents |= discordgo.IntentGuildMessages
-		}
-		if required.MessageContent {
-			intents |= discordgo.IntentMessageContent
-		}
-	}
-	return intents, nil
-}
-
-// anyModuleEnabled checks startup intent requirements without crossing guilds.
-func (r *Runtime) anyModuleEnabled(ctx context.Context, moduleID modules.ID) (bool, error) {
-	var count int64
-	err := r.db.WithContext(ctx).Model(&modules.Configuration{}).Where("module_id = ? AND enabled = ?", moduleID, true).Count(&count).Error
-	return count > 0, err
+	return discordgo.IntentGuilds | discordgo.IntentGuildMembers | discordgo.IntentGuildModeration | discordgo.IntentGuildMessages | discordgo.IntentMessageContent, nil
 }
 
 // HandleTemplateChange forwards archive and unattended-compatibility drift to
@@ -277,7 +246,7 @@ func (r *Runtime) HandleTemplateChange(ctx context.Context, guildID, templateID 
 	if r == nil || r.HoneypotDiscord == nil {
 		return
 	}
-	if err := (honeypotTemplateValidator{repository: r.repository}).ValidateHoneypotTemplate(ctx, guildID, templateID); err != nil {
+	if err := (honeypotTemplateValidator{repository: r.repository}).ValidateHoneypotTemplate(ctx, guildID, templateID); errors.Is(err, honeypot.ErrTemplateUnavailable) {
 		_ = r.HoneypotDiscord.HandleTemplateUnavailable(ctx, guildID, templateID)
 	}
 }

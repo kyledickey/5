@@ -180,7 +180,7 @@ func TestHoneypotProjectionUsesCurrentMemberRolesAndPermissions(t *testing.T) {
 	}
 }
 
-func TestGatewayIntentsFollowEnabledModulesWithoutMessageContentLeak(t *testing.T) {
+func TestGatewayIntentsSupportLiveModuleEnablement(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:module-intents?mode=memory&cache=shared"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -190,15 +190,15 @@ func TestGatewayIntentsFollowEnabledModulesWithoutMessageContentLeak(t *testing.
 	}
 	runtime := &Runtime{db: db}
 	intents, err := runtime.RequiredGatewayIntents(context.Background())
-	if err != nil || intents != discordgo.IntentGuilds {
-		t.Fatalf("disabled modules requested optional intents: intents=%d err=%v", intents, err)
+	if err != nil || intents != discordgo.IntentGuilds|discordgo.IntentGuildMembers|discordgo.IntentGuildModeration|discordgo.IntentGuildMessages|discordgo.IntentMessageContent {
+		t.Fatalf("startup subscriptions cannot support later module enablement: intents=%d err=%v", intents, err)
 	}
 	now := time.Now().UTC()
 	if err := db.Create(&modules.Configuration{ID: "honeypot", GuildID: "guild", ModuleID: modules.Honeypots, Enabled: true, ConfigJSON: `{}`, CreatedAt: now, UpdatedAt: now}).Error; err != nil {
 		t.Fatal(err)
 	}
 	intents, err = runtime.RequiredGatewayIntents(context.Background())
-	if err != nil || intents&discordgo.IntentGuildMessages == 0 || intents&discordgo.IntentMessageContent != 0 {
+	if err != nil || intents&discordgo.IntentGuildMessages == 0 || intents&discordgo.IntentMessageContent == 0 {
 		t.Fatalf("honeypot intent boundary is wrong: intents=%d err=%v", intents, err)
 	}
 	if err := db.Create(&modules.Configuration{ID: "logging", GuildID: "guild", ModuleID: modules.GeneralLogging, Enabled: true, ConfigJSON: `{}`, CreatedAt: now, UpdatedAt: now}).Error; err != nil {

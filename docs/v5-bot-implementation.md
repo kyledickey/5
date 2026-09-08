@@ -293,3 +293,15 @@ means further work is required, not completion.
   recovery after a temporary lookup failure. Focused and full backend suites pass.
   Changes after an incident has already been claimed still require completion of
   that accepted operation. Setup/counter and live verification remain outstanding.
+
+- Gateway subscriptions are now stable for bot features rather than derived from
+  which optional modules happen to be enabled at startup. Guild/member/moderation,
+  message and message-content intents support later enablement plus evidence,
+  transcripts and permission repair. Guild configuration still gates processing.
+  Honeypot gateway handling checks the current trap channel and bot/webhook
+  exemptions before Discord REST lookups, avoiding three requests per unrelated
+  guild message. Template-change callbacks now disable only confirmed unavailable
+  templates, preserving the transient-error behavior introduced above. Tests cover
+  subscriptions before/after enablement and channel changes taking effect on the
+  next event without unrelated REST calls. Focused and full backend suites pass.
+  Actual privileged-intent availability and live gateway rehearsal remain pending.
