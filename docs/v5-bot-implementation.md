@@ -893,3 +893,10 @@ means further work is required, not completion.
   untracked public message; failed registration retains private feedback and a
   bounded interaction-token refresh fallback. Recovery manifests now preserve
   current-schema publication receipts without requiring them before legacy adoption.
+- New/recreated managed evidence channels now grant current moderator and guild
+  manager roles View Channel and Read Message History, so preserved Discord file
+  links are usable without Administrator. Default nonstaff visibility stays denied;
+  existing administrator channel permissions/name/category remain untouched per
+  interview Q34. Root independently passed evidence adapter tests after reviewing
+  creation/recreation, effective role permissions and existing-channel preservation.
+  Previously created bot-only channels retain their configured permissions.

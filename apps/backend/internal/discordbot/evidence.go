@@ -140,7 +140,6 @@ func (b *Bot) EnsureEvidenceChannel(ctx context.Context, guildID, currentChannel
 		}
 		botID = user.ID
 	}
-	overwrites := []*discordgo.PermissionOverwrite{{ID: guildID, Type: discordgo.PermissionOverwriteTypeRole, Deny: discordgo.PermissionViewChannel}, {ID: botID, Type: discordgo.PermissionOverwriteTypeMember, Allow: discordgo.PermissionViewChannel | discordgo.PermissionSendMessages | discordgo.PermissionAttachFiles | discordgo.PermissionReadMessageHistory}}
 	if currentChannelID != "" {
 		channel, err := b.Session.Channel(currentChannelID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 		if err != nil {
@@ -153,9 +152,33 @@ func (b *Bot) EnsureEvidenceChannel(ctx context.Context, guildID, currentChannel
 			return channel.ID, nil
 		}
 	}
+	// Only creation chooses access defaults. Existing channel permissions belong
+	// to administrators, including roles they add or remove after setup.
+	roles, err := b.Session.GuildRoles(guildID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+	if err != nil {
+		return "", classifyDiscordOperation("evidence_channel_roles", err, false)
+	}
+	overwrites := evidenceChannelPermissions(guildID, botID, roles)
 	created, err := b.Session.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{Name: "quack-evidence", Type: discordgo.ChannelTypeGuildText, Topic: "Saved case evidence. Keep these messages to preserve attached files.", PermissionOverwrites: overwrites}, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 	if err != nil {
 		return "", classifyDiscordOperation("evidence_channel_create", err, false)
 	}
 	return created.ID, nil
+}
+
+// evidenceChannelPermissions keeps newly created evidence private while letting
+// current moderation and guild-management roles open preserved message links.
+// These creation defaults do not grant posting or management powers to staff.
+func evidenceChannelPermissions(guildID, botID string, roles []*discordgo.Role) []*discordgo.PermissionOverwrite {
+	overwrites := []*discordgo.PermissionOverwrite{
+		{ID: guildID, Type: discordgo.PermissionOverwriteTypeRole, Deny: discordgo.PermissionViewChannel},
+		{ID: botID, Type: discordgo.PermissionOverwriteTypeMember, Allow: discordgo.PermissionViewChannel | discordgo.PermissionSendMessages | discordgo.PermissionAttachFiles | discordgo.PermissionReadMessageHistory},
+	}
+	for _, role := range roles {
+		if role == nil || role.ID == guildID || role.Permissions&(discordgo.PermissionModerateMembers|discordgo.PermissionManageGuild) == 0 {
+			continue
+		}
+		overwrites = append(overwrites, &discordgo.PermissionOverwrite{ID: role.ID, Type: discordgo.PermissionOverwriteTypeRole, Allow: discordgo.PermissionViewChannel | discordgo.PermissionReadMessageHistory})
+	}
+	return overwrites
 }
