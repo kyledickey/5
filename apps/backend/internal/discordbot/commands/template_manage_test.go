@@ -135,3 +135,24 @@ func TestNativeTemplateThresholdMatchesCreatedCase(t *testing.T) {
 		}
 	}
 }
+
+// TestNativeTemplateDecayCanBeEnabledAndDisabled exercises the native choice
+// through guarded persistence and confirms the view explains retained history.
+func TestNativeTemplateDecayCanBeEnabledAndDisabled(t *testing.T) {
+	_, services, id := newCaseCommandHarnessWithLivePermissions(t, uint64(discordgo.PermissionManageGuild))
+	for _, days := range []int{30, 0} {
+		runTemplateManagement(t, services, id, "edit", &discordgo.ApplicationCommandInteractionDataOption{Name: "decay-days", Type: discordgo.ApplicationCommandOptionInteger, Value: float64(days)})
+		template, err := services.Templates.Get(context.Background(), caseCommandGuildContext(t, services), id)
+		if err != nil || template.CaseDecayDays != days {
+			t.Fatalf("decay=%+v err=%v", template, err)
+		}
+		view := runTemplateManagement(t, services, id, "view")
+		expected := "All-time counting"
+		if days != 0 {
+			expected = "Older cases stay in history"
+		}
+		if view.edit.Content == nil || !strings.Contains(*view.edit.Content, expected) {
+			t.Fatalf("missing decay explanation: %+v", view.edit.Content)
+		}
+	}
+}

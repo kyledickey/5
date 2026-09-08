@@ -8,6 +8,8 @@ import (
 
 // TemplateInput describes an admin-owned moderation policy before validation and normalization.
 type TemplateInput struct {
+	// CaseDecayDays limits counting to recent cases; zero keeps all-time history.
+	CaseDecayDays int `json:"case_decay_days"`
 	// ExpectedVersion protects edits based on a previously read policy; zero uses the service read version.
 	ExpectedVersion uint                        `json:"expected_version,omitempty"`
 	Slug            string                      `json:"slug"`
@@ -48,6 +50,8 @@ type TemplateActionInput struct {
 
 // TemplateResponse presents the current version of a guild moderation policy, including archive state.
 type TemplateResponse struct {
+	// CaseDecayDays limits counting to recent cases; zero keeps all-time history.
+	CaseDecayDays          int                            `json:"case_decay_days"`
 	ID                     string                         `json:"id"`
 	GuildID                string                         `json:"guild_id"`
 	Slug                   string                         `json:"slug"`
@@ -75,6 +79,8 @@ type TemplateContextFieldResponse struct {
 
 // TemplatePolicy is the guild-neutral policy-only import and export shape.
 type TemplatePolicy struct {
+	// CaseDecayDays limits counting to recent cases; zero keeps all-time history.
+	CaseDecayDays  int                         `json:"case_decay_days"`
 	SchemaVersion  int                         `json:"schema_version"`
 	Slug           string                      `json:"slug"`
 	Name           string                      `json:"name"`
@@ -119,7 +125,7 @@ type TemplateActionResponse struct {
 // EditInput copies this exact policy snapshot and its version for a guarded edit.
 // Child slices are rebuilt so changing the input cannot mutate the response.
 func (template TemplateResponse) EditInput() TemplateInput {
-	input := TemplateInput{ExpectedVersion: template.Version, Slug: template.Slug, Name: template.Name, Description: template.Description, ReasonTemplate: template.ReasonTemplate, Appealable: template.Appealable}
+	input := TemplateInput{CaseDecayDays: template.CaseDecayDays, ExpectedVersion: template.Version, Slug: template.Slug, Name: template.Name, Description: template.Description, ReasonTemplate: template.ReasonTemplate, Appealable: template.Appealable}
 	for _, f := range template.ContextFields {
 		input.ContextFields = append(input.ContextFields, TemplateContextFieldInput{Key: f.Key, Label: f.Label, FieldType: f.FieldType, Position: f.Position, Required: f.Required})
 	}

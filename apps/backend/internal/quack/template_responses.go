@@ -16,6 +16,7 @@ func templateResponse(expanded model.ExpandedCaseTemplate) TemplateResponse {
 		Name:                   template.Name,
 		Description:            template.Description,
 		ReasonTemplate:         template.ReasonTemplate,
+		CaseDecayDays:          template.CaseDecayDays,
 		Appealable:             template.Appealable,
 		Version:                template.Version,
 		CreatedByDiscordUserID: template.CreatedByDiscordUserID,

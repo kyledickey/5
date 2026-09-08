@@ -535,3 +535,75 @@ func createAppTemplate(t *testing.T, ctx context.Context, store *storage.Store, 
 	}
 	return created
 }
+
+// TestCaseDecayChangesFutureCountsWithoutErasingHistory applies a rolling rule
+// window, then turns it off while preserving the earlier case's policy snapshot.
+func TestCaseDecayChangesFutureCountsWithoutErasingHistory(t *testing.T) {
+	ctx := context.Background()
+	repository := newMigratedStore(t)
+	admin := templateGuildContext(t, repository, "guild-1", "admin", uint64(discordgo.PermissionManageGuild))
+	moderator := templateGuildContext(t, repository, "guild-1", "moderator", uint64(discordgo.PermissionModerateMembers))
+	templates, cases := quack.NewTemplateService(repository), quack.NewCaseService(repository)
+	input := validTemplateInput("decay")
+	input.CaseDecayDays = 30
+	template, err := templates.Create(ctx, admin, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	create := func() *quack.CaseResponse {
+		t.Helper()
+		result, err := cases.Create(ctx, moderator, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: "target"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	first := create()
+	if err := repository.DB().Model(&model.Case{}).Where("id = ?", first.ID).Update("created_at", time.Now().UTC().Add(-31*24*time.Hour)).Error; err != nil {
+		t.Fatal(err)
+	}
+	second, third := create(), create()
+	if second.SelectedLevel.MatchedCaseCount != 1 || third.SelectedLevel.MatchedCaseCount != 2 || !third.SelectedLevel.IsDefault {
+		t.Fatalf("old case still escalated: second=%+v third=%+v", second.SelectedLevel, third.SelectedLevel)
+	}
+	var before model.Case
+	if err := repository.DB().Where("id = ?", third.ID).First(&before).Error; err != nil {
+		t.Fatal(err)
+	}
+	var snapshot struct {
+		Template struct {
+			CaseDecayDays int `json:"case_decay_days"`
+		} `json:"template"`
+	}
+	if err := json.Unmarshal([]byte(before.TemplateSnapshotJSON), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Template.CaseDecayDays != 30 {
+		t.Fatalf("decay missing from historical policy: %+v", snapshot)
+	}
+	policy, err := templates.Export(ctx, admin, template.ID)
+	if err != nil || policy.CaseDecayDays != 30 {
+		t.Fatalf("export lost decay: %+v err=%v", policy, err)
+	}
+	policy.Slug = "decay-copy"
+	imported, err := templates.Import(ctx, admin, quack.TemplateImportInput{Confirm: true, Policy: *policy})
+	if err != nil || imported.CaseDecayDays != 30 {
+		t.Fatalf("import lost decay: %+v err=%v", imported, err)
+	}
+	edit := template.EditInput()
+	edit.CaseDecayDays = 0
+	if _, err := templates.Update(ctx, admin, template.ID, edit); err != nil {
+		t.Fatal(err)
+	}
+	fourth := create()
+	if fourth.SelectedLevel.MatchedCaseCount != 4 || fourth.SelectedLevel.IsDefault {
+		t.Fatalf("all-time did not restore historical count: %+v", fourth.SelectedLevel)
+	}
+	var after model.Case
+	if err := repository.DB().Where("id = ?", third.ID).First(&after).Error; err != nil {
+		t.Fatal(err)
+	}
+	if after.TemplateSnapshotJSON != before.TemplateSnapshotJSON {
+		t.Fatal("decay edit changed an existing case")
+	}
+}

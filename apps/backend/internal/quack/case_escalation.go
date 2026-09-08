@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
-// selectTemplateLevel chooses the highest escalation whose all-time historical-case threshold is met, falling back to the default level.
+// selectTemplateLevel chooses the highest escalation whose configured case-count threshold is met, falling back to the default level.
 func (s *CaseService) selectTemplateLevel(ctx context.Context, guildID, targetDiscordUserID string, template *model.ExpandedCaseTemplate) (*selectedTemplateLevel, error) {
 	if template == nil {
 		return nil, validationCaseError("template is required")
@@ -16,7 +17,7 @@ func (s *CaseService) selectTemplateLevel(ctx context.Context, guildID, targetDi
 
 	var fallback *selectedTemplateLevel
 	var best *selectedTemplateLevel
-	matchedCaseCount, err := s.matchingTemplateCaseCount(ctx, guildID, targetDiscordUserID, template.Template.ID)
+	matchedCaseCount, err := s.matchingTemplateCaseCount(ctx, guildID, targetDiscordUserID, template.Template)
 	if err != nil {
 		return nil, err
 	}
@@ -62,10 +63,16 @@ func (s *CaseService) selectTemplateLevel(ctx context.Context, guildID, targetDi
 }
 
 // matchingTemplateCaseCount returns the relevant historical count plus the case currently being created, matching the user-facing meaning of a trigger count.
-func (s *CaseService) matchingTemplateCaseCount(ctx context.Context, guildID, targetDiscordUserID, templateID string) (int64, error) {
+func (s *CaseService) matchingTemplateCaseCount(ctx context.Context, guildID, targetDiscordUserID string, template model.CaseTemplate) (int64, error) {
+	var since *time.Time
+	if template.CaseDecayDays > 0 {
+		cutoff := time.Now().UTC().Add(-time.Duration(template.CaseDecayDays) * 24 * time.Hour)
+		since = &cutoff
+	}
 	priorCount, err := s.store.CountTemplateCasesForTarget(ctx, model.CountTemplateCasesForTargetParams{
 		GuildID:             guildID,
-		TemplateID:          templateID,
+		TemplateID:          template.ID,
+		CreatedAtOrAfter:    since,
 		TargetDiscordUserID: targetDiscordUserID,
 	})
 	if err != nil {
@@ -83,6 +90,7 @@ func buildTemplateSnapshot(template model.CaseTemplate, fields []model.CaseTempl
 			Name:           template.Name,
 			Version:        template.Version,
 			ReasonTemplate: template.ReasonTemplate,
+			CaseDecayDays:  template.CaseDecayDays,
 			Appealable:     template.Appealable,
 		},
 		SelectedLevel: CaseSelectedLevel{

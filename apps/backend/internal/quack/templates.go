@@ -11,6 +11,8 @@ import (
 )
 
 const (
+	// MaxCaseDecayDays bounds the rolling window to 100 years and keeps duration arithmetic safe.
+	MaxCaseDecayDays = 36500
 	// MaxTemplateSafeRetries bounds the only execution control exposed to guild administrators.
 	MaxTemplateSafeRetries = 10
 	// MaxTimeoutDurationSeconds is Discord's maximum 28-day member timeout.
@@ -217,7 +219,7 @@ func (s *TemplateService) Export(ctx context.Context, guildContext *GuildStaffCo
 		return nil, err
 	}
 	input := template.EditInput()
-	policy := &TemplatePolicy{SchemaVersion: 1, Slug: input.Slug, Name: input.Name, Description: input.Description, OfficialReason: input.ReasonTemplate, Appealable: input.Appealable, ContextFields: input.ContextFields, Levels: input.Levels}
+	policy := &TemplatePolicy{SchemaVersion: 1, CaseDecayDays: input.CaseDecayDays, Slug: input.Slug, Name: input.Name, Description: input.Description, OfficialReason: input.ReasonTemplate, Appealable: input.Appealable, ContextFields: input.ContextFields, Levels: input.Levels}
 	if err := s.audit(ctx, guildContext, "case_template.export", "case_template", templateID, model.AuditResultSuccess, ""); err != nil {
 		return nil, err
 	}
@@ -240,7 +242,7 @@ func (s *TemplateService) Import(ctx context.Context, guildContext *GuildStaffCo
 		_ = s.audit(ctx, guildContext, "case_template.import", "case_template", "unknown", model.AuditResultFailure, err.Error())
 		return nil, err
 	}
-	normalized, err := s.validate(ctx, guildContext, "", TemplateInput{Slug: input.Policy.Slug, Name: input.Policy.Name, Description: input.Policy.Description, ReasonTemplate: input.Policy.OfficialReason, Appealable: input.Policy.Appealable, ContextFields: input.Policy.ContextFields, Levels: input.Policy.Levels})
+	normalized, err := s.validate(ctx, guildContext, "", TemplateInput{CaseDecayDays: input.Policy.CaseDecayDays, Slug: input.Policy.Slug, Name: input.Policy.Name, Description: input.Policy.Description, ReasonTemplate: input.Policy.OfficialReason, Appealable: input.Policy.Appealable, ContextFields: input.Policy.ContextFields, Levels: input.Policy.Levels})
 	if err != nil {
 		_ = s.audit(ctx, guildContext, "case_template.import", "case_template", "unknown", model.AuditResultFailure, err.Error())
 		return nil, err

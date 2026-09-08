@@ -34,6 +34,9 @@ func (s *TemplateService) validate(ctx context.Context, guildContext *GuildStaff
 		return nil, validationError("slug already exists for this guild")
 	}
 
+	if input.CaseDecayDays < 0 || input.CaseDecayDays > MaxCaseDecayDays {
+		return nil, validationError("case_decay_days must be between 0 and 36500; 0 keeps all-time counting")
+	}
 	name := strings.TrimSpace(input.Name)
 	if name == "" {
 		return nil, validationError("name is required")
@@ -55,6 +58,7 @@ func (s *TemplateService) validate(ctx context.Context, guildContext *GuildStaff
 		Name:                   name,
 		Description:            strings.TrimSpace(input.Description),
 		ReasonTemplate:         reasonTemplate,
+		CaseDecayDays:          input.CaseDecayDays,
 		Appealable:             input.Appealable,
 		CreatedByDiscordUserID: guildContext.Staff.DiscordUserID,
 		UpdatedByDiscordUserID: guildContext.Staff.DiscordUserID,

@@ -103,6 +103,8 @@ type CreatedCase struct {
 
 // CountTemplateCasesForTargetParams groups the validated inputs needed for count template cases for target params.
 type CountTemplateCasesForTargetParams struct {
+	// CreatedAtOrAfter is an inclusive rolling-window boundary; nil counts all history.
+	CreatedAtOrAfter                         *time.Time
 	GuildID, TemplateID, TargetDiscordUserID string
 }
 

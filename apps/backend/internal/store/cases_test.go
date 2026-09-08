@@ -674,3 +674,31 @@ func caseEvent() model.CaseEvent {
 		MetadataJSON:       "{}",
 	}
 }
+
+// TestCaseCountWindowIncludesBoundary proves decay's exact inclusive boundary
+// without depending on wall-clock timing or deleting retained history.
+func TestCaseCountWindowIncludesBoundary(t *testing.T) {
+	ctx := context.Background()
+	repository, guildID := templateTestStore(t)
+	template := createCaseStorageTemplate(t, repository, guildID)
+	cutoff := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	for _, at := range []time.Time{cutoff.Add(-time.Second), cutoff, cutoff.Add(time.Second)} {
+		created, err := repository.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, &template.Template.ID), Event: caseEvent()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := repository.DB().Model(&model.Case{}).Where("id = ?", created.Case.ID).Update("created_at", at).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	params := storage.CountTemplateCasesForTargetParams{GuildID: guildID, TemplateID: template.Template.ID, TargetDiscordUserID: "target-1", CreatedAtOrAfter: &cutoff}
+	count, err := repository.CountTemplateCasesForTarget(ctx, params)
+	if err != nil || count != 2 {
+		t.Fatalf("window count=%d err=%v", count, err)
+	}
+	params.CreatedAtOrAfter = nil
+	count, err = repository.CountTemplateCasesForTarget(ctx, params)
+	if err != nil || count != 3 {
+		t.Fatalf("all-time count=%d err=%v", count, err)
+	}
+}

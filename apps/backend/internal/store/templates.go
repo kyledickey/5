@@ -155,6 +155,7 @@ func (s *Store) UpdateCaseTemplate(ctx context.Context, params UpdateCaseTemplat
 		record.Name = params.Template.Name
 		record.Description = params.Template.Description
 		record.ReasonTemplate = params.Template.ReasonTemplate
+		record.CaseDecayDays = params.Template.CaseDecayDays
 		record.Appealable = params.Template.Appealable
 		record.UpdatedByDiscordUserID = params.Template.UpdatedByDiscordUserID
 		record.Version++
@@ -163,7 +164,7 @@ func (s *Store) UpdateCaseTemplate(ctx context.Context, params UpdateCaseTemplat
 		// Claim the next version before replacing children. A concurrent writer
 		// must fail this comparison, leaving both policy and audit untouched.
 		result := tx.Model(&CaseTemplateRecord{}).Where("id = ? AND guild_id = ? AND version = ?", record.ID, params.GuildID, expected).
-			Select("slug", "name", "description", "reason_template", "appealable", "updated_by_discord_user_id", "version", "updated_at").Updates(&record)
+			Select("slug", "name", "description", "reason_template", "case_decay_days", "appealable", "updated_by_discord_user_id", "version", "updated_at").Updates(&record)
 		if result.Error != nil {
 			return fmt.Errorf("update case template: %w", result.Error)
 		}

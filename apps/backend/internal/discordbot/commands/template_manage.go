@@ -18,7 +18,7 @@ import (
 func templateManagementOptions() []*discordgo.ApplicationCommandOption {
 	specs := []struct{ name, description string }{
 		{"view", "Show a rule and its escalation outcomes"},
-		{"edit", "Change a rule's name, member reason or appeal setting"},
+		{"edit", "Change a rule's name, member reason, appeals or case decay"},
 		{"remove-level", "Remove an escalation and use the preceding outcome"},
 		{"archive", "Stop using a rule for new cases; keep its history"},
 		{"restore", "Make an archived rule available again"},
@@ -34,6 +34,7 @@ func templateManagementOptions() []*discordgo.ApplicationCommandOption {
 				&discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionString, Name: "name", Description: "Rule name", MaxLength: 100},
 				&discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionString, Name: "reason", Description: "Reason shown to the member", MaxLength: 1000},
 				&discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionBoolean, Name: "appeals", Description: "Allow members to appeal new cases under this rule"},
+				&discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionInteger, Name: "decay-days", Description: "Count cases from the last N days; 0 keeps all-time counting", MinValue: floatPointer(0), MaxValue: quack.MaxCaseDecayDays},
 			)
 		case "remove-level":
 			option.Options = append(option.Options, &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionInteger, Name: "case", Description: "Starting case number of the escalation to remove", Required: true, MinValue: floatPointer(2), MaxValue: 1000000})
@@ -96,8 +97,12 @@ func handleTemplateManage(ctx ui.Context, option *discordgo.ApplicationCommandIn
 				input.Appealable = value.BoolValue()
 				changed = true
 			}
+			if value := option.GetOption("decay-days"); value != nil {
+				input.CaseDecayDays = int(value.IntValue())
+				changed = true
+			}
 			if !changed {
-				return fail("Set a name, reason or appeals choice to change.")
+				return fail("Set a name, reason, appeals choice or decay window to change.")
 			}
 			if input.Name == "" || input.ReasonTemplate == "" {
 				return fail("The rule needs a name and a member reason.")
@@ -180,6 +185,10 @@ func templatePolicyMessage(template quack.TemplateResponse) ui.Message {
 		}
 		lines = append(lines, fmt.Sprintf("From case **%d**: %s · %s", count, outcome, dm))
 	}
-	lines = append(lines, "", "Appeals: **"+appeals+"**", "Each outcome lasts until the next level. Counts include this case and earlier, non-voided cases for this rule. Imported v4 history does not count.", "Use `/template edit` for rule text and appeals, `/template level` for outcomes and DMs, or `/template remove-level` to remove an escalation.")
+	window := "All-time counting (decay off)."
+	if template.CaseDecayDays > 0 {
+		window = fmt.Sprintf("Count cases from the last **%d days**. Older cases stay in history.", template.CaseDecayDays)
+	}
+	lines = append(lines, "", window, "Appeals: **"+appeals+"**", "Each outcome lasts until the next level. Counts include this case and earlier, non-voided cases for this rule. Imported v4 history does not count.", "Use `/template edit` for rule text, appeals and decay, `/template level` for outcomes and DMs, or `/template remove-level` to remove an escalation.")
 	return ui.Signal("settings", strings.Join(lines, "\n"), true)
 }

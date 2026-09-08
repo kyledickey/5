@@ -93,6 +93,8 @@ func TestTemplateServiceValidationFailures(t *testing.T) {
 		edit func(*quack.TemplateInput)
 	}{
 		{name: "invalid slug", edit: func(input *quack.TemplateInput) { input.Slug = "Invalid Slug" }},
+		{name: "negative decay", edit: func(input *quack.TemplateInput) { input.CaseDecayDays = -1 }},
+		{name: "excessive decay", edit: func(input *quack.TemplateInput) { input.CaseDecayDays = quack.MaxCaseDecayDays + 1 }},
 		{name: "empty reason", edit: func(input *quack.TemplateInput) { input.ReasonTemplate = "" }},
 		{name: "invalid action", edit: func(input *quack.TemplateInput) { input.Levels[1].Actions[0].ActionType = "explode_user" }},
 		{name: "record warning action", edit: func(input *quack.TemplateInput) { input.Levels[1].Actions[0].ActionType = "record_warning" }},

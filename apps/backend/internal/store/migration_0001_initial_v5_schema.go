@@ -105,6 +105,7 @@ type migration0001CaseTemplate struct {
 	Name                   string         `gorm:"size:191;not null"`
 	Description            string         `gorm:"type:text;not null"`
 	ReasonTemplate         string         `gorm:"type:text;not null"`
+	CaseDecayDays          int            `gorm:"not null;default:0"`
 	DefaultSeverity        string         `gorm:"size:32;not null;default:'medium'"`
 	Appealable             bool           `gorm:"not null;default:false"`
 	Enabled                bool           `gorm:"not null;default:true;index:idx_case_template_guild_enabled,priority:2"`

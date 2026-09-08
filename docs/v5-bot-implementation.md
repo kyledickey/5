@@ -640,3 +640,16 @@ means further work is required, not completion.
   command-to-case regression creates three real cases and proves the first two
   remain warnings and only the third escalates. Focused and full backend suites
   pass. No running bot had loaded the earlier native command implementation.
+
+- Implemented interview Q10's opt-in decay as a per-template rolling window in
+  days. Zero retains all-time counting; `/template edit decay-days` configures it
+  and `/template view` explains it. Cases older than the inclusive cutoff stop
+  contributing to the next outcome but remain in history, with past actions and
+  policy snapshots unchanged. Turning decay off restores all-time counting.
+  The field survives guarded policy edits, storage, import/export and immutable
+  case snapshots. The pre-release baseline schema includes a zero default; the
+  previously planned local reset is still required before live testing. Tests
+  cover exact cutoff inclusion, aged history and future enforcement, unchanged
+  snapshots, import/export, invalid windows and native enable/disable. Focused
+  tests and the full backend suite pass. Live Discord rehearsal and the broader
+  remaining review findings are not yet verified.

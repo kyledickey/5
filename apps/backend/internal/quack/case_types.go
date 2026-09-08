@@ -233,6 +233,7 @@ type templateSnapshot struct {
 
 // templateSnapshotTemplate preserves the rule identity and official member-facing reason at creation.
 type templateSnapshotTemplate struct {
+	CaseDecayDays  int    `json:"case_decay_days"`
 	ID             string `json:"id"`
 	Slug           string `json:"slug"`
 	Name           string `json:"name"`

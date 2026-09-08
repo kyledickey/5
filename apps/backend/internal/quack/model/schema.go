@@ -226,6 +226,7 @@ type CaseTemplate struct {
 	Name                   string
 	Description            string
 	ReasonTemplate         string
+	CaseDecayDays          int
 	Appealable             bool
 	Version                uint
 	CreatedByDiscordUserID string
