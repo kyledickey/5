@@ -18,19 +18,25 @@ var ErrAuditMirrorChannelUnavailable = errors.New("audit mirror channel unavaila
 
 // AuditMirrorMessage is the redacted transport-neutral event sent to the configured staff channel.
 type AuditMirrorMessage struct {
-	AuditEntryID       string
-	DiscordGuildID     string
-	ChannelDiscordID   string
-	OccurredAt         time.Time
-	ActorDiscordUserID string
-	Action             string
-	ResourceType       string
-	ResourceID         string
-	Result             model.AuditResult
-	FailureReason      string
-	RequestID          string
-	CorrelationID      string
-	MetadataJSON       string
+	CaseID              string
+	CaseNumber          uint64
+	TargetDiscordUserID string
+	TemplateName        string
+	ActionType          model.ActionType
+	RetryExecutionID    string
+	AuditEntryID        string
+	DiscordGuildID      string
+	ChannelDiscordID    string
+	OccurredAt          time.Time
+	ActorDiscordUserID  string
+	Action              string
+	ResourceType        string
+	ResourceID          string
+	Result              model.AuditResult
+	FailureReason       string
+	RequestID           string
+	CorrelationID       string
+	MetadataJSON        string
 }
 
 // AuditMirrorSender delivers one already-redacted important event to Discord.
@@ -41,6 +47,9 @@ type AuditMirrorSender interface {
 
 // AuditMirrorRepository supplies immutable events and the managed destination.
 type AuditMirrorRepository interface {
+	GetCaseByID(context.Context, string) (*model.Case, error)
+	GetCaseActionExecution(context.Context, string, string) (*model.CaseActionExecution, error)
+	GetAppealByID(context.Context, string) (*model.Appeal, error)
 	GetGuildSettings(context.Context, string) (*model.GuildSettings, error)
 	GetGuildByID(context.Context, string) (*model.Guild, error)
 	SaveAuditMirrorDelivery(context.Context, string, bool, time.Time) error
@@ -124,6 +133,9 @@ func (w *AuditMirrorWorker) process(ctx context.Context, entry model.AuditLogEnt
 		return w.recordDelivery(ctx, entry, false, "sender_unavailable")
 	}
 	message := AuditMirrorMessage{AuditEntryID: entry.ID, DiscordGuildID: guild.DiscordGuildID, ChannelDiscordID: settings.AuditMirrorChannelDiscordID, OccurredAt: entry.CreatedAt, ActorDiscordUserID: entry.ActorDiscordUserID, Action: entry.Action, ResourceType: entry.ResourceType, ResourceID: entry.ResourceID, Result: entry.Result, FailureReason: entry.FailureReason, RequestID: entry.RequestID, CorrelationID: entry.CorrelationID, MetadataJSON: model.RedactAuditMetadata(entry.MetadataJSON)}
+	if err := w.enrichCase(ctx, entry, &message); err != nil {
+		return w.recordDelivery(ctx, entry, false, "case_details_unavailable")
+	}
 	if err := w.sender.SendAuditMirror(ctx, message); err != nil {
 		if errors.Is(err, ErrAuditMirrorChannelUnavailable) {
 			if recordErr := w.recordDelivery(ctx, entry, false, "channel_unavailable"); recordErr != nil {

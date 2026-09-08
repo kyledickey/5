@@ -476,3 +476,13 @@ means further work is required, not completion.
   transport edit/recreation tests pass, as does the full backend suite. Queue moves
   publish to the newly validated destination; cleanup of old-channel copies,
   unknown-send manual recovery, database reset and live rehearsal remain pending.
+
+- Case, action and appeal audit mirrors now resolve guild-owned case details:
+  case number, affected member and the immutable template name. Action outcomes
+  name the actual action, system actors display as Quack, and unresolved failed
+  executions offer the existing live-authorized retry control. Completed/dismissed
+  actions and voided original punishments do not offer retry; failed reversals do.
+  Enrichment excludes evidence/context and rejects cross-guild references. Tests
+  cover snapshot names, tenant boundaries, current retry eligibility and component
+  routing; focused and full backend suites pass. Template/ticket-specific enrichment,
+  live audit rendering and destination repair behavior remain pending.
