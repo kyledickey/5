@@ -59,7 +59,15 @@ func cleanupFixture(t *testing.T) (*fixture, *cleanupApplier) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = sqlDB.Close() })
+	// A canceled SQLite statement may discard its connection. Keep one idle
+	// connection alive so cancellation cannot erase this shared in-memory DB;
+	// the other single connection still serializes all test worker queries.
+	sqlDB.SetMaxOpenConns(2)
+	keeper, err := sqlDB.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = keeper.Close(); _ = sqlDB.Close() })
 	a := &cleanupApplier{applierFake: f.applier, attempts: map[string]int{}}
 	f.service = honeypot.NewService(f.registry, honeypot.NewStore(f.db), f.audit, f.validator, f.validator, a)
 	enable(t, f, "guild-a")
@@ -200,11 +208,11 @@ func TestCleanupRecoversAfterFailureAndRestart(t *testing.T) {
 	}
 }
 
-// TestCleanupNeverSchedulesExemptMessages protects moderators, bots and webhooks
+// TestCleanupNeverSchedulesExemptMessages protects moderators, Quack and webhooks
 // even when an ordinary member's incident is simultaneously eligible for cleanup.
 func TestCleanupNeverSchedulesExemptMessages(t *testing.T) {
 	f, a := cleanupFixture(t)
-	for i, exempt := range []func(*honeypot.Message){func(m *honeypot.Message) { m.AuthorCanModerate = true }, func(m *honeypot.Message) { m.IsBot = true }, func(m *honeypot.Message) { m.IsWebhook = true }, func(m *honeypot.Message) { m.IsQuack = true }} {
+	for i, exempt := range []func(*honeypot.Message){func(m *honeypot.Message) { m.AuthorCanModerate = true }, func(m *honeypot.Message) { m.IsBot = true; m.AuthorCanModerate = true }, func(m *honeypot.Message) { m.IsWebhook = true }, func(m *honeypot.Message) { m.IsQuack = true }} {
 		event := message(fmt.Sprintf("exempt-%d", i))
 		exempt(&event)
 		if _, err := f.service.HandleMessage(context.Background(), event); !errors.Is(err, honeypot.ErrExempt) {

@@ -47,7 +47,7 @@ func (s *Store) Claim(ctx context.Context, message Message, templateID string, o
 	if s == nil || s.db == nil {
 		return nil, false, errors.New("honeypot database is not connected")
 	}
-	now := time.Now().UTC()
+	now := time.Now().UTC().Truncate(time.Millisecond)
 	record := Trigger{ID: ulid.Make().String(), GuildID: message.GuildID, ChannelDiscordID: message.ChannelDiscordID, MessageDiscordID: message.MessageDiscordID, TargetDiscordUserID: message.AuthorDiscordUserID, TemplateID: templateID, Outcome: outcome, CreatedAt: now, UpdatedAt: now}
 	result := s.db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&record)
 	if result.Error != nil {
@@ -147,7 +147,7 @@ func (s *Store) ClaimIncident(ctx context.Context, message Message, templateID s
 			return nil
 		}
 		var recent Trigger
-		result := tx.Where("guild_id = ? AND target_discord_user_id = ? AND channel_discord_id = ? AND created_at > ? AND outcome IN ?", message.GuildID, message.AuthorDiscordUserID, message.ChannelDiscordID, time.Now().UTC().Add(-30*time.Second), []Outcome{OutcomePending, OutcomeCreated}).Order("created_at DESC").Limit(1).Find(&recent)
+		result := tx.Where("guild_id = ? AND target_discord_user_id = ? AND channel_discord_id = ? AND (outcome = ? OR (outcome = ? AND created_at > ?))", message.GuildID, message.AuthorDiscordUserID, message.ChannelDiscordID, OutcomePending, OutcomeCreated, time.Now().UTC().Add(-30*time.Second)).Order("created_at DESC").Limit(1).Find(&recent)
 		if result.Error != nil {
 			return result.Error
 		}

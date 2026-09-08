@@ -139,7 +139,7 @@ func (s *GuildService) PreflightCase(ctx context.Context, guildContext *GuildSta
 
 // PreflightSystemCase refreshes the guild, bot, and target immediately before
 // honeypot persistence. It deliberately omits staff authority while preserving
-// every target-safety and bot-capability check required by the normal path.
+// Quack self-protection, live staff exemptions, hierarchy and bot capability.
 func (s *GuildService) PreflightSystemCase(ctx context.Context, guildContext *GuildStaffContext, targetDiscordUserID string, actionType model.ActionType) error {
 	ctx = ensureTraceContext(ctx)
 	if s == nil || s.store == nil || s.discord == nil || guildContext == nil || guildContext.Guild == nil {
@@ -165,11 +165,16 @@ func (s *GuildService) PreflightSystemCase(ctx context.Context, guildContext *Gu
 		return caseDenial(actionType, authorizationReasonTargetRequired)
 	}
 	target := *snapshot.Target
-	if target.Bot || target.DiscordUserID == snapshot.Bot.DiscordUserID {
+	if target.DiscordUserID == snapshot.Bot.DiscordUserID {
 		return caseDenial(actionType, authorizationReasonBotTarget)
 	}
 	if target.DiscordUserID == snapshot.Guild.OwnerID {
 		return caseDenial(actionType, authorizationReasonOwnerTarget)
+	}
+	// Honeypots apply to ordinary members, including third-party bots. Current
+	// moderation authority exempts humans and bots alike, even after queue delay.
+	if hasDiscordPermission(target.PermissionBits, permissionModerateMembers) {
+		return caseDenial(actionType, "honeypot_staff_exempt")
 	}
 	if target.TopRolePosition >= snapshot.Bot.TopRolePosition {
 		return caseDenial(actionType, authorizationReasonBotHierarchy)

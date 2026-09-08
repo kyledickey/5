@@ -101,7 +101,7 @@ func (r *Runtime) SetupHoneypot(ctx ui.Context) ui.HandlerResult {
 		if _, _, err = r.Honeypot.UpdateSettings(taskCtx, actor, true, settings); err != nil {
 			return fail("The warning is posted, but the honeypot could not be enabled. Check the channel and template, then run setup again.")
 		}
-		_, err = responder.EditOriginal(ui.EditMessage(ui.Signal("settings", fmt.Sprintf("Honeypot ready in <#%s>. You can rename the channel and edit the selected template's punishment. Moderators and bots are exempt.", channel.ID), true)))
+		_, err = responder.EditOriginal(ui.EditMessage(ui.Signal("settings", fmt.Sprintf("Honeypot ready in <#%s>. You can rename the channel and edit the selected template's punishment. Moderators, administrators, and Quack are exempt.", channel.ID), true)))
 		return err
 	})
 }

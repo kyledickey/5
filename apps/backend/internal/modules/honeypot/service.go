@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/quackdiscord/bot/internal/modules"
 )
@@ -108,6 +109,11 @@ func (s *Service) HandleMessage(ctx context.Context, message Message) (ApplyResu
 	if !created {
 		return ApplyResult{}, ErrDuplicate
 	}
+	// End primary work before its persisted lease becomes recoverable. A canceled
+	// completion deliberately remains pending for query-first recovery.
+	attemptCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	ctx = attemptCtx
 	s.audit(ctx, message.GuildID, "", "honeypot.trigger.detected", "honeypot_trigger", "success", nil, trigger.ID)
 	if s.templates == nil {
 		err = errors.New("honeypot template validator is not configured")
@@ -115,7 +121,7 @@ func (s *Service) HandleMessage(ctx context.Context, message Message) (ApplyResu
 		err = s.templates.ValidateHoneypotTemplate(ctx, message.GuildID, settings.TemplateID)
 	}
 	if err != nil {
-		_ = s.store.Complete(ctx, trigger.ID, OutcomeFailed, "", "template_unavailable")
+		_ = s.store.completeIncident(ctx, trigger, OutcomeFailed, "", "template_unavailable")
 		if errors.Is(err, ErrTemplateUnavailable) {
 			_ = s.disableForDrift(ctx, message.GuildID, settings, "selected template is archived, missing, or incompatible")
 		}
@@ -130,17 +136,17 @@ func (s *Service) HandleMessage(ctx context.Context, message Message) (ApplyResu
 	}
 	result, err := s.applier.ApplyHoneypotCase(ctx, request)
 	if err != nil {
-		_ = s.store.Complete(ctx, trigger.ID, OutcomeFailed, "", "case_application_failed")
+		_ = s.store.completeIncident(ctx, trigger, OutcomeFailed, "", "case_application_failed")
 		s.audit(ctx, message.GuildID, "", "honeypot.trigger.failed", "honeypot_trigger", "failure", err, trigger.ID)
 		return ApplyResult{}, err
 	}
 	if strings.TrimSpace(result.CaseID) == "" {
 		err = errors.New("normal case path returned no case id")
-		_ = s.store.Complete(ctx, trigger.ID, OutcomeFailed, "", "invalid_case_result")
+		_ = s.store.completeIncident(ctx, trigger, OutcomeFailed, "", "invalid_case_result")
 		s.audit(ctx, message.GuildID, "", "honeypot.trigger.failed", "honeypot_trigger", "failure", err, trigger.ID)
 		return ApplyResult{}, err
 	}
-	if err := s.store.Complete(ctx, trigger.ID, OutcomeCreated, result.CaseID, ""); err != nil {
+	if err := s.store.completeIncident(ctx, trigger, OutcomeCreated, result.CaseID, ""); err != nil {
 		return ApplyResult{}, err
 	}
 	s.audit(ctx, message.GuildID, "", "honeypot.case.created", "case", "success", nil, result.CaseID)
@@ -257,5 +263,5 @@ func normalizeMessage(message Message) Message {
 
 // isExempt keeps trap bypasses aligned with live moderation authority.
 func isExempt(message Message) bool {
-	return message.IsBot || message.IsQuack || message.IsWebhook || message.AuthorCanModerate
+	return message.IsQuack || message.IsWebhook || message.AuthorCanModerate
 }

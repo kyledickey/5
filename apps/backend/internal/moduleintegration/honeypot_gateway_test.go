@@ -50,14 +50,21 @@ func TestHoneypotFiltersBeforeDiscordLookup(t *testing.T) {
 	event.ChannelID = "trap"
 	event.Author.Bot = true
 	runtime.submitHoneypotMessage(event)
-	if reads != 0 {
-		t.Fatalf("unrelated traffic made %d REST calls", reads)
+	if reads != 1 {
+		t.Fatalf("ordinary bot must reach live permission lookup: %d reads", reads)
 	}
+	session.State.User = &discordgo.User{ID: "quack", Bot: true}
+	event.Author.ID = "quack"
+	runtime.submitHoneypotMessage(event)
+	if reads != 1 {
+		t.Fatal("Quack message reached trigger lookup")
+	}
+	event.Author.ID = "member"
 	event.Author.Bot = false
 	event.ChannelID = "ordinary"
 	configure(`{"channel_discord_id":"ordinary","template_id":"template"}`)
 	runtime.submitHoneypotMessage(event)
-	if reads != 1 {
+	if reads != 2 {
 		t.Fatalf("new trap configuration not observed: %d reads", reads)
 	}
 }

@@ -42,12 +42,21 @@ func TestSystemHoneypotCaseUsesNormalPathWithoutFabricatedStaff(t *testing.T) {
 		TemplateID: template.Template.ID, TargetDiscordUserID: "target",
 		Source: model.CaseSourceHoneypot, ContextChannelDiscordID: "222222222222222222",
 		ContextMessageDiscordID: "333333333333333333", ContextURL: link,
-		IdempotencyKey: "honeypot:111111111111111111:333333333333333333",
+		IdempotencyKey: "honeypot:" + guild.ID + ":333333333333333333",
 	}
 	created, err := services.Cases.CreateSystemHoneypot(ctx, guild.ID, input)
 	if err != nil {
 		t.Fatalf("create system honeypot case: %v", err)
 	}
+	// A process may lose its module receipt after this transaction commits.
+	// Read-only reconciliation must find it without fresh permission or effects.
+	priorBits := snapshot.Bot.PermissionBits
+	snapshot.Bot.PermissionBits = 0
+	recovered, lookupErr := services.Cases.FindSystemHoneypot(ctx, guild.ID, input)
+	if lookupErr != nil || recovered == nil || recovered.ID != created.ID {
+		t.Fatalf("saved incident recovery: %+v %v", recovered, lookupErr)
+	}
+	snapshot.Bot.PermissionBits = priorBits
 	replayed, err := services.Cases.CreateSystemHoneypot(ctx, guild.ID, input)
 	if err != nil || replayed.ID != created.ID {
 		t.Fatalf("idempotent replay changed result: got=%+v err=%v", replayed, err)
@@ -77,7 +86,7 @@ func TestSystemHoneypotCaseUsesNormalPathWithoutFabricatedStaff(t *testing.T) {
 
 	snapshot.Bot.PermissionBits = 0
 	input.ContextMessageDiscordID = "444444444444444444"
-	input.IdempotencyKey = "honeypot:111111111111111111:444444444444444444"
+	input.IdempotencyKey = "honeypot:" + guild.ID + ":444444444444444444"
 	input.ContextURL = ""
 	if _, err := services.Cases.CreateSystemHoneypot(ctx, guild.ID, input); !errors.Is(err, quack.ErrAuthorizationDenied) {
 		t.Fatalf("unsafe bot capability accepted: %v", err)

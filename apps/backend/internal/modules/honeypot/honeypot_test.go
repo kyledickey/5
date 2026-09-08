@@ -163,7 +163,7 @@ func TestTriggerExemptionsAndLoopPrevention(t *testing.T) {
 		mutate func(*honeypot.Message)
 	}{
 		{"quack", func(message *honeypot.Message) { message.IsQuack = true }},
-		{"bot", func(message *honeypot.Message) { message.IsBot = true }},
+		{"moderator bot", func(message *honeypot.Message) { message.IsBot = true; message.AuthorCanModerate = true }},
 		{"webhook", func(message *honeypot.Message) { message.IsWebhook = true }},
 		{"staff", func(message *honeypot.Message) { message.AuthorCanModerate = true }},
 	}
@@ -586,5 +586,16 @@ func TestWarningReplacementPreservesCurrentConfiguration(t *testing.T) {
 	}
 	if err := fixture.service.RecordWarningReplacement(ctx, actor.GuildID, saved, "stale"); err == nil {
 		t.Fatal("concurrent warning text overwritten")
+	}
+}
+
+// TestOrdinaryBotTriggersHoneypot preserves the legacy everyone-except-staff rule.
+func TestOrdinaryBotTriggersHoneypot(t *testing.T) {
+	f := setup(t)
+	enable(t, f, "guild-a")
+	event := message("ordinary-bot")
+	event.IsBot = true
+	if result, err := f.service.HandleMessage(context.Background(), event); err != nil || result.CaseID == "" || f.applier.count() != 1 {
+		t.Fatal("ordinary bot bypassed honeypot", result, err)
 	}
 }

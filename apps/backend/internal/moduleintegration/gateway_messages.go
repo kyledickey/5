@@ -60,7 +60,7 @@ func (r *Runtime) submitHoneypotMessage(event *discordgo.MessageCreate) {
 	if err := json.Unmarshal([]byte(configuration.ConfigJSON), &settings); err != nil || settings.ChannelDiscordID != event.ChannelID {
 		return
 	}
-	if event.Author == nil || event.Author.Bot || event.WebhookID != "" {
+	if event.Author == nil || event.Author.ID == currentBotID(r.session) || event.WebhookID != "" {
 		return
 	}
 	channel, err := r.session.Channel(event.ChannelID)

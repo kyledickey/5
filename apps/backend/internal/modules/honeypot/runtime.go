@@ -105,6 +105,7 @@ func NewRuntime(ctx context.Context, adapter *DiscordAdapter, capacity, workers 
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		for {
+			runtime.recover(cleanupCtx)
 			runtime.clean(cleanupCtx, 8)
 			select {
 			case <-cleanupCtx.Done():
@@ -189,5 +190,29 @@ func (r *Runtime) clean(ctx context.Context, limit int) {
 	}
 	if err := r.adapter.service.ProcessCleanups(ctx, limit); err != nil && ctx.Err() == nil {
 		slog.WarnContext(ctx, "Honeypot message cleanup will retry", "error_type", fmt.Sprintf("%T", err))
+	}
+}
+
+// recover reconciles a bounded batch before cleanup polling so newly recovered
+// case receipts release their source messages for deletion on the same tick.
+func (r *Runtime) recover(ctx context.Context) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			slog.ErrorContext(ctx, "Honeypot recovery worker panicked; lease will recover", "panic_type", fmt.Sprintf("%T", recovered))
+		}
+	}()
+	if r.adapter == nil || r.adapter.service == nil || ctx.Err() != nil {
+		return
+	}
+	guilds, err := r.adapter.service.RecoverPending(ctx, 2)
+	if err != nil && ctx.Err() == nil {
+		slog.WarnContext(ctx, "Honeypot incident recovery will retry", "error_type", fmt.Sprintf("%T", err))
+	}
+	if r.observer != nil {
+		for _, guildID := range guilds {
+			if err := r.observer.IncidentCreated(ctx, guildID); err != nil {
+				slog.WarnContext(ctx, "Honeypot recovered counter update failed", "guild_id", guildID)
+			}
+		}
 	}
 }
