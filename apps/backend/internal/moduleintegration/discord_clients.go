@@ -205,3 +205,5 @@ func (c ticketDiscordClient) SendTicketWelcome(ctx context.Context, ticket *tick
 func (c ticketDiscordClient) JoinTicketThread(ctx context.Context, channelID, userID string) error {
 	return c.session.ThreadMemberAdd(channelID, userID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 }
+
+var _ tickets.DiscordClient = ticketDiscordClient{}

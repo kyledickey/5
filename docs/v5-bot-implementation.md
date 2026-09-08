@@ -399,3 +399,12 @@ means further work is required, not completion.
   Tests cover moderation attribution, metadata omission and actual gateway channel
   operation values. Focused and full backend suites pass. Long-content delivery,
   remaining legacy event coverage and live visual review remain pending.
+
+- Verified long general logs through the actual multipart Discord transport: full
+  rendered content is retained in the existing text-attachment fallback. Logging
+  now requires fresh View Channel, Send Messages and Attach Files permissions and
+  shares the current moderator-only channel validator used elsewhere. Removed the
+  obsolete module-local ACL checker and its cached-permission path. Transport tests
+  cover retained tail content and refusal before send when attachment permission
+  is missing. Focused and full backend suites pass. Live message rendering/delivery
+  and remaining legacy event coverage are still pending.

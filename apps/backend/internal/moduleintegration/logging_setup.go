@@ -41,7 +41,7 @@ func (r *Runtime) SetupLogging(ctx ui.Context) ui.HandlerResult {
 			return err
 		}
 		if _, err := r.Logging.UpdateSettings(taskCtx, actor, true, settings.RouteAllTo(channelID)); err != nil {
-			_, err = responder.EditOriginal(ui.ErrorEdit("Could not enable logging. Choose a private staff text channel where Quack can view and send messages."))
+			_, err = responder.EditOriginal(ui.ErrorEdit("Could not enable logging. Choose a private staff text channel where Quack can View Channel, Send Messages and Attach Files."))
 			return err
 		}
 		_, err = responder.EditOriginal(ui.EditMessage(ui.Signal("settings", fmt.Sprintf("Discord event logs will go to <#%s>. Message edits and deletions will include available content and attachment details.", channelID), true)))

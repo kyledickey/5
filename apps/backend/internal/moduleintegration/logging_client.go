@@ -5,12 +5,14 @@ import (
 	"errors"
 
 	"github.com/bwmarrin/discordgo"
+	discordadapter "github.com/quackdiscord/bot/internal/discordbot"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/discordbot/ui/views"
+	"github.com/quackdiscord/bot/internal/modules/generallogging"
 )
 
 // loggingDiscordClient sends already-redacted payloads only to channels whose
-// everyone role is denied visibility.
+// current guild moderators can read.
 type loggingDiscordClient struct {
 	session  *discordgo.Session
 	resolver guildResolver
@@ -25,7 +27,8 @@ func (c loggingDiscordClient) SendStaffLog(ctx context.Context, guildID, channel
 	return err
 }
 
-// ValidateStaffOnlyChannel rejects missing, cross-guild, or publicly visible destinations.
+// ValidateStaffOnlyChannel checks fresh privacy and delivery permissions, including
+// attachment access needed to preserve log content beyond Discord message limits.
 func (c loggingDiscordClient) ValidateStaffOnlyChannel(ctx context.Context, guildID, channelID string) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -34,61 +37,26 @@ func (c loggingDiscordClient) ValidateStaffOnlyChannel(ctx context.Context, guil
 	if err != nil {
 		return err
 	}
+	if err := (&discordadapter.Bot{Session: c.session}).ValidateStaffChannel(ctx, discordGuildID, channelID); err != nil {
+		return err
+	}
 	channel, err := c.session.Channel(channelID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 	if err != nil {
 		return err
 	}
-	if channel.GuildID != discordGuildID {
-		return errors.New("logging destination belongs to another guild")
+	if channel == nil || channel.GuildID != discordGuildID || channel.Type != discordgo.ChannelTypeGuildText {
+		return errors.New("logging destination must be a text channel in this guild")
 	}
-	return c.validateLoggingACL(channel)
-}
-
-// validateLoggingACL permits visibility only through current staff-capable
-// roles (plus the bot itself) and requires the bot to send successfully.
-func (c loggingDiscordClient) validateLoggingACL(channel *discordgo.Channel) error {
-	if err := validateStaffOnlyACL(channel, channel.GuildID, nil); err != nil {
-		return err
-	}
-	roles, err := c.session.GuildRoles(channel.GuildID)
+	guild, member, err := currentBotMember(ctx, c.session, discordGuildID)
 	if err != nil {
 		return err
 	}
-	staffRoles := make(map[string]bool, len(roles))
-	for _, role := range roles {
-		if role == nil {
-			continue
-		}
-		staffRoles[role.ID] = role.Permissions&(discordgo.PermissionAdministrator|discordgo.PermissionManageServer|discordgo.PermissionModerateMembers) != 0
-	}
-	botID := ""
-	if c.session.State != nil && c.session.State.User != nil {
-		botID = c.session.State.User.ID
-	}
-	for _, overwrite := range channel.PermissionOverwrites {
-		if overwrite.Allow&discordgo.PermissionViewChannel == 0 {
-			continue
-		}
-		switch overwrite.Type {
-		case discordgo.PermissionOverwriteTypeRole:
-			if overwrite.ID != channel.GuildID && !staffRoles[overwrite.ID] {
-				return errors.New("logging destination grants a non-staff role visibility")
-			}
-		case discordgo.PermissionOverwriteTypeMember:
-			if overwrite.ID != botID {
-				return errors.New("logging destination grants a non-bot member visibility")
-			}
-		}
-	}
-	if botID == "" {
-		return errors.New("Discord bot identity is unavailable")
-	}
-	permissions, err := c.session.UserChannelPermissions(botID, channel.ID)
-	if err != nil {
-		return err
-	}
-	if permissions&discordgo.PermissionViewChannel == 0 || permissions&discordgo.PermissionSendMessages == 0 {
-		return errors.New("Discord bot cannot deliver to logging destination")
+	permissions := channelPermissions(guild, channel, member)
+	required := int64(discordgo.PermissionViewChannel | discordgo.PermissionSendMessages | discordgo.PermissionAttachFiles)
+	if permissions&required != required {
+		return errors.New("Quack needs View Channel, Send Messages and Attach Files in the logging channel")
 	}
 	return nil
 }
+
+var _ generallogging.DeliveryClient = loggingDiscordClient{}
