@@ -550,3 +550,11 @@ means further work is required, not completion.
   and does not expose another member's ticket. Ownership/isolation and presentation
   tests pass along with the full backend suite. Live recovery UX, direct close
   error feedback and remaining lifecycle simplification are still pending.
+
+- Failed ticket closes now return private, stage-aware recovery feedback with a
+  Retry close control for already-authorized callers. Copy distinguishes capture/
+  close failure, captured transcript awaiting staff-queue delivery, and a saved
+  transcript awaiting final cleanup. The adapter retains the authorized record on
+  pre-persistence transport failures; missing or denied tickets expose no recovery
+  controls. Focused presentation and closure tests plus the full backend suite pass.
+  Live ticket recovery rehearsal and remaining legacy lifecycle cleanup are pending.

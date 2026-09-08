@@ -152,9 +152,9 @@ func (r *Runtime) closeTicketComponent(ctx ui.Context) ui.HandlerResult {
 		return ui.Immediate(ui.Error("That ticket is unavailable."))
 	}
 	return r.ticketTask(ctx, func(taskCtx context.Context, responder ui.Responder, actor tickets.Actor) error {
-		if _, err := r.TicketDiscord.Close(taskCtx, actor, ticketID); err != nil {
-			_, _ = responder.EditOriginal(ui.ErrorEdit(ticketErrorMessage(err)))
-			return nil
+		if ticket, err := r.TicketDiscord.Close(taskCtx, actor, ticketID); err != nil {
+			_, editErr := responder.EditOriginal(ui.EditMessage(ticketCloseFailureMessage(ticket, err)))
+			return editErr
 		}
 		_, err := responder.EditOriginal(ui.EditMessage(ui.Signal("lock", "Ticket closed. The transcript has been saved.", true)))
 		return err

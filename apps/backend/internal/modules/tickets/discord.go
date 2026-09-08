@@ -111,15 +111,15 @@ func (a *DiscordAdapter) Close(ctx context.Context, actor Actor, ticketID string
 	resolved := ticket
 	if ticket.Status == StatusOpen {
 		if err := a.client.FreezeTicketChannel(ctx, ticket.ThreadDiscordChannelID); err != nil {
-			return nil, err
+			return ticket, err
 		}
 		transcript, err := a.client.CaptureTicketTranscript(ctx, ticket.ThreadDiscordChannelID)
 		if err != nil {
-			return nil, err
+			return ticket, err
 		}
 		resolved, err = a.service.Resolve(ctx, actor, ticketID, transcript)
 		if err != nil {
-			return nil, err
+			return ticket, err
 		}
 	} else if ticket.Status != StatusResolved {
 		return nil, ErrInvalidTransition

@@ -30,3 +30,23 @@ func TestExistingTicketFeedbackProvidesRecovery(t *testing.T) {
 		t.Fatalf("invalid recovery control: %+v %v", id, err)
 	}
 }
+
+// TestCloseFailureFeedbackDistinguishesConfirmedProgress avoids claiming an
+// upload succeeded before its receipt, while withholding controls on denied access.
+func TestCloseFailureFeedbackDistinguishesConfirmedProgress(t *testing.T) {
+	for _, scenario := range []struct {
+		ticket  *tickets.Ticket
+		want    string
+		buttons int
+	}{
+		{nil, "permission", 0},
+		{&tickets.Ticket{ID: "ticket", Status: tickets.StatusOpen}, "could not finish closing", 1},
+		{&tickets.Ticket{ID: "ticket", Status: tickets.StatusResolved}, "thread has been kept", 1},
+		{&tickets.Ticket{ID: "ticket", Status: tickets.StatusResolved, TranscriptURL: "saved"}, "cleanup did not finish", 1},
+	} {
+		message := ticketCloseFailureMessage(scenario.ticket, tickets.ErrPermissionDenied)
+		if !strings.Contains(message.Content, scenario.want) || len(message.Components) != scenario.buttons {
+			t.Fatalf("incorrect progress message: %+v", message)
+		}
+	}
+}
