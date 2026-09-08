@@ -50,17 +50,15 @@ var (
 
 // Settings fixes the module's Discord, privacy, retention, and abuse-control policy for one guild.
 type Settings struct {
-	QueueChannelDiscordID string   `json:"queue_channel_discord_id"`
-	EntryChannelDiscordID string   `json:"entry_channel_discord_id"`
-	StaffRoleDiscordIDs   []string `json:"staff_role_discord_ids"`
-	// UsePrivateThreads creates tickets under the entry channel when enabled.
-	UsePrivateThreads       bool `json:"use_private_threads"`
-	TranscriptRetentionDays int  `json:"transcript_retention_days"`
+	QueueChannelDiscordID   string   `json:"queue_channel_discord_id"`
+	EntryChannelDiscordID   string   `json:"entry_channel_discord_id"`
+	StaffRoleDiscordIDs     []string `json:"staff_role_discord_ids"`
+	TranscriptRetentionDays int      `json:"transcript_retention_days"`
 }
 
 // Defaults returns privacy-preserving settings for a newly enabled guild.
 func Defaults() Settings {
-	return Settings{UsePrivateThreads: true, TranscriptRetentionDays: 90}
+	return Settings{TranscriptRetentionDays: 90}
 }
 
 // Actor is the transport-neutral identity and current Discord authority for a ticket operation.

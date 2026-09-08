@@ -128,7 +128,7 @@ func TestAppealStaffDestinationRevalidatesPrivacy(t *testing.T) {
 	}
 }
 
-func TestTicketCreationHonorsPrivateThreadSetting(t *testing.T) {
+func TestTicketCreationAlwaysUsesPrivateThread(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:ticket-thread-setting?mode=memory&cache=shared"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -144,7 +144,7 @@ func TestTicketCreationHonorsPrivateThreadSetting(t *testing.T) {
 		t.Fatal(err)
 	}
 	session.State.User = &discordgo.User{ID: "bot"}
-	for _, useThreads := range []bool{true, false} {
+	{
 		created := false
 		session.Client = &http.Client{Transport: ticketRoundTripper(func(request *http.Request) (*http.Response, error) {
 			body := `{"id":"entry","guild_id":"guild","parent_id":"category"}`
@@ -157,19 +157,15 @@ func TestTicketCreationHonorsPrivateThreadSetting(t *testing.T) {
 				if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
 					t.Fatal(err)
 				}
-				if useThreads {
-					if !strings.HasSuffix(request.URL.Path, "/channels/entry/threads") || payload.Type != discordgo.ChannelTypeGuildPrivateThread || payload.Invitable {
-						t.Fatalf("unexpected thread creation: %s %+v", request.URL.Path, payload)
-					}
-				} else if !strings.HasSuffix(request.URL.Path, "/guilds/guild/channels") || payload.Type != discordgo.ChannelTypeGuildText {
-					t.Fatalf("unexpected text creation: %s %+v", request.URL.Path, payload)
+				if !strings.HasSuffix(request.URL.Path, "/channels/entry/threads") || payload.Type != discordgo.ChannelTypeGuildPrivateThread || payload.Invitable {
+					t.Fatalf("unexpected thread creation: %s %+v", request.URL.Path, payload)
 				}
 				body = `{"id":"ticket"}`
 			}
 			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
 		})}
 		client := ticketDiscordClient{session: session, resolver: guildResolver{db: db}}
-		id, err := client.CreatePrivateTicketChannel(context.Background(), "internal-guild", "owner", tickets.Settings{EntryChannelDiscordID: "entry", UsePrivateThreads: useThreads})
+		id, err := client.CreatePrivateTicketChannel(context.Background(), "internal-guild", "owner", tickets.Settings{EntryChannelDiscordID: "entry"})
 		if err != nil || id != "ticket" || !created {
 			t.Fatalf("ticket creation: %s %v", id, err)
 		}
@@ -206,5 +202,42 @@ func TestAppealQueueConfigurationTakesEffectWithoutRestart(t *testing.T) {
 		if err != nil || got != want {
 			t.Fatalf("queue %q: got %q %v", want, got, err)
 		}
+	}
+}
+
+// TestTicketWelcomeMentionsOnlyOwner keeps the initial conversation immediately
+// usable while preventing role or everyone mentions from the bot's greeting.
+func TestTicketWelcomeMentionsOnlyOwner(t *testing.T) {
+	session, err := discordgo.New("Bot test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sent := false
+	session.Client = &http.Client{Transport: ticketRoundTripper(func(r *http.Request) (*http.Response, error) {
+		sent = true
+		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/channels/thread/messages") {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		var payload struct {
+			Content         string                           `json:"content"`
+			AllowedMentions discordgo.MessageAllowedMentions `json:"allowed_mentions"`
+			Components      []json.RawMessage                `json:"components"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(payload.Content, "<@owner>") || !strings.Contains(payload.Content, "Feel free to tell us what's up") || len(payload.Components) != 1 {
+			t.Fatalf("missing greeting or controls: %+v", payload)
+		}
+		if len(payload.AllowedMentions.Parse) != 0 || len(payload.AllowedMentions.Users) != 1 || payload.AllowedMentions.Users[0] != "owner" {
+			t.Fatalf("unsafe greeting mentions: %+v", payload.AllowedMentions)
+		}
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"id":"welcome"}`))}, nil
+	})}
+	if err := (ticketDiscordClient{session: session}).SendTicketWelcome(context.Background(), &tickets.Ticket{ID: "ticket", OwnerDiscordUserID: "owner", ThreadDiscordChannelID: "thread"}); err != nil {
+		t.Fatal(err)
+	}
+	if !sent {
+		t.Fatal("no welcome message")
 	}
 }

@@ -213,3 +213,13 @@ means further work is required, not completion.
   explicitly seeds the older schema before the new queue-channel column exists.
   Thread-only setup, recovery controls, closure-state/HTTP consolidation and live
   Discord verification remain pending; this code has not replaced the running bot.
+
+- New tickets always use private, non-invitable threads; the alternate private
+  text-channel setting and creation branch were removed. Entry channels must be
+  text channels in the current guild. The opening message mentions only the owner,
+  invites them to type normally while waiting for a moderator, and includes the
+  ticket controls. A greeting failure does not suppress the staff queue send or
+  hide the saved thread. Transport tests verify the actual thread type and welcome
+  payload, including restricted mentions. Focused tests and the full backend suite
+  pass. Custom staff-role configuration, setup/panel delivery and live verification
+  remain outstanding.

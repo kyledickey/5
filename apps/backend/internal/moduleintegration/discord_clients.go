@@ -26,7 +26,7 @@ type ticketDiscordClient struct {
 	resolver guildResolver
 }
 
-// CreatePrivateTicketChannel provisions the configured private thread or text channel.
+// CreatePrivateTicketChannel opens a private, non-invitable thread under the entry channel.
 func (c ticketDiscordClient) CreatePrivateTicketChannel(ctx context.Context, guildID, ownerID string, settings tickets.Settings) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
@@ -39,35 +39,18 @@ func (c ticketDiscordClient) CreatePrivateTicketChannel(ctx context.Context, gui
 	if err != nil {
 		return "", err
 	}
-	if entryChannel.GuildID != discordGuildID {
-		return "", errors.New("ticket entry channel belongs to another guild")
+	if entryChannel == nil || entryChannel.GuildID != discordGuildID || entryChannel.Type != discordgo.ChannelTypeGuildText {
+		return "", errors.New("ticket entry must be a text channel in this guild")
 	}
 	name := "ticket-" + ticketNameSuffix(ownerID)
-	if settings.UsePrivateThreads {
-		thread, err := c.session.ThreadStartComplex(settings.EntryChannelDiscordID, &discordgo.ThreadStart{
-			Name: name, Type: discordgo.ChannelTypeGuildPrivateThread,
-			AutoArchiveDuration: 1440, Invitable: false,
-		}, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
-		if err != nil {
-			return "", err
-		}
-		// The adapter validates owner and staff membership before committing the ticket.
-		return thread.ID, nil
-	}
-
-	botID, err := c.botUserID(ctx)
-	if err != nil {
-		return "", err
-	}
-	overwrites := ticketPermissionOverwrites(discordGuildID, ownerID, botID, settings.StaffRoleDiscordIDs)
-	channel, err := c.session.GuildChannelCreateComplex(discordGuildID, discordgo.GuildChannelCreateData{
-		Name: name, Type: discordgo.ChannelTypeGuildText,
-		ParentID: entryChannel.ParentID, PermissionOverwrites: overwrites,
+	thread, err := c.session.ThreadStartComplex(settings.EntryChannelDiscordID, &discordgo.ThreadStart{
+		Name: name, Type: discordgo.ChannelTypeGuildPrivateThread,
+		AutoArchiveDuration: 1440, Invitable: false,
 	}, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 	if err != nil {
 		return "", err
 	}
-	return channel.ID, nil
+	return thread.ID, nil
 }
 
 // EnsureTicketPermissions validates private-thread inheritance or replaces a
@@ -203,4 +186,15 @@ func ticketNameSuffix(ownerID string) string {
 		return "member"
 	}
 	return ownerID
+}
+
+// SendTicketWelcome invites the owner to begin the conversation without an intake form.
+// Only the ticket owner may be mentioned by this bot-authored message.
+func (c ticketDiscordClient) SendTicketWelcome(ctx context.Context, ticket *tickets.Ticket) error {
+	message := ui.Signal("ticket", fmt.Sprintf("<@%s> A mod will be here soon. Feel free to tell us what's up while you wait.", ticket.OwnerDiscordUserID), false)
+	message.Components = tickets.TicketComponents(ticket.ID)
+	payload := message.SendParams(ui.SessionApplicationID(c.session))
+	payload.AllowedMentions = &discordgo.MessageAllowedMentions{Users: []string{ticket.OwnerDiscordUserID}}
+	_, err := c.session.ChannelMessageSendComplex(ticket.ThreadDiscordChannelID, payload, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+	return err
 }

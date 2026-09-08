@@ -289,29 +289,6 @@ func TestComponentRegistrarAndControls(t *testing.T) {
 
 }
 
-func TestPrivateThreadSettingDefaultsAndRoundTrips(t *testing.T) {
-	if !tickets.Defaults().UsePrivateThreads {
-		t.Fatal("new ticket settings should default to private threads")
-	}
-	_, service, _ := setup(t)
-	actor := tickets.Actor{GuildID: "guild-a", DiscordUserID: "admin", CanManage: true}
-	for _, useThreads := range []bool{true, false} {
-		settings := tickets.Defaults()
-		settings.EntryChannelDiscordID = "entry"
-		settings.QueueChannelDiscordID = "queue"
-		settings.StaffRoleDiscordIDs = []string{"staff-role"}
-		settings.UsePrivateThreads = useThreads
-		saved, err := service.UpdateSettings(context.Background(), actor, true, settings)
-		if err != nil || saved.UsePrivateThreads != useThreads {
-			t.Fatalf("save thread setting: %+v %v", saved, err)
-		}
-		loaded, _, err := service.Settings(context.Background(), actor)
-		if err != nil || loaded.UsePrivateThreads != useThreads {
-			t.Fatalf("read thread setting: %+v %v", loaded, err)
-		}
-	}
-}
-
 // TestOwnerCanCloseExistingTicketAfterModuleDisabled keeps closure available
 // during setup changes without allowing further tickets to be opened.
 func TestOwnerCanCloseExistingTicketAfterModuleDisabled(t *testing.T) {
@@ -323,7 +300,7 @@ func TestOwnerCanCloseExistingTicketAfterModuleDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.UpdateSettings(ctx, tickets.Actor{GuildID: "guild-a", DiscordUserID: "admin", CanManage: true}, false, tickets.Settings{QueueChannelDiscordID: "queue", UsePrivateThreads: true, TranscriptRetentionDays: 90}); err != nil {
+	if _, err := service.UpdateSettings(ctx, tickets.Actor{GuildID: "guild-a", DiscordUserID: "admin", CanManage: true}, false, tickets.Settings{QueueChannelDiscordID: "queue", TranscriptRetentionDays: 90}); err != nil {
 		t.Fatal(err)
 	}
 	closed, err := adapter.Close(ctx, member, ticket.ID)
@@ -390,3 +367,6 @@ func TestTicketDeletionWaitsForTranscriptPublication(t *testing.T) {
 		t.Fatalf("missing durable transcript receipt: %+v %v", detail, err)
 	}
 }
+
+// SendTicketWelcome models the thread greeting independently from staff replies.
+func (f *discordFake) SendTicketWelcome(context.Context, *tickets.Ticket) error { return nil }

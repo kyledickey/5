@@ -12,6 +12,7 @@ type DiscordClient interface {
 	CreatePrivateTicketChannel(context.Context, string, string, Settings) (string, error)
 	EnsureTicketPermissions(context.Context, string, string, string, []string) error
 	SendTicketReply(context.Context, string, string) error
+	SendTicketWelcome(context.Context, *Ticket) error
 	FreezeTicketChannel(context.Context, string) error
 	CaptureTicketTranscript(context.Context, string) (string, error)
 	PublishTicketQueue(context.Context, *Ticket, Settings, *Transcript) (*QueueReceipt, error)
@@ -73,10 +74,10 @@ func (a *DiscordAdapter) Open(ctx context.Context, actor Actor) (*Ticket, error)
 		return nil, err
 	}
 	a.service.audit(ctx, actor, "ticket.open", ticket.ID, "success", nil)
-	if _, err := a.publishQueue(ctx, ticket, settings, nil); err != nil {
-		return ticket, err
-	}
-	return ticket, nil
+	// A failed greeting must not suppress the staff notification for a saved ticket.
+	welcomeErr := a.client.SendTicketWelcome(ctx, ticket)
+	_, queueErr := a.publishQueue(ctx, ticket, settings, nil)
+	return ticket, errors.Join(welcomeErr, queueErr)
 }
 
 // Reply sends a private Discord message only after backend authorization succeeds.

@@ -46,10 +46,10 @@ func (r *Runtime) openTicketComponent(ctx ui.Context) ui.HandlerResult {
 			_, _ = responder.EditOriginal(ui.ErrorEdit(ticketErrorMessage(err)))
 			return nil
 		}
-		queueFailed := err != nil
+		setupIncomplete := err != nil
 		message := ui.Signal("ticket", "Your ticket is ready: <#"+ticket.ThreadDiscordChannelID+">. Type there whenever you’re ready; a moderator will join you.", true)
-		if queueFailed {
-			message.Content += "\nThe staff queue update failed. Your thread is saved; please let a moderator know."
+		if setupIncomplete {
+			message.Content += "\nYour thread is saved, but setup did not finish. Please let a moderator know."
 		}
 		message.Components = ticketControls(ticket.ID, actor.CanManage)
 		_, err = responder.EditOriginal(ui.EditMessage(message))
