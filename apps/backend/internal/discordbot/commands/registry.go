@@ -6,14 +6,12 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/bwmarrin/discordgo"
 	discordadapter "github.com/quackdiscord/bot/internal/discordbot"
 	"github.com/quackdiscord/bot/internal/discordbot/interactions"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/quack"
-	"github.com/redis/go-redis/v9"
 )
 
 // CommandSpec binds one Discord command definition to the handler that implements it.
@@ -97,8 +95,16 @@ func (r *Registry) LookupCommand(name string) (ui.Handler, bool) {
 	return spec.Handler, true
 }
 
-// Register explicitly wires register so runtime behavior does not depend on init-time registration.
-func Register(session *discordgo.Session, services *quack.Services, moduleSetup SetupHandlers, componentRegistrars ...ComponentRegistrar) error {
+// Infrastructure supplies adapter capabilities independently of application services.
+// A nil CommandHashes disables command caching; a nil Deduper keeps the dispatcher's
+// process-local replay protection. Callers retain ownership of these dependencies.
+type Infrastructure struct {
+	CommandHashes CommandHashStore
+	Deduper       *interactions.InteractionDeduper
+}
+
+// Register installs native handlers and synchronizes definitions using explicitly supplied infrastructure.
+func Register(session *discordgo.Session, services *quack.Services, infrastructure Infrastructure, moduleSetup SetupHandlers, componentRegistrars ...ComponentRegistrar) error {
 	if session == nil {
 		return errors.New("discord session is not configured")
 	}
@@ -145,8 +151,8 @@ func Register(session *discordgo.Session, services *quack.Services, moduleSetup 
 	if err := discordadapter.RegisterAppealComponents(dispatcher.Components, services, services.Appeals); err != nil {
 		return err
 	}
-	if provider, ok := services.Store.(interface{ Redis() *redis.Client }); ok {
-		dispatcher.Deduper = interactions.NewRedisInteractionDeduper(provider.Redis(), 15*time.Minute)
+	if infrastructure.Deduper != nil {
+		dispatcher.Deduper = infrastructure.Deduper
 	}
 	for _, register := range componentRegistrars {
 		if register == nil {
@@ -168,7 +174,7 @@ func Register(session *discordgo.Session, services *quack.Services, moduleSetup 
 
 	syncer := CommandSyncer{
 		Client:       sessionCommandClient{session: session},
-		Cache:        newRedisCommandCache(services.Store),
+		Cache:        newRedisCommandCache(infrastructure.CommandHashes),
 		AppID:        appID,
 		PruneEnabled: services.Config.Discord.CommandPrune,
 		GuildID: strings.TrimSpace(

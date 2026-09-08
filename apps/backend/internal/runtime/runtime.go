@@ -11,6 +11,7 @@ import (
 	"github.com/quackdiscord/bot/internal/config"
 	"github.com/quackdiscord/bot/internal/discordbot"
 	"github.com/quackdiscord/bot/internal/discordbot/commands"
+	"github.com/quackdiscord/bot/internal/discordbot/interactions"
 	"github.com/quackdiscord/bot/internal/httpapi"
 	"github.com/quackdiscord/bot/internal/logging"
 	"github.com/quackdiscord/bot/internal/moduleintegration"
@@ -111,7 +112,11 @@ func Run(ctx context.Context) (runErr error) {
 	if err := moduleRuntime.RegisterGatewayHandlers(bot.Session); err != nil {
 		return fmt.Errorf("register optional module gateway handlers: %w", err)
 	}
-	if err := commands.Register(bot.Session, services, commands.SetupHandlers{Tickets: moduleRuntime.SetupTickets, Honeypot: moduleRuntime.SetupHoneypot, Logging: moduleRuntime.SetupLogging}, moduleRuntime.RegisterComponents); err != nil {
+	commandInfrastructure := commands.Infrastructure{
+		CommandHashes: repositories,
+		Deduper:       interactions.NewRedisInteractionDeduper(redis, 15*time.Minute),
+	}
+	if err := commands.Register(bot.Session, services, commandInfrastructure, commands.SetupHandlers{Tickets: moduleRuntime.SetupTickets, Honeypot: moduleRuntime.SetupHoneypot, Logging: moduleRuntime.SetupLogging}, moduleRuntime.RegisterComponents); err != nil {
 		return fmt.Errorf("register Discord commands and components: %w", err)
 	}
 	if err := bot.Open(); err != nil {

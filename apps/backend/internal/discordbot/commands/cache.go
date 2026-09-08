@@ -6,49 +6,55 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/quackdiscord/bot/internal/quack"
 	r "github.com/redis/go-redis/v9"
 )
 
-// commandCacheEntry stores one command cache entry value together with the metadata needed to use it safely.
+// commandCacheEntry pairs a Discord command ID with the last synchronized definition hash.
 type commandCacheEntry struct {
 	DiscordCommandID string `json:"discord_command_id"`
 	Hash             string `json:"hash"`
 }
 
-// commandHashCache groups the command hash cache state used to keep this package's responsibilities explicit.
+// commandHashCache remembers synchronized definitions independently for each Discord scope.
 type commandHashCache interface {
 	Get(ctx context.Context, scope, commandName string) (*commandCacheEntry, error)
 	Set(ctx context.Context, scope, commandName string, entry commandCacheEntry) error
 }
 
-// noopCommandCache groups the noop command cache state used to keep this package's responsibilities explicit.
+// noopCommandCache leaves synchronization enabled when no cache capability is supplied.
 type noopCommandCache struct{}
 
-// Get retrieves get without exposing the underlying adapter implementation.
+// Get reports a cache miss so synchronization compares the live Discord definition.
 func (noopCommandCache) Get(ctx context.Context, scope, commandName string) (*commandCacheEntry, error) {
 	return nil, nil
 }
 
-// Set encapsulates the set rule so callers share one consistent package implementation.
+// Set discards fingerprints when caching is disabled.
 func (noopCommandCache) Set(ctx context.Context, scope, commandName string, entry commandCacheEntry) error {
 	return nil
 }
 
-// redisCommandCache groups the redis command cache state used to keep this package's responsibilities explicit.
-type redisCommandCache struct {
-	store quack.Repository
+// CommandHashStore provides only the hash operations used to remember synchronized
+// Discord command definitions. Missing fields must return redis.Nil.
+type CommandHashStore interface {
+	HashGet(ctx context.Context, key, field string) ([]byte, error)
+	HashSet(ctx context.Context, key, field string, value []byte) error
 }
 
-// newRedisCommandCache encapsulates the new redis command cache rule so callers share one consistent package implementation.
-func newRedisCommandCache(store quack.Repository) commandHashCache {
+// redisCommandCache encodes fingerprints in per-scope hashes using only hash storage.
+type redisCommandCache struct {
+	store CommandHashStore
+}
+
+// newRedisCommandCache uses the supplied hash capability, or disables caching when absent.
+func newRedisCommandCache(store CommandHashStore) commandHashCache {
 	if store == nil {
 		return noopCommandCache{}
 	}
 	return redisCommandCache{store: store}
 }
 
-// Get retrieves get without exposing the underlying adapter implementation.
+// Get decodes a stored fingerprint, treating absent Redis fields as cache misses.
 func (c redisCommandCache) Get(ctx context.Context, scope, commandName string) (*commandCacheEntry, error) {
 	body, err := c.store.HashGet(ctx, commandCacheKey(scope), commandName)
 	if err != nil {
@@ -65,7 +71,7 @@ func (c redisCommandCache) Get(ctx context.Context, scope, commandName string) (
 	return &entry, nil
 }
 
-// Set encapsulates the set rule so callers share one consistent package implementation.
+// Set persists the synchronized command ID and hash without expiring the fingerprint.
 func (c redisCommandCache) Set(ctx context.Context, scope, commandName string, entry commandCacheEntry) error {
 	body, err := json.Marshal(entry)
 	if err != nil {
@@ -77,7 +83,7 @@ func (c redisCommandCache) Set(ctx context.Context, scope, commandName string, e
 	return nil
 }
 
-// commandCacheKey encapsulates the command cache key rule so callers share one consistent package implementation.
+// commandCacheKey isolates global and guild fingerprints within the existing Redis namespace.
 func commandCacheKey(scope string) string {
 	return "discord:commands:" + scope + ":hashes"
 }
