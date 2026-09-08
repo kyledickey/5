@@ -309,7 +309,7 @@ func evidenceSummary(evidence []quack.CaseEvidenceResponse) string {
 			label = "[View message](" + item.MessageURL + ")"
 		}
 		if label == "" {
-			label = item.CaptureOutcome
+			label = evidenceCaptureLabel(item.CaptureOutcome)
 		}
 		rows = append(rows, label)
 		if item.Content != "" {
@@ -330,6 +330,25 @@ func evidenceSummary(evidence []quack.CaseEvidenceResponse) string {
 		}
 	}
 	return strings.Join(rows, "\n")
+}
+
+// evidenceCaptureLabel describes stored capture outcomes without exposing raw
+// storage values. Unknown historical outcomes retain a neutral evidence heading.
+func evidenceCaptureLabel(outcome string) string {
+	switch outcome {
+	case "uploaded":
+		return "Uploaded file"
+	case "captured":
+		return "Captured message"
+	case "unavailable":
+		return "Capture unavailable"
+	case "deleted":
+		return "Message deleted or missing"
+	case "inaccessible":
+		return "Message inaccessible"
+	default:
+		return "Evidence"
+	}
 }
 
 // eventSummary shows the latest six history entries with localized event times.
