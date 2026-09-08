@@ -1255,3 +1255,55 @@ means further work is required, not completion.
   split needs care because Q20 allows command use anywhere and public command
   results already exist. These are separate from unverified live ban/evidence,
   ticket repair/deletion-failure, import and scale acceptance.
+
+### Live versioned appeal delivery
+
+- Created synthetic warning case #7 (`01M20Q7AXWJ0ZH6WK57GY7JWTR`) and used its
+  native DM appeal button. The first form-opening response missed Discord's
+  deadline: runtime logged HTTP 404/code 10062 with elapsed 3157 ms. A second
+  click opened the form and the tester submitted one statement. The successful
+  retry does not establish the cause of the first timeout.
+- Administrator accepted appeal `01M20QANHBFYRGH1CBGCPBCPPD` from the private
+  native queue. The queue showed acceptance, the case became voided, and the
+  tester received the acceptance DM. SQL confirmed `sent` with empty legacy body
+  and version-one intent containing accepted status and the saved decision reason.
+- `adebc00` adds preparation and response timing only to existing interaction
+  failure logs, so a future timeout can distinguish work before acknowledgement
+  from Discord response latency. Focused interaction tests passed; no routine
+  service events were added to the user audit log.
+
+### Moderator receipt and warning recovery acceptance
+
+- `8c78334` gives all three case entry paths private moderator receipts with
+  selected level, safe action errors, DM status, appeal eligibility and evidence
+  warnings. Private refresh follows both enforcement and DM completion, backs off
+  after 30 seconds and stops at terminal state or 14 minutes. It retains no
+  interaction token in storage; View case rechecks current authority afterward.
+  The private/public split was the announced default while the visibility
+  clarification remained unanswered. Public notices contain the member-facing
+  rule reason, case number and outcome, without level or private diagnostics.
+- `8325427` persists bounded, coalesced honeypot warning refreshes independently
+  of enforcement and seeds configured guilds through a one-time paged startup
+  reconciliation. Successful incident completion and its refresh request are
+  atomic. Replacements retain a send fence after uncertain delivery instead of
+  creating duplicates. Full MySQL-enabled tests passed in
+  `/tmp/receipt-honeypot-full.log`; focused race/adoption/rollback checks passed.
+- Loaded `/tmp/quack-v5-receipt-warning-review`; readiness and startup warning
+  reconciliation passed. New warning case #8 showed private DM-sent and appeal
+  feedback plus a short public notice. In shared honeypot channel, case #9's
+  public notice exposed no private fields to the tester, but Discord displayed
+  a broken reply preview pointing at the hidden acknowledgement.
+- `94cfda2` corrects that observed rough edge: public case/recovery notices use
+  standalone bot-authenticated channel sends; fallback edits use the same channel
+  coordinates. Private fallback remains ephemeral, mentions are suppressed, and
+  uncertain POSTs are not retried. The full backend/MySQL suite and build passed
+  (`/tmp/standalone-receipts-full.log`). Loaded `/tmp/quack-v5-standalone-review`,
+  readiness passed, then voided synthetic case #9. The tester saw the new public
+  void result without a broken reply preview. Old messages retain old references.
+- For the warning repair rehearsal, a temporary SDK helper verified the beta's
+  identity, guild, author, exact configured message and four-incident warning
+  before deleting the beta's own message `1546871485371514971`. The worker recreated
+  it as `1546897037067554830`; the tester saw the same warning/count. SQL confirmed
+  the saved replacement receipt, idle refresh and unchanged four honeypot cases.
+  This tests ordinary deletion repair; live transient permission failures and
+  ambiguous replacement delivery remain outside this rehearsal.
