@@ -9,10 +9,30 @@ import (
 )
 
 // SetupCommandSpec exposes the bot's server configuration without a dashboard.
-func SetupCommandSpec() CommandSpec {
+func SetupCommandSpec(ticketSetup ...ui.Handler) CommandSpec {
 	permissions := int64(discordgo.PermissionManageServer)
 	dm := false
-	return CommandSpec{Definition: &discordgo.ApplicationCommand{Name: "setup", Description: "Configure Quack for this server", DefaultMemberPermissions: &permissions, DMPermission: &dm, Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "appeals", Description: "Choose the private channel for appeal reviews", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionChannel, Name: "channel", Description: "Private text channel for the appeal queue", Required: true, ChannelTypes: []discordgo.ChannelType{discordgo.ChannelTypeGuildText}}}}}}, Handler: handleSetup}
+	spec := CommandSpec{Definition: &discordgo.ApplicationCommand{Name: "setup", Description: "Configure Quack for this server", DefaultMemberPermissions: &permissions, DMPermission: &dm, Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "appeals", Description: "Choose the private channel for appeal reviews", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionChannel, Name: "channel", Description: "Private text channel for the appeal queue", Required: true, ChannelTypes: []discordgo.ChannelType{discordgo.ChannelTypeGuildText}}}}}}, Handler: handleSetup}
+	spec.Definition.Options = append(spec.Definition.Options, &discordgo.ApplicationCommandOption{
+		Type: discordgo.ApplicationCommandOptionSubCommand, Name: "tickets", Description: "Set up private support tickets",
+		Options: []*discordgo.ApplicationCommandOption{
+			{Type: discordgo.ApplicationCommandOptionChannel, Name: "entry", Description: "Text channel for the Open ticket button", Required: true, ChannelTypes: []discordgo.ChannelType{discordgo.ChannelTypeGuildText}},
+			{Type: discordgo.ApplicationCommandOptionChannel, Name: "queue", Description: "Private text channel for staff ticket notifications", Required: true, ChannelTypes: []discordgo.ChannelType{discordgo.ChannelTypeGuildText}},
+		},
+	})
+	spec.Handler = func(ctx ui.Context) ui.HandlerResult {
+		if ctx.Interaction != nil && ctx.Interaction.Interaction != nil {
+			options := ctx.Interaction.ApplicationCommandData().Options
+			if len(options) == 1 && options[0].Name == "tickets" {
+				if len(ticketSetup) > 0 && ticketSetup[0] != nil {
+					return ticketSetup[0](ctx)
+				}
+				return ui.Immediate(ui.Error("Ticket setup is unavailable."))
+			}
+		}
+		return handleSetup(ctx)
+	}
+	return spec
 }
 
 // handleSetup refreshes live administrator authority and validates channel privacy

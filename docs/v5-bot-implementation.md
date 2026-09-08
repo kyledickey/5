@@ -236,3 +236,13 @@ means further work is required, not completion.
   former moderator removal, and configuration without custom roles. Focused and
   full backend suites pass. Setup/panel delivery, recovery controls, closure-state
   consolidation and live verification remain pending.
+
+- `/setup tickets entry:… queue:…` now reaches the module integration through an
+  explicit command-handler dependency. It refreshes Manage Server authority,
+  validates the entry's guild/type and the queue's current staff-only privacy,
+  preserves unrelated ticket settings, enables tickets and publishes the member
+  opening button. Publication failure reports that settings were saved and gives
+  a concrete retry instruction. A command-routing regression test and the full
+  backend suite pass. End-to-end setup transport/live validation, bot thread
+  permission preflight and updating an existing panel instead of posting another
+  remain pending; the running bot has not been restarted.

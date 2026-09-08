@@ -99,7 +99,7 @@ func Run(ctx context.Context) (runErr error) {
 	if err := moduleRuntime.RegisterGatewayHandlers(bot.Session); err != nil {
 		return fmt.Errorf("register optional module gateway handlers: %w", err)
 	}
-	if err := commands.Register(bot.Session, services, moduleRuntime.RegisterComponents); err != nil {
+	if err := commands.Register(bot.Session, services, moduleRuntime.SetupTickets, moduleRuntime.RegisterComponents); err != nil {
 		return fmt.Errorf("register Discord commands and components: %w", err)
 	}
 	if err := bot.Open(); err != nil {
