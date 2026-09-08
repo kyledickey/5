@@ -13,3 +13,14 @@ func TestRunRejectsUnknownMigrationDirection(t *testing.T) {
 		}
 	}
 }
+
+// TestRunAcceptsExplicitSchemaOperations verifies command parsing before any
+// connection, including the historical replay that normal startup cannot invoke.
+func TestRunAcceptsExplicitSchemaOperations(t *testing.T) {
+	t.Setenv("DATABASE_DSN", "")
+	for _, operation := range []string{"init", "up", "adopt", "legacy-up", "down"} {
+		if err := run([]string{operation}); err == nil || err.Error() != "DATABASE_DSN is required" {
+			t.Fatalf("operation %q did not reach connection validation: %v", operation, err)
+		}
+	}
+}

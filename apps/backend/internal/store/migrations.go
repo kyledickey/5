@@ -59,25 +59,26 @@ func (m migration) checksum() string {
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(material)))
 }
 
-// Migrate recognizes directly initialized pre-release databases and reconciles
-// their current models. Older databases still use the historical migration ledger
-// while the transition to direct initialization is being completed.
+// Migrate reconciles the current pre-release schema for normal bot startup.
+// Existing unmarked databases require explicit operator adoption; startup never
+// replays historical data conversions or creates a migration ledger.
 func (s *Store) Migrate() error {
+	return s.InitializeSchema()
+}
+
+// MigrateLegacySchema explicitly replays the frozen pre-release migration history
+// for operator recovery and adoption. It is never used by normal bot startup and
+// refuses current-schema databases, whose models may have changed independently.
+func (s *Store) MigrateLegacySchema() error {
 	if s == nil || s.db == nil {
 		return errors.New("database not connected")
 	}
-	if s.db.Migrator().HasTable(&currentSchema{}) {
-		return s.InitializeSchema()
-	}
-	tables, err := s.db.Migrator().GetTables()
-	if err != nil {
-		return fmt.Errorf("inspect database before initialization: %w", err)
-	}
-	if len(tables) == 0 {
-		return s.InitializeSchema()
-	}
-
-	return runMigrations(s.db, registeredMigrations())
+	return withMigrationLock(s.db, func() error {
+		if s.db.Migrator().HasTable(&currentSchema{}) {
+			return errors.New("legacy migration replay is unavailable for a current-schema database")
+		}
+		return applyMigrations(s.db, registeredMigrations())
+	})
 }
 
 // RollbackLastMigration reverses the newest applied migration when that migration declares a safe Down operation.
@@ -94,42 +95,45 @@ func (s *Store) RollbackLastMigration() error {
 
 // runMigrations validates the registry and applies its unapplied suffix under the database migration lock.
 func runMigrations(db *gorm.DB, migrations []migration) error {
+	return withMigrationLock(db, func() error { return applyMigrations(db, migrations) })
+}
+
+// applyMigrations runs a validated historical suffix while the caller holds the
+// schema lock, keeping marker checks and explicit replay in one critical section.
+func applyMigrations(db *gorm.DB, migrations []migration) error {
 	if err := validateMigrationRegistry(migrations); err != nil {
 		return err
 	}
+	if err := ensureMigrationLedger(db); err != nil {
+		return err
+	}
+	applied, err := loadAppliedMigrations(db)
+	if err != nil {
+		return err
+	}
+	if err := validateAppliedMigrations(applied, migrations); err != nil {
+		return err
+	}
 
-	return withMigrationLock(db, func() error {
-		if err := ensureMigrationLedger(db); err != nil {
-			return err
-		}
-		applied, err := loadAppliedMigrations(db)
-		if err != nil {
-			return err
-		}
-		if err := validateAppliedMigrations(applied, migrations); err != nil {
-			return err
-		}
-
-		for index := len(applied); index < len(migrations); index++ {
-			candidate := migrations[index]
-			if err := db.Transaction(func(tx *gorm.DB) error {
-				if err := candidate.Up(tx); err != nil {
-					return fmt.Errorf("apply migration %d %s: %w", candidate.Version, candidate.Name, err)
-				}
-				entry := schemaMigration{
-					Version: candidate.Version, Name: candidate.Name,
-					Checksum: candidate.checksum(), State: migrationStateApplied, AppliedAt: time.Now().UTC(),
-				}
-				if err := tx.Create(&entry).Error; err != nil {
-					return fmt.Errorf("record migration %d %s: %w", candidate.Version, candidate.Name, err)
-				}
-				return nil
-			}); err != nil {
-				return err
+	for index := len(applied); index < len(migrations); index++ {
+		candidate := migrations[index]
+		if err := db.Transaction(func(tx *gorm.DB) error {
+			if err := candidate.Up(tx); err != nil {
+				return fmt.Errorf("apply migration %d %s: %w", candidate.Version, candidate.Name, err)
 			}
+			entry := schemaMigration{
+				Version: candidate.Version, Name: candidate.Name,
+				Checksum: candidate.checksum(), State: migrationStateApplied, AppliedAt: time.Now().UTC(),
+			}
+			if err := tx.Create(&entry).Error; err != nil {
+				return fmt.Errorf("record migration %d %s: %w", candidate.Version, candidate.Name, err)
+			}
+			return nil
+		}); err != nil {
+			return err
 		}
-		return nil
-	})
+	}
+	return nil
 }
 
 // rollbackLastMigration runs the newest migration's reviewed inverse and removes only its ledger row.

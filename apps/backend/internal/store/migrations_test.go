@@ -556,7 +556,7 @@ func TestMigration0001SourceDoesNotDependOnLiveDomainModels(t *testing.T) {
 	}
 }
 
-func TestMigrateAdoptsCurrentSchemaWithoutLosingHistory(t *testing.T) {
+func TestLegacyMigrationAdoptsHistoricalSchemaWithoutLosingHistory(t *testing.T) {
 	db := openSQLiteMigrationDB(t)
 	if err := applyInitialV5Schema(db); err != nil {
 		t.Fatalf("create representative pre-ledger schema: %v", err)
@@ -564,16 +564,16 @@ func TestMigrateAdoptsCurrentSchemaWithoutLosingHistory(t *testing.T) {
 	want := insertRepresentativeHistory(t, db)
 
 	repositories := New(db, nil)
-	if err := repositories.Migrate(); err != nil {
+	if err := repositories.MigrateLegacySchema(); err != nil {
 		t.Fatalf("adopt representative schema: %v", err)
 	}
-	if err := repositories.Migrate(); err != nil {
+	if err := repositories.MigrateLegacySchema(); err != nil {
 		t.Fatalf("rerun representative schema migration: %v", err)
 	}
 	assertRepresentativeHistory(t, db, want)
 }
 
-func TestMigrateAddsKnownCurrentV5ColumnsToOlderSchema(t *testing.T) {
+func TestLegacyMigrationAddsKnownV5ColumnsToOlderSchema(t *testing.T) {
 	db := openSQLiteMigrationDB(t)
 	if err := db.Exec(`CREATE TABLE schema_migrations (name text primary key, applied_at datetime not null)`).Error; err != nil {
 		t.Fatalf("create obsolete migration table: %v", err)
@@ -596,7 +596,7 @@ func TestMigrateAddsKnownCurrentV5ColumnsToOlderSchema(t *testing.T) {
 		t.Fatalf("create older case_template_levels: %v", err)
 	}
 
-	if err := New(db, nil).Migrate(); err != nil {
+	if err := New(db, nil).MigrateLegacySchema(); err != nil {
 		t.Fatalf("migrate older schema: %v", err)
 	}
 	if !db.Migrator().HasColumn("case_template_levels", "notify_user") {
@@ -610,7 +610,7 @@ func TestMigrateAddsKnownCurrentV5ColumnsToOlderSchema(t *testing.T) {
 	}
 }
 
-func TestMigrateRejectsEditedAppliedMigration(t *testing.T) {
+func TestLegacyMigrationRejectsEditedAppliedMigration(t *testing.T) {
 	db := openSQLiteMigrationDB(t)
 	repositories := New(db, nil)
 	if err := runMigrations(db, registeredMigrations()); err != nil {
@@ -620,7 +620,7 @@ func TestMigrateRejectsEditedAppliedMigration(t *testing.T) {
 		t.Fatalf("tamper migration checksum: %v", err)
 	}
 
-	err := repositories.Migrate()
+	err := repositories.MigrateLegacySchema()
 	if !errors.Is(err, ErrMigrationChecksumMismatch) {
 		t.Fatalf("expected checksum mismatch, got %v", err)
 	}

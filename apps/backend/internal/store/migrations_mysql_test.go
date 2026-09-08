@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestMySQLMigrateForwardRerunPreservationAndRollbackBoundary(t *testing.T) {
+func TestMySQLLegacyMigrateForwardRerunPreservationAndRollbackBoundary(t *testing.T) {
 	db := openMySQLMigrationDB(t)
 	if err := applyInitialV5Schema(db); err != nil {
 		t.Fatalf("create representative pre-ledger MySQL schema: %v", err)
@@ -37,10 +37,10 @@ func TestMySQLMigrateForwardRerunPreservationAndRollbackBoundary(t *testing.T) {
 	}
 	repositories := New(db, nil)
 
-	if err := repositories.Migrate(); err != nil {
+	if err := repositories.MigrateLegacySchema(); err != nil {
 		t.Fatalf("adopt representative MySQL schema: %v", err)
 	}
-	if err := repositories.Migrate(); err != nil {
+	if err := repositories.MigrateLegacySchema(); err != nil {
 		t.Fatalf("rerun MySQL migrations: %v", err)
 	}
 	assertRepresentativeHistory(t, db, want)

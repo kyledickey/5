@@ -858,3 +858,13 @@ means further work is required, not completion.
   messages/channels need no cleanup. Shared cancellable guild locking now serves
   honeypot warning updates and ticket setup with independent lock maps. Focused
   panel relocation/lock checks and the full MySQL-enabled backend suite passed.
+- Normal startup now reconciles current schema only. Historical unmarked databases
+  require explicit `quack-migrate legacy-up` (when incomplete), then `adopt`; startup
+  leaves them unchanged. Current schema constraints are independent DDL and no
+  longer invoke historical row conversion or action-recovery inserts. Frozen
+  historical definitions remain available only for explicit recovery/adoption.
+  SQLite/MySQL regression tests preserve existing history, verify the explicit
+  transition, and prove repeat current startup does not rewrite historical rows.
+  Root independently reran the schema/migration tests with MySQL successfully.
+  The current schema also includes the public-case receipt table prerequisite for
+  the durable Discord publication worker being implemented separately.
