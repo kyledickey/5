@@ -1,6 +1,7 @@
 package tickets
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -11,8 +12,14 @@ import (
 // ActorResolver resolves authenticated request context into current ticket authority.
 type ActorResolver func(*gin.Context) (Actor, error)
 
+// Closer captures and publishes the real thread transcript before deleting it.
+// HTTP callers cannot supply a substitute transcript or bypass Discord cleanup.
+type Closer interface {
+	Close(context.Context, Actor, string) (*Ticket, error)
+}
+
 // RegisterRoutes exposes ticket settings, status, queue, detail, transcript, and lifecycle APIs.
-func RegisterRoutes(group *gin.RouterGroup, service *Service, resolve ActorResolver) {
+func RegisterRoutes(group *gin.RouterGroup, service *Service, resolve ActorResolver, closer Closer) {
 	module := group.Group("/tickets")
 	module.GET("/settings", func(c *gin.Context) {
 		actor, ok := resolveActor(c, resolve)
@@ -95,37 +102,27 @@ func RegisterRoutes(group *gin.RouterGroup, service *Service, resolve ActorResol
 		}
 		c.JSON(http.StatusOK, gin.H{"transcript": transcript})
 	})
-	module.POST("/:ticketID/resolve", func(c *gin.Context) {
+	closeTicket := func(c *gin.Context) {
 		actor, ok := resolveActor(c, resolve)
 		if !ok {
 			return
 		}
-		var input struct {
-			Transcript string `json:"transcript"`
-		}
-		if err := c.ShouldBindJSON(&input); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid resolution payload"})
+		if closer == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ticket closure is unavailable"})
 			return
 		}
-		ticket, err := service.Resolve(c, actor, c.Param("ticketID"), input.Transcript)
+		ticket, err := closer.Close(c.Request.Context(), actor, c.Param("ticketID"))
 		if err != nil {
 			writeError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"ticket": ticket})
-	})
-	module.POST("/:ticketID/cancel", func(c *gin.Context) {
-		actor, ok := resolveActor(c, resolve)
-		if !ok {
-			return
-		}
-		ticket, err := service.Cancel(c, actor, c.Param("ticketID"))
-		if err != nil {
-			writeError(c, err)
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"ticket": ticket})
-	})
+	}
+	module.POST("/:ticketID/close", closeTicket)
+	// Existing clients share the same close operation; neither alias bypasses
+	// transcript capture, queue publication or thread cleanup.
+	module.POST("/:ticketID/resolve", closeTicket)
+	module.POST("/:ticketID/cancel", closeTicket)
 }
 
 func resolveActor(c *gin.Context, resolve ActorResolver) (Actor, bool) {

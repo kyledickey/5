@@ -36,7 +36,11 @@ func (r *Runtime) RegisterHTTP(group *gin.RouterGroup, services *quack.Services,
 	// Normalize feature errors before the idempotency layer persists a response;
 	// the global envelope remains the final process-wide safety boundary.
 	modulesGroup.Use(middleware.ErrorEnvelope)
-	tickets.RegisterRoutes(modulesGroup, r.Tickets, resolveTicketActor)
+	var closer tickets.Closer
+	if r.TicketDiscord != nil {
+		closer = r.TicketDiscord
+	}
+	tickets.RegisterRoutes(modulesGroup, r.Tickets, resolveTicketActor, closer)
 	generallogging.RegisterRoutes(modulesGroup, r.Logging, resolveLoggingActor)
 	honeypot.RegisterRoutes(modulesGroup, r.Honeypot, resolveHoneypotActor)
 	return nil
@@ -75,11 +79,11 @@ func moduleIdempotency(primitives httpplatform.Primitives, cfg config.Config, ti
 			guild := middleware.GetGuildContext(c)
 			action := model.PermissionActionGuildSettingsWrite
 			path := c.FullPath()
-			if strings.Contains(path, "/tickets/") && (strings.HasSuffix(path, "/resolve") || strings.HasSuffix(path, "/reopen")) {
+			if isTicketClosePath(path) {
 				action = model.PermissionActionTicketResolve
 			}
 			allowed := guild != nil && guild.Can(action)
-			if strings.HasSuffix(path, "/tickets/:ticketID/cancel") && len(ticketServices) > 0 && ticketServices[0] != nil {
+			if isTicketClosePath(path) && len(ticketServices) > 0 && ticketServices[0] != nil {
 				actor, err := resolveTicketActor(c)
 				if err == nil {
 					ticket, _, err := ticketServices[0].Detail(c.Request.Context(), actor, c.Param("ticketID"))
@@ -135,4 +139,15 @@ func resolveLoggingActor(c *gin.Context) (generallogging.Actor, error) {
 		GuildID: guildContext.Guild.ID, DiscordUserID: guildContext.ActorDiscordUserID,
 		CanManage: guildContext.Can(model.PermissionActionGuildSettingsWrite),
 	}, nil
+}
+
+// isTicketClosePath keeps canonical closure and its aliases on the same live
+// owner-or-moderator authorization boundary before idempotent replay.
+func isTicketClosePath(path string) bool {
+	for _, action := range []string{"close", "resolve", "cancel"} {
+		if strings.HasSuffix(path, "/tickets/:ticketID/"+action) {
+			return true
+		}
+	}
+	return false
 }

@@ -513,3 +513,14 @@ means further work is required, not completion.
   permission while the gateway cache still grants ownership and verify rejection;
   transcript/log transport regressions and the full backend suite pass. Live
   configuration and permission-repair rehearsal remain pending.
+
+- Ticket HTTP closure now uses the same Discord adapter as the bot controls:
+  freeze, capture the actual thread, persist and publish the transcript, then
+  delete the thread. `/close` is canonical; `/resolve` and `/cancel` share this
+  operation and no longer accept caller-authored transcript substitutes or bypass
+  cleanup. All aliases use current owner-or-moderator authorization before
+  idempotency replay. Without a Discord closer, reads remain available and closure
+  returns unavailable. Route tests exercise every alias through failed publication,
+  retained real transcript and successful retry; focused and full backend suites
+  pass. Legacy service lifecycle simplification, concurrent closure behavior and
+  live ticket rehearsal remain pending.
