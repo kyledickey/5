@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -19,7 +20,10 @@ type systemHoneypotCaseCreator interface {
 
 // honeypotCaseApplier adapts QP-F exclusively to QP-A's normal system case
 // boundary; it has no repository access and cannot bypass case orchestration.
-type honeypotCaseApplier struct{ cases systemHoneypotCaseCreator }
+type honeypotCaseApplier struct {
+	cases   systemHoneypotCaseCreator
+	session *discordgo.Session
+}
 
 // ApplyHoneypotCase validates the fixed automation envelope before preserving
 // every request field in the core case input.
@@ -42,6 +46,19 @@ func (a honeypotCaseApplier) ApplyHoneypotCase(ctx context.Context, request hone
 	})
 	if err != nil {
 		return honeypot.ApplyResult{}, err
+	}
+	if created == nil || created.ID == "" {
+		return honeypot.ApplyResult{}, errors.New("honeypot case creation returned no saved case")
+	}
+	// The normal case path has finished optional evidence capture and persisted
+	// its outcome. Cleanup cannot turn a saved case into a retryable failure.
+	if a.session != nil {
+		err := a.session.ChannelMessageDelete(request.ContextChannelDiscordID, request.ContextMessageDiscordID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+		var rest *discordgo.RESTError
+		missing := errors.As(err, &rest) && rest.Message != nil && rest.Message.Code == discordgo.ErrCodeUnknownMessage
+		if err != nil && !missing {
+			slog.WarnContext(ctx, "Honeypot trigger cleanup failed", "guild_id", request.GuildID, "case_id", created.ID, "message_id", request.ContextMessageDiscordID)
+		}
 	}
 	return honeypot.ApplyResult{CaseID: created.ID}, nil
 }

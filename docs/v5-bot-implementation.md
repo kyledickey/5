@@ -352,3 +352,12 @@ means further work is required, not completion.
   replay still creates only one case. Focused and full backend suites pass. Counter
   transport/live verification, automatic missing-warning repair and setup/update
   concurrency still need coverage; broader honeypot live rehearsal remains pending.
+
+- The production honeypot case adapter now deletes the triggering message only
+  after the normal case path returns a saved case, following its optional evidence
+  capture and persisted capture outcome. Failed creation leaves the source message;
+  deletion failure is a developer warning and does not turn a saved case into a
+  retryable application failure. Already-missing messages are harmless. Transport
+  tests verify ordering and denied cleanup isolation; focused and full backend
+  suites pass. Cleanup of additional debounced messages, durable deletion retries,
+  missing warning repair and end-to-end live evidence/cleanup rehearsal remain pending.

@@ -29,6 +29,7 @@ import (
 )
 
 type systemCaseCreatorFake struct {
+	err     error
 	guildID string
 	input   quack.CaseInput
 	result  *quack.CaseResponse
@@ -36,7 +37,7 @@ type systemCaseCreatorFake struct {
 
 func (f *systemCaseCreatorFake) CreateSystemHoneypot(_ context.Context, guildID string, input quack.CaseInput) (*quack.CaseResponse, error) {
 	f.guildID, f.input = guildID, input
-	return f.result, nil
+	return f.result, f.err
 }
 
 func TestModuleAuditAdapterWritesImmutableCoreEntry(t *testing.T) {

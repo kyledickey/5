@@ -102,7 +102,7 @@ func New(ctx context.Context, repositories *store.Store, session *discordgo.Sess
 	loggingService := generallogging.NewService(registry, auditor, loggingClient, nil)
 	honeypotTemplates := honeypotTemplateValidator{repository: repositories}
 	honeypotChannels := honeypotChannelValidator{session: session, resolver: resolver}
-	honeypotService := honeypot.NewService(registry, honeypot.NewStore(repositories.DB()), auditor, honeypotChannels, honeypotTemplates, honeypotCaseApplier{cases: services.Cases})
+	honeypotService := honeypot.NewService(registry, honeypot.NewStore(repositories.DB()), auditor, honeypotChannels, honeypotTemplates, honeypotCaseApplier{cases: services.Cases, session: session})
 	honeypotDiscord := honeypot.NewDiscordAdapter(honeypotService)
 	appeals := services.Appeals
 	if appeals == nil {
