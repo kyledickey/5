@@ -19,8 +19,8 @@ func main() {
 
 // run validates the requested direction, opens MySQL, and executes exactly one migration operation.
 func run(args []string) error {
-	if len(args) != 1 || (args[0] != "up" && args[0] != "down") {
-		return errors.New("usage: quack-migrate up|down")
+	if len(args) != 1 || (args[0] != "up" && args[0] != "down" && args[0] != "init") {
+		return errors.New("usage: quack-migrate init|up|down")
 	}
 	_ = godotenv.Load(".env")
 	dsn := os.Getenv("DATABASE_DSN")
@@ -38,6 +38,9 @@ func run(args []string) error {
 	defer sqlDB.Close()
 
 	repositories := store.New(db, nil)
+	if args[0] == "init" {
+		return repositories.InitializeSchema()
+	}
 	if args[0] == "down" {
 		if err := repositories.RollbackLastMigration(); err != nil {
 			return fmt.Errorf("roll back latest migration: %w", err)

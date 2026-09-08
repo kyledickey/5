@@ -59,10 +59,15 @@ func (m migration) checksum() string {
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(material)))
 }
 
-// Migrate applies every pending production migration in order and verifies the checksum of every applied migration.
+// Migrate recognizes directly initialized pre-release databases and reconciles
+// their current models. Older databases still use the historical migration ledger
+// while the transition to direct initialization is being completed.
 func (s *Store) Migrate() error {
 	if s == nil || s.db == nil {
 		return errors.New("database not connected")
+	}
+	if s.db.Migrator().HasTable(&currentSchema{}) {
+		return s.InitializeSchema()
 	}
 
 	return runMigrations(s.db, registeredMigrations())
@@ -72,6 +77,9 @@ func (s *Store) Migrate() error {
 func (s *Store) RollbackLastMigration() error {
 	if s == nil || s.db == nil {
 		return errors.New("database not connected")
+	}
+	if s.db.Migrator().HasTable(&currentSchema{}) {
+		return ErrMigrationNotReversible
 	}
 
 	return rollbackLastMigration(s.db, registeredMigrations())

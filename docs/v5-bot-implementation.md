@@ -791,3 +791,16 @@ means further work is required, not completion.
   tests and the corrected full MySQL-enabled suite pass. This removes competing
   live schema definitions; it does not complete replacement of the eleven-step
   pre-release migration runner, which remains outstanding.
+
+- Added `quack-migrate init` to create a fresh database directly from the current
+  core records and module schemas. Directly initialized databases have a small
+  marker instead of the historical checksum ledger; startup recognizes that marker
+  and reconciles the current definitions. Initialization refuses an unmarked
+  nonempty database, supports retry after partial MySQL DDL, and disallows the old
+  rollback operation. SQLite/MySQL tests cover creation, repeated startup, a
+  missing-table retry, default-level uniqueness, and preservation on refusal. The
+  complete MySQL-enabled backend suite passes. No live database was reset or
+  switched. The old runner remains for existing databases, and final constraint
+  application is still shared with its last migration; replacing that runner,
+  making direct initialization the default, and deleting frozen compatibility
+  code remain part of the outstanding schema cleanup.
