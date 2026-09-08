@@ -32,6 +32,12 @@ func (r *Runtime) SetupTickets(ctx ui.Context) ui.HandlerResult {
 			_, err := responder.EditOriginal(ui.ErrorEdit("You need Manage Server permission to set up tickets."))
 			return err
 		}
+		release, err := lockGuildOperation(taskCtx, &r.ticketSetupLocks, actor.GuildID)
+		if err != nil {
+			_, err = responder.EditOriginal(ui.ErrorEdit("Ticket setup is busy. Try again shortly."))
+			return err
+		}
+		defer release()
 		settings, _, err := r.Tickets.Settings(taskCtx, actor)
 		if err != nil {
 			_, err = responder.EditOriginal(ui.ErrorEdit("Could not load ticket settings. Try again."))
@@ -71,7 +77,7 @@ func (r *Runtime) SetupTickets(ctx ui.Context) ui.HandlerResult {
 		}
 		panel, err := (ticketDiscordClient{session: r.session}).publishTicketEntry(taskCtx, settings)
 		if err != nil {
-			_, err = responder.EditOriginal(ui.ErrorEdit("Ticket channels are saved, but Quack could not publish the opening button. Check Send Messages permission in the entry channel and run setup again."))
+			_, err = responder.EditOriginal(ui.ErrorEdit("Ticket channels are saved, but Quack could not update the opening buttons. Check access to the old and new entry channels, then run setup again."))
 			return err
 		}
 		if err := r.Tickets.RecordEntryPanel(taskCtx, actor, entryID, panel.ID); err != nil {

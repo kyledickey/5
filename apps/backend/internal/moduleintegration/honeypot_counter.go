@@ -46,7 +46,7 @@ func (c *honeypotCounter) refresh(ctx context.Context, guildID, deletedChannel s
 	if locks == nil {
 		locks = &c.guildLocks
 	}
-	release, err := lockHoneypotWarning(ctx, locks, guildID)
+	release, err := lockGuildOperation(ctx, locks, guildID)
 	if err != nil {
 		return err
 	}

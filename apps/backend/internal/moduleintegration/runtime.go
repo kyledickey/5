@@ -35,6 +35,7 @@ const (
 // Runtime owns the optional-module services and their process-scoped workers.
 type Runtime struct {
 	honeypotWarningLocks sync.Map
+	ticketSetupLocks     sync.Map
 	honeypotCounter      *honeypotCounter
 	Tickets              *tickets.Service
 	TicketDiscord        *tickets.DiscordAdapter

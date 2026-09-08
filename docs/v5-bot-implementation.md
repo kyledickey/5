@@ -851,3 +851,10 @@ means further work is required, not completion.
   published the Open ticket panel. Subsequent explicit-channel UI testing paused
   when CUA detected the user interacting with Helium; explicit selection and
   non-staff/public-viewer acceptance are covered by automated regressions.
+- Ticket setup now serializes each guild's channel/panel configuration sequence.
+  Moving the entry retires the old panel's controls and points to the new channel
+  before posting a replacement. A forbidden/unavailable old panel blocks new
+  publication and retains its saved reference for a retry; confirmed deleted
+  messages/channels need no cleanup. Shared cancellable guild locking now serves
+  honeypot warning updates and ticket setup with independent lock maps. Focused
+  panel relocation/lock checks and the full MySQL-enabled backend suite passed.

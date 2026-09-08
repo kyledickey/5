@@ -36,7 +36,7 @@ func (r *Runtime) SetupHoneypot(ctx ui.Context) ui.HandlerResult {
 		if err != nil || guild == nil || !guild.Can(model.PermissionActionGuildSettingsWrite) {
 			return fail("You need Manage Server permission to set up the honeypot.")
 		}
-		release, err := lockHoneypotWarning(taskCtx, &r.honeypotWarningLocks, guild.Guild.ID)
+		release, err := lockGuildOperation(taskCtx, &r.honeypotWarningLocks, guild.Guild.ID)
 		if err != nil {
 			return fail("Honeypot setup timed out. Try again.")
 		}

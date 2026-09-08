@@ -5,9 +5,11 @@ import (
 	"sync"
 )
 
-// lockHoneypotWarning coordinates setup and counter delivery for one guild before
-// either reads configuration. Waiting respects cancellation; guilds are independent.
-func lockHoneypotWarning(ctx context.Context, locks *sync.Map, guildID string) (func(), error) {
+// lockGuildOperation serializes one family of guild operations before reading
+// configuration. Each caller family owns its lock map; waiting is cancellable and
+// other guilds remain independent. Locks live for the runtime lifetime so waiters
+// can never acquire a detached replacement lock for the same guild.
+func lockGuildOperation(ctx context.Context, locks *sync.Map, guildID string) (func(), error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
