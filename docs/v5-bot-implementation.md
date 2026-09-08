@@ -495,3 +495,12 @@ means further work is required, not completion.
   delivery and no repeat after success. Focused and full backend suites pass.
   Explicit channel deletion handling and live destination setup/recovery remain
   separate pending checks; ambiguous successful-send receipt loss is still tracked.
+
+- Added `/setup audit channel` for the core moderation history destination,
+  independent of optional general logging. It acknowledges privately before live
+  authorization, requires current Manage Server authority, validates the shared
+  staff-channel boundary and saves through audited guild settings. Workers read
+  the new destination without a restart. Command tests cover registration, private
+  deferred feedback, successful persistence, revoked manager authority and rejected
+  destinations. Focused and full backend suites pass. Live registration/delivery
+  and explicit bot send/attachment permission preflight remain pending.
