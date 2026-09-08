@@ -677,3 +677,16 @@ means further work is required, not completion.
   and publication/cleanup failure preservation. Focused and full backend suites
   pass. Durable result delivery/refresh, live rehearsal and remaining review
   requirements are still pending.
+
+- Inspected the user-owned `quack` tmux session: pane `%1` still runs the old
+  `quack-original-...` bot; pane `%3` runs the dashboard. Local Compose MySQL 8.4
+  and Redis are healthy. No process was interrupted or database reset. Built the
+  current backend to `/tmp/quack-v5-rehearsal` for the later runtime switch.
+  Enabled the optional MySQL integration tests against isolated, automatically
+  removed test databases. Corrected an outdated evidence fixture to supply the
+  explicit actor identity required by the live authorization boundary. Added a
+  real-MySQL concurrent template-edit regression proving one winning version,
+  one rejected stale edit and one success audit. Focused MySQL checks and the
+  complete `go test ./...` suite with `QUACK_TEST_MYSQL_DSN` configured pass.
+  The database reset/schema simplification, runtime switch and actual Discord
+  journeys are still pending; this verifies database behavior, not live UX.

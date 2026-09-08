@@ -3,12 +3,14 @@ package quack_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/bwmarrin/discordgo"
 	mysqlconfig "github.com/go-sql-driver/mysql"
 	"github.com/quackdiscord/bot/internal/config"
 	"github.com/quackdiscord/bot/internal/quack"
@@ -161,6 +163,9 @@ func TestMySQLConcurrentCaseCreationAndVoidPreserveNumberingAndValidity(t *testi
 	}
 }
 
+// TestMySQLUnavailableEvidenceSnapshotUsesPersistableTimestamp checks that an
+// unavailable message still produces a persistable evidence record for an
+// explicitly identified moderator, as supplied by the live authorization adapter.
 func TestMySQLUnavailableEvidenceSnapshotUsesPersistableTimestamp(t *testing.T) {
 	db := openIsolatedMySQLDB(t)
 	repositories := store.New(db, nil)
@@ -175,7 +180,8 @@ func TestMySQLUnavailableEvidenceSnapshotUsesPersistableTimestamp(t *testing.T) 
 		t.Fatal(err)
 	}
 	guildContext := &quack.GuildStaffContext{
-		Guild: guild, Staff: &model.StaffMember{GuildID: guild.ID, DiscordUserID: "moderator"},
+		ActorDiscordUserID: "moderator",
+		Guild:              guild, Staff: &model.StaffMember{GuildID: guild.ID, DiscordUserID: "moderator"},
 		Permissions: map[model.PermissionAction]bool{
 			model.PermissionActionCaseTemplateWrite: true,
 			model.PermissionActionCaseCreate:        true,
@@ -252,4 +258,63 @@ func openIsolatedMySQLDB(t *testing.T) *gorm.DB {
 		}
 	})
 	return db
+}
+
+// TestMySQLConcurrentTemplateEditsRejectStaleVersion verifies the database's
+// conditional update under concurrent writers, not just sequential SQLite reads.
+func TestMySQLConcurrentTemplateEditsRejectStaleVersion(t *testing.T) {
+	db := openIsolatedMySQLDB(t)
+	repository := store.New(db, nil)
+	if err := repository.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	guild := templateGuildContext(t, repository, "guild-1", "manager", uint64(discordgo.PermissionManageGuild))
+	service := quack.NewTemplateService(repository)
+	original, err := service.Create(ctx, guild, validTemplateInput("concurrent-policy"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for _, name := range []string{"First edit", "Second edit"} {
+		input := original.EditInput()
+		input.Name = name
+		go func() { <-start; _, err := service.Update(ctx, guild, original.ID, input); results <- err }()
+	}
+	close(start)
+	successes, conflicts := 0, 0
+	for i := 0; i < 2; i++ {
+		err := <-results
+		if err == nil {
+			successes++
+		} else if errors.Is(err, quack.ErrTemplateConflict) {
+			conflicts++
+		} else {
+			t.Fatalf("unexpected concurrent edit failure: %v", err)
+		}
+	}
+	if successes != 1 || conflicts != 1 {
+		t.Fatalf("successes=%d conflicts=%d", successes, conflicts)
+	}
+	current, err := service.Get(ctx, guild, original.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Version != original.Version+1 || len(current.Levels) != len(original.Levels) {
+		t.Fatalf("inconsistent final policy: %+v", current)
+	}
+	entries, err := repository.ListAuditLogEntries(ctx, guild.Guild.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updates := 0
+	for _, entry := range entries {
+		if entry.Action == "case_template.update" && entry.Result == model.AuditResultSuccess {
+			updates++
+		}
+	}
+	if updates != 1 {
+		t.Fatalf("successful update audit count=%d", updates)
+	}
 }
