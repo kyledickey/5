@@ -2,14 +2,17 @@ package config
 
 // Config is the complete immutable process configuration passed into runtime assembly.
 type Config struct {
-	Environment   string `env:"ENVIRONMENT"`
-	API           APIConfig
-	Discord       DiscordConfig
-	Auth          AuthConfig
-	RateLimits    RateLimitConfig
-	Storage       StorageConfig
-	EventQueue    EventQueueConfig
-	Observability ObservabilityConfig
+	Environment string `env:"ENVIRONMENT"`
+	// ApplicationBaseURL is the optional public website destination for links.
+	// CORS origins never supply a fallback for this independently configured URL.
+	ApplicationBaseURL string `env:"APPLICATION_BASE_URL"`
+	API                APIConfig
+	Discord            DiscordConfig
+	Auth               AuthConfig
+	RateLimits         RateLimitConfig
+	Storage            StorageConfig
+	EventQueue         EventQueueConfig
+	Observability      ObservabilityConfig
 }
 
 // RateLimitConfig defines documented fail-closed limits for dashboard and Discord adapter classes.

@@ -49,6 +49,11 @@ func parseEnvironment(values map[string]string) (Config, error) {
 	if err := env.ParseWithOptions(&cfg, env.Options{Environment: values}); err != nil {
 		return Config{}, fmt.Errorf("parse environment configuration: %w", err)
 	}
+	baseURL, err := normalizeApplicationBaseURL(cfg.ApplicationBaseURL)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.ApplicationBaseURL = baseURL
 	cfg.API.CORSAllowedOrigins = cleanList(cfg.API.CORSAllowedOrigins)
 	cfg.API.TrustedProxies = cleanList(cfg.API.TrustedProxies)
 	if cfg.Environment == "dev" && len(cfg.API.CORSAllowedOrigins) == 0 {

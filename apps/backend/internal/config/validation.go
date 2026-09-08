@@ -10,6 +10,9 @@ import (
 // Validate rejects incomplete or unsafe startup configuration before any
 // database, Redis, Discord, worker, or listener side effect occurs.
 func (c Config) Validate() error {
+	if _, err := normalizeApplicationBaseURL(c.ApplicationBaseURL); err != nil {
+		return err
+	}
 	if c.Environment != "dev" && c.Environment != "test" && c.Environment != "staging" && c.Environment != "production" {
 		return fmt.Errorf("ENVIRONMENT must be one of dev, test, staging, or production")
 	}
