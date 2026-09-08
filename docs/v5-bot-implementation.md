@@ -953,3 +953,26 @@ means further work is required, not completion.
   mentions until refreshed, and closure inside a deleted thread provides little
   visible feedback. Legacy retention of text deleted before closure is being
   restored; this rehearsal does not establish that behavior.
+
+### Core composition, logging parity, and historical import
+
+- `f1e1eb7` moves appeal notification and audit mirror worker ownership into
+  process composition, starts them after Discord connects, and stops them before
+  Discord/storage teardown. Core case/appeal controls and authenticated appeal
+  API routes register independently of optional modules. Focused startup/cancel
+  and route tests and the MySQL-enabled backend suite passed; independent review
+  found no remaining regression in the separation.
+- `d90a771` restores cached bot-message context and author identity. Bulk deletion
+  output keeps each author's text/files together under existing privacy flags.
+  Gateway, module and view tests pass. The semantic audit allowlist was reviewed
+  and required no additional change.
+- `8e3a64b` adds explicit read-only legacy SQL extraction and preserves all six
+  legacy types as non-executable historical cases. Imported views identify the
+  actual historical action, moderator and context. Duplicate source IDs fail
+  preview. Root independently passed parser/CLI tests and the disposable MySQL
+  extraction/import rehearsal, including idempotence and no enforcement work.
+  Real-backup rehearsal remains open; exports remain bounded to 64 MiB per file
+  without automatic chunking, and module setup is explicitly manual for cutover.
+- Ticket original-text retention remains uncommitted while thread-level
+  concurrency and final-capture boundaries are reviewed. No newer binary has
+  been loaded during this integration pass.
