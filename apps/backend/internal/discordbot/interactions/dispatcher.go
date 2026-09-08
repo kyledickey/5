@@ -124,9 +124,12 @@ func (d *Dispatcher) execute(session *discordgo.Session, interaction *discordgo.
 	if result.Response == nil {
 		return
 	}
+	// Separate preparation from the Discord request when an acknowledgement fails.
+	// Both consume the interaction deadline, but require different recovery work.
+	responseStarted := time.Now()
 	if err := d.respond(interaction, result.Response); err != nil {
 		attrs := discordErrorAttrs(err)
-		attrs = append(attrs, "interaction", name, "interaction_type", int(interaction.Type), "response_type", int(result.Response.Type), "elapsed_ms", time.Since(started).Milliseconds())
+		attrs = append(attrs, "interaction", name, "interaction_type", int(interaction.Type), "response_type", int(result.Response.Type), "elapsed_ms", time.Since(started).Milliseconds(), "prepare_ms", responseStarted.Sub(started).Milliseconds(), "response_ms", time.Since(responseStarted).Milliseconds())
 		if created, timestampErr := discordgo.SnowflakeTimestamp(interaction.ID); timestampErr == nil {
 			attrs = append(attrs, "interaction_age_ms", time.Since(created).Milliseconds())
 		}
