@@ -226,8 +226,7 @@ func (r *Runtime) runAppealNotifications(ctx context.Context) {
 	}
 }
 
-// appealStaffChannelResolver reuses the configured staff-only audit channel as
-// the appeal queue notification destination.
+// appealStaffChannelResolver reads the dedicated appeal queue on every delivery.
 type appealStaffChannelResolver struct {
 	repository quack.Repository
 	validator  interface {
@@ -251,10 +250,10 @@ func (r appealStaffChannelResolver) AppealStaffChannel(ctx context.Context, guil
 	if err != nil || guild == nil {
 		return "", errors.New("appeal guild is unavailable")
 	}
-	if err := r.validator.ValidateStaffChannel(ctx, guild.DiscordGuildID, settings.AuditMirrorChannelDiscordID); err != nil {
+	if err := r.validator.ValidateStaffChannel(ctx, guild.DiscordGuildID, settings.AppealQueueChannelDiscordID); err != nil {
 		return "", err
 	}
-	return settings.AuditMirrorChannelDiscordID, nil
+	return settings.AppealQueueChannelDiscordID, nil
 }
 
 // runBulkDeletes drains cache-aware bulk deletion work independently of case actions.

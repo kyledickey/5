@@ -97,3 +97,39 @@ func TestGuildSettingsServiceAuthorizationAuditAndNotice(t *testing.T) {
 type allowStaffChannel struct{}
 
 func (allowStaffChannel) ValidateStaffChannel(context.Context, string, string) error { return nil }
+
+// TestAppealQueueSettingIsIndependentAndRequiresValidation covers the dedicated
+// queue's permission, persistence and channel-deletion boundary.
+func TestAppealQueueSettingIsIndependentAndRequiresValidation(t *testing.T) {
+	ctx := context.Background()
+	repository := newMigratedStore(t)
+	bootstrap, err := repository.BootstrapGuild(ctx, model.BootstrapGuildParams{DiscordGuildID: "queue-settings", Name: "Pond", OwnerDiscordUserID: "owner"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := templateGuildContext(t, repository, "queue-settings", "manager", uint64(discordgo.PermissionManageGuild))
+	moderator := templateGuildContext(t, repository, "queue-settings", "mod", uint64(discordgo.PermissionModerateMembers))
+	queue, audit := "100000000000000003", "100000000000000004"
+	service := quack.NewGuildSettingsService(repository).WithStaffChannelValidator(allowStaffChannel{})
+	if _, err := service.Update(ctx, moderator, quack.GuildSettingsInput{AppealQueueChannelDiscordID: &queue}); !errors.Is(err, quack.ErrGuildSettingsPermissionDenied) {
+		t.Fatalf("moderator changed setup: %v", err)
+	}
+	if _, err := quack.NewGuildSettingsService(repository).Update(ctx, manager, quack.GuildSettingsInput{AppealQueueChannelDiscordID: &queue}); !errors.Is(err, quack.ErrGuildSettingsValidation) {
+		t.Fatalf("unvalidated channel saved: %v", err)
+	}
+	saved, err := service.Update(ctx, manager, quack.GuildSettingsInput{AppealQueueChannelDiscordID: &queue, AuditMirrorChannelDiscordID: &audit})
+	if err != nil || saved.AppealQueueChannelDiscordID != queue {
+		t.Fatalf("queue response: %+v %v", saved, err)
+	}
+	loaded, err := repository.GetGuildSettings(ctx, bootstrap.Guild.ID)
+	if err != nil || loaded.AppealQueueChannelDiscordID != queue || loaded.AuditMirrorChannelDiscordID != audit {
+		t.Fatalf("independent channels not persisted: %+v %v", loaded, err)
+	}
+	if _, err := repository.ClearGuildChannelReferences(ctx, bootstrap.Guild.ID, queue, nil); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err = repository.GetGuildSettings(ctx, bootstrap.Guild.ID)
+	if err != nil || loaded.AppealQueueChannelDiscordID != "" || loaded.AuditMirrorChannelDiscordID != audit {
+		t.Fatalf("deletion cleared wrong destination: %+v %v", loaded, err)
+	}
+}

@@ -41,6 +41,7 @@ func (s *Store) UpdateGuildSettings(ctx context.Context, params model.UpdateGuil
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("guild_id = ?", params.Settings.GuildID).First(&record).Error; err != nil {
 			return fmt.Errorf("get guild settings for update: %w", err)
 		}
+		record.AppealQueueChannelDiscordID = params.Settings.AppealQueueChannelDiscordID
 		record.AuditMirrorChannelDiscordID = params.Settings.AuditMirrorChannelDiscordID
 		record.ManagedEvidenceChannelDiscordID = params.Settings.ManagedEvidenceChannelDiscordID
 		record.NotificationIntroduction = params.Settings.NotificationIntroduction
@@ -82,6 +83,10 @@ func (s *Store) ClearGuildChannelReferences(ctx context.Context, guildID, channe
 			return fmt.Errorf("get guild settings for channel repair: %w", err)
 		}
 		changed := false
+		if record.AppealQueueChannelDiscordID == channelID {
+			record.AppealQueueChannelDiscordID = ""
+			changed = true
+		}
 		if record.AuditMirrorChannelDiscordID == channelID {
 			record.AuditMirrorChannelDiscordID = ""
 			changed = true
@@ -197,6 +202,12 @@ func (s *Store) BootstrapGuild(ctx context.Context, params model.BootstrapGuildP
 			known := make(map[string]struct{}, len(params.KnownChannelDiscordIDs))
 			for _, id := range params.KnownChannelDiscordIDs {
 				known[id] = struct{}{}
+			}
+			if settingsRecord.AppealQueueChannelDiscordID != "" {
+				if _, ok := known[settingsRecord.AppealQueueChannelDiscordID]; !ok {
+					settingsRecord.AppealQueueChannelDiscordID = ""
+					channelReferencesRepaired = true
+				}
 			}
 			if settingsRecord.AuditMirrorChannelDiscordID != "" {
 				if _, ok := known[settingsRecord.AuditMirrorChannelDiscordID]; !ok {
@@ -349,8 +360,9 @@ func isExactStarterPolicy(template model.ExpandedCaseTemplate) bool {
 // guildSettingsModelFromRecord maps adapter storage into the persistence-free settings model.
 func guildSettingsModelFromRecord(record GuildSettingsRecord) model.GuildSettings {
 	return model.GuildSettings{
-		ULIDModel: model.ULIDModel{ID: record.ID, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt},
-		GuildID:   record.GuildID, AuditMirrorChannelDiscordID: record.AuditMirrorChannelDiscordID,
+		ULIDModel:                   model.ULIDModel{ID: record.ID, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt},
+		AppealQueueChannelDiscordID: record.AppealQueueChannelDiscordID,
+		GuildID:                     record.GuildID, AuditMirrorChannelDiscordID: record.AuditMirrorChannelDiscordID,
 		ManagedEvidenceChannelDiscordID: record.ManagedEvidenceChannelDiscordID,
 		NotificationIntroduction:        record.NotificationIntroduction, NotificationFooter: record.NotificationFooter,
 		TicketsEnabled: record.TicketsEnabled, GeneralLoggingEnabled: record.GeneralLoggingEnabled,

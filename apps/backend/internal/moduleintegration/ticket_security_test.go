@@ -104,7 +104,7 @@ func TestTicketThreadRepairPreservesCurrentStaffAndRemovesFormerStaff(t *testing
 type appealDestinationStore struct{ quack.Repository }
 
 func (appealDestinationStore) GetGuildSettings(context.Context, string) (*model.GuildSettings, error) {
-	return &model.GuildSettings{AuditMirrorChannelDiscordID: "channel"}, nil
+	return &model.GuildSettings{AuditMirrorChannelDiscordID: "audit-channel", AppealQueueChannelDiscordID: "channel"}, nil
 }
 func (appealDestinationStore) GetGuildByID(context.Context, string) (*model.Guild, error) {
 	return &model.Guild{DiscordGuildID: "discord-guild"}, nil
@@ -172,6 +172,39 @@ func TestTicketCreationHonorsPrivateThreadSetting(t *testing.T) {
 		id, err := client.CreatePrivateTicketChannel(context.Background(), "internal-guild", "owner", tickets.Settings{EntryChannelDiscordID: "entry", UsePrivateThreads: useThreads})
 		if err != nil || id != "ticket" || !created {
 			t.Fatalf("ticket creation: %s %v", id, err)
+		}
+	}
+}
+
+// changingAppealDestination models configuration edits between worker deliveries.
+type changingAppealDestination struct {
+	quack.Repository
+	queue string
+}
+
+func (r *changingAppealDestination) GetGuildSettings(context.Context, string) (*model.GuildSettings, error) {
+	return &model.GuildSettings{AppealQueueChannelDiscordID: r.queue, AuditMirrorChannelDiscordID: "audit"}, nil
+}
+func (r *changingAppealDestination) GetGuildByID(context.Context, string) (*model.Guild, error) {
+	return &model.Guild{DiscordGuildID: "guild"}, nil
+}
+
+type acceptingAppealDestination struct{}
+
+func (acceptingAppealDestination) ValidateStaffChannel(context.Context, string, string) error {
+	return nil
+}
+
+// TestAppealQueueConfigurationTakesEffectWithoutRestart checks the live resolver
+// never falls back to the audit channel or caches a former queue destination.
+func TestAppealQueueConfigurationTakesEffectWithoutRestart(t *testing.T) {
+	repository := &changingAppealDestination{queue: "first"}
+	resolver := appealStaffChannelResolver{repository: repository, validator: acceptingAppealDestination{}}
+	for _, want := range []string{"first", "second", ""} {
+		repository.queue = want
+		got, err := resolver.AppealStaffChannel(context.Background(), "internal-guild")
+		if err != nil || got != want {
+			t.Fatalf("queue %q: got %q %v", want, got, err)
 		}
 	}
 }

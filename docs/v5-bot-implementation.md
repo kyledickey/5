@@ -161,3 +161,12 @@ means further work is required, not completion.
   outbox state; the full backend suite passes. Dedicated-channel setup, durable
   refresh after decisions from other interfaces, notification recovery, optional
   rejoin links and live Discord rehearsal remain pending.
+
+- `/setup appeals channel:` now saves a dedicated private review destination with
+  live Manage Server authorization and staff-channel validation. Appeal delivery
+  no longer uses the audit mirror channel, and resolves configuration afresh on
+  each send. The setting survives storage round trips and is cleared on channel
+  deletion/rejoin repair. Focused and full backend tests pass. The disposable
+  pre-release guild-settings baseline was extended; schema consolidation/reset
+  and live setup verification remain pending. Previously failed notifications
+  still need the recovery work listed above.

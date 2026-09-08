@@ -27,6 +27,7 @@ type GuildRecord struct {
 type GuildSettingsRecord struct {
 	ULIDModelRecord
 	GuildID                           string     `gorm:"type:char(26);not null;uniqueIndex"`
+	AppealQueueChannelDiscordID       string     `gorm:"size:32;not null;default:''"`
 	AuditMirrorChannelDiscordID       string     `gorm:"size:32;not null;default:''"`
 	ManagedEvidenceChannelDiscordID   string     `gorm:"size:32;not null;default:''"`
 	NotificationIntroduction          string     `gorm:"type:text;not null"`

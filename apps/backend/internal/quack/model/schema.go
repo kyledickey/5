@@ -194,6 +194,7 @@ type Guild struct {
 type GuildSettings struct {
 	ULIDModel
 	GuildID                           string
+	AppealQueueChannelDiscordID       string
 	AuditMirrorChannelDiscordID       string
 	ManagedEvidenceChannelDiscordID   string
 	NotificationIntroduction          string

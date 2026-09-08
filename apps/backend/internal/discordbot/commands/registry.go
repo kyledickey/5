@@ -106,6 +106,9 @@ func Register(session *discordgo.Session, services *quack.Services, componentReg
 	}
 
 	registry := NewRegistry()
+	if err := registry.Register(SetupCommandSpec()); err != nil {
+		return err
+	}
 	if err := registry.Register(CaseCommandSpec()); err != nil {
 		return err
 	}

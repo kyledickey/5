@@ -41,6 +41,7 @@ func (s *GuildSettingsService) WithStaffChannelValidator(channels StaffChannelVa
 
 // GuildSettingsInput is a partial settings update; omitted fields retain their current values.
 type GuildSettingsInput struct {
+	AppealQueueChannelDiscordID     *string `json:"appeal_queue_channel_discord_id"`
 	AuditMirrorChannelDiscordID     *string `json:"audit_mirror_channel_discord_id"`
 	ManagedEvidenceChannelDiscordID *string `json:"managed_evidence_channel_discord_id"`
 	NotificationIntroduction        *string `json:"notification_introduction"`
@@ -52,6 +53,7 @@ type GuildSettingsInput struct {
 
 // GuildSettingsResponse is the transport-neutral guild setup contract shared by the dashboard and internal adapters.
 type GuildSettingsResponse struct {
+	AppealQueueChannelDiscordID       string     `json:"appeal_queue_channel_discord_id,omitempty"`
 	ID                                string     `json:"id"`
 	GuildID                           string     `json:"guild_id"`
 	AuditMirrorChannelDiscordID       string     `json:"audit_mirror_channel_discord_id,omitempty"`
@@ -122,6 +124,14 @@ func (s *GuildSettingsService) Update(ctx context.Context, guildContext *GuildSt
 		return nil, err
 	}
 
+	if input.AppealQueueChannelDiscordID != nil && settings.AppealQueueChannelDiscordID != "" {
+		if s.channels == nil {
+			return nil, fmt.Errorf("%w: channel validation unavailable", ErrGuildSettingsValidation)
+		}
+		if err := s.channels.ValidateStaffChannel(ctx, guildContext.Guild.DiscordGuildID, settings.AppealQueueChannelDiscordID); err != nil {
+			return nil, fmt.Errorf("%w: appeal queue channel must be private and belong to this guild", ErrGuildSettingsValidation)
+		}
+	}
 	if input.AuditMirrorChannelDiscordID != nil && settings.AuditMirrorChannelDiscordID != "" {
 		if s.channels == nil {
 			return nil, fmt.Errorf("%w: channel validation unavailable", ErrGuildSettingsValidation)
@@ -199,6 +209,13 @@ func (s *GuildSettingsService) AcknowledgeStarterPolicyNotice(ctx context.Contex
 func applyGuildSettingsInput(settings *model.GuildSettings, input GuildSettingsInput) error {
 	if settings == nil {
 		return fmt.Errorf("%w: settings are required", ErrGuildSettingsValidation)
+	}
+	if input.AppealQueueChannelDiscordID != nil {
+		value, err := normalizeDiscordChannelReference(*input.AppealQueueChannelDiscordID)
+		if err != nil {
+			return err
+		}
+		settings.AppealQueueChannelDiscordID = value
 	}
 	if input.AuditMirrorChannelDiscordID != nil {
 		value, err := normalizeDiscordChannelReference(*input.AuditMirrorChannelDiscordID)
@@ -280,6 +297,7 @@ func (s *GuildSettingsService) auditEntry(ctx context.Context, guildContext *Gui
 func guildSettingsResponse(settings model.GuildSettings) GuildSettingsResponse {
 	return GuildSettingsResponse{
 		ID: settings.ID, GuildID: settings.GuildID,
+		AppealQueueChannelDiscordID:     settings.AppealQueueChannelDiscordID,
 		AuditMirrorChannelDiscordID:     settings.AuditMirrorChannelDiscordID,
 		ManagedEvidenceChannelDiscordID: settings.ManagedEvidenceChannelDiscordID,
 		NotificationIntroduction:        settings.NotificationIntroduction, NotificationFooter: settings.NotificationFooter,
