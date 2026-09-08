@@ -37,26 +37,22 @@ type sessionCommandClient struct {
 
 // ListCommands returns commands subject to authorization, ordering, and filtering constraints.
 func (c sessionCommandClient) ListCommands(ctx context.Context, appID, guildID string) ([]*discordgo.ApplicationCommand, error) {
-	_ = ctx
-	return c.session.ApplicationCommands(appID, guildID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+	return c.session.ApplicationCommands(appID, guildID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(true))
 }
 
 // CreateCommand creates command while preserving validation, authorization, and persistence invariants.
 func (c sessionCommandClient) CreateCommand(ctx context.Context, appID, guildID string, command *discordgo.ApplicationCommand) (*discordgo.ApplicationCommand, error) {
-	_ = ctx
-	return c.session.ApplicationCommandCreate(appID, guildID, command, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+	return c.session.ApplicationCommandCreate(appID, guildID, command, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(true))
 }
 
 // EditCommand encapsulates the edit command rule so callers share one consistent package implementation.
 func (c sessionCommandClient) EditCommand(ctx context.Context, appID, guildID, commandID string, command *discordgo.ApplicationCommand) (*discordgo.ApplicationCommand, error) {
-	_ = ctx
-	return c.session.ApplicationCommandEdit(appID, guildID, commandID, command, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+	return c.session.ApplicationCommandEdit(appID, guildID, commandID, command, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(true))
 }
 
 // DeleteCommand encapsulates the delete command rule so callers share one consistent package implementation.
 func (c sessionCommandClient) DeleteCommand(ctx context.Context, appID, guildID, commandID string) error {
-	_ = ctx
-	return c.session.ApplicationCommandDelete(appID, guildID, commandID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+	return c.session.ApplicationCommandDelete(appID, guildID, commandID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(true))
 }
 
 // Sync reconciles local command specifications with Discord, using fingerprints to avoid unnecessary writes.
@@ -106,7 +102,7 @@ func (s CommandSyncer) Sync(ctx context.Context, specs []CommandSpec) error {
 func (s CommandSyncer) syncOne(ctx context.Context, cache commandHashCache, scope string, remote *discordgo.ApplicationCommand, spec CommandSpec) error {
 	command := spec.Definition
 	commandName := command.Name
-	localHash, localDefinition, err := CommandFingerprint(command)
+	localHash, localDefinition, err := commandFingerprintForScope(command, s.GuildID)
 	if err != nil {
 		return fmt.Errorf("hash command %s: %w", commandName, err)
 	}
@@ -128,7 +124,7 @@ func (s CommandSyncer) syncOne(ctx context.Context, cache commandHashCache, scop
 		return nil
 	}
 
-	remoteHash, remoteDefinition, err := CommandFingerprint(remote)
+	remoteHash, remoteDefinition, err := commandFingerprintForScope(remote, s.GuildID)
 	if err != nil {
 		return fmt.Errorf("hash remote command %s: %w", commandName, err)
 	}
@@ -266,4 +262,16 @@ func commandNames(commands []*discordgo.ApplicationCommand) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// commandFingerprintForScope ignores DM availability for guild-only commands.
+// Discord omits that global-only field on reads; retaining it causes every
+// restart to rewrite unchanged commands. Global command behavior stays intact.
+func commandFingerprintForScope(command *discordgo.ApplicationCommand, guildID string) (string, string, error) {
+	if command == nil || guildID == "" {
+		return CommandFingerprint(command)
+	}
+	copy := *command
+	copy.DMPermission = nil
+	return CommandFingerprint(&copy)
 }

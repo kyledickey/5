@@ -701,3 +701,16 @@ means further work is required, not completion.
   Subsequent startup exposed command fingerprint churn and an unhandled Discord
   rate limit, currently being fixed before the feature rehearsal proceeds. The
   beta process is stopped at that registration failure; the new database is intact.
+
+- Fixed the next live-startup failure: Discord omits `dm_permission` on guild
+  command reads, so fingerprints now exclude that inapplicable field only for
+  guild scope. Global comparisons still preserve DM policy. Registration clients
+  honor Discord's explicit rate-limit cooldowns instead of aborting startup on a
+  short 429. Tests exercise the actual client retry and guild/global comparison;
+  the full MySQL-enabled backend suite passes. Loaded
+  `/tmp/quack-v5-registration-fix` in tmux pane `%1`. Live `/status` reports Beta
+  Bot, MySQL and Redis connected; all seven commands matched remotely with no
+  rewrites. The local database confirms one settings row and one starter template
+  for Quack's pond. The beta bot is running. Remaining live findings: 21 obsolete
+  guild commands (pruning is still disabled) and a general-logging startup error.
+  Full feature journeys, schema-code simplification and broader acceptance remain.
