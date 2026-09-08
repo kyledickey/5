@@ -21,7 +21,7 @@ func handleCaseEvidenceComponent(ctx ui.Context) ui.HandlerResult {
 		if err != nil {
 			return err
 		}
-		detail, err := ctx.Services.Cases.Get(taskCtx, guild, parsed.Payload)
+		detail, err := ctx.Services.Cases.GetEvidenceView(taskCtx, guild, parsed.Payload)
 		if err != nil {
 			return err
 		}
@@ -33,11 +33,20 @@ func handleCaseEvidenceComponent(ctx ui.Context) ui.HandlerResult {
 // pageEvidence reloads the case through live staff authorization on every click;
 // component payloads carry navigation only, never captured content or authority.
 func pageEvidence(delta int) ui.Handler {
-	return pageCaseRecord(delta, views.CaseEvidencePage)
+	return pageCaseRecordWithLoader(delta, views.CaseEvidencePage, (*quack.CaseService).GetEvidenceView)
 }
 
 // pageCaseRecord shares navigation and authorization for private case record views.
 func pageCaseRecord(delta int, render func(*quack.CaseDetailResponse, int, string) ui.Message) ui.Handler {
+	return pageCaseRecordWithLoader(delta, render, (*quack.CaseService).Get)
+}
+
+// caseRecordLoader selects only the authorized data required by a native view.
+type caseRecordLoader func(*quack.CaseService, context.Context, *quack.GuildStaffContext, string) (*quack.CaseDetailResponse, error)
+
+// pageCaseRecordWithLoader retains live authority and navigation semantics while
+// evidence pages avoid loading unrelated parts of the staff case record.
+func pageCaseRecordWithLoader(delta int, render func(*quack.CaseDetailResponse, int, string) ui.Message, load caseRecordLoader) ui.Handler {
 	return func(ctx ui.Context) ui.HandlerResult {
 		parsed, err := ui.DecodeCustomID(ctx.Interaction.MessageComponentData().CustomID)
 		if err != nil {
@@ -56,7 +65,7 @@ func pageCaseRecord(delta int, render func(*quack.CaseDetailResponse, int, strin
 			if err != nil {
 				return err
 			}
-			detail, err := ctx.Services.Cases.Get(taskCtx, guild, parts[1])
+			detail, err := load(ctx.Services.Cases, taskCtx, guild, parts[1])
 			if err != nil {
 				return err
 			}

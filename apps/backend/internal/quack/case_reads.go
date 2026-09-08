@@ -100,6 +100,38 @@ func (s *CaseService) Get(ctx context.Context, guildContext *GuildStaffContext, 
 	}, nil
 }
 
+// GetEvidenceView returns the native staff evidence projection without loading
+// unrelated action attempts, timeline events, or notification state. Authorization
+// and read auditing match Get; the full API detail contract remains unchanged.
+func (s *CaseService) GetEvidenceView(ctx context.Context, guildContext *GuildStaffContext, caseRef string) (*CaseDetailResponse, error) {
+	if err := s.requireCaseRead(guildContext); err != nil {
+		_ = s.audit(ctx, guildContext, string(model.AuditActionCaseRead), "case", strings.TrimSpace(caseRef), model.AuditResultDenied, "permission_denied")
+		return nil, err
+	}
+	caseRef = strings.TrimSpace(caseRef)
+	if caseRef == "" {
+		return nil, validationCaseError("case reference is required")
+	}
+	item, err := s.store.GetCaseByIDOrNumber(ctx, guildContext.Guild.ID, caseRef)
+	if err != nil {
+		return nil, err
+	}
+	if item == nil {
+		return nil, ErrCaseNotFound
+	}
+	evidence, attachments, err := s.store.ListCaseEvidence(ctx, item.ID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.audit(ctx, guildContext, "case.read", "case", item.ID, model.AuditResultSuccess, ""); err != nil {
+		return nil, err
+	}
+	return &CaseDetailResponse{
+		CaseResponse: CaseResponse{ID: item.ID, CaseNumber: item.CaseNumber},
+		Evidence:     caseEvidenceResponses(evidence, attachments, false),
+	}, nil
+}
+
 // UserHistory encapsulates the user history rule so callers share one consistent package implementation.
 func (s *CaseService) UserHistory(ctx context.Context, guildContext *GuildStaffContext, targetDiscordUserID string, input CaseListInput) (*CaseProfileResponse, error) {
 	targetDiscordUserID = strings.TrimSpace(targetDiscordUserID)
