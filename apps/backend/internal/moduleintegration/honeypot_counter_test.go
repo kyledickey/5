@@ -79,6 +79,10 @@ func TestHoneypotCounterRepairsOnlyMissingWarnings(t *testing.T) {
 				t.Fatalf("unrelated deletion triggered delivery: %v", err)
 			}
 			err = counter.WarningDeleted(ctx, "internal", "trap", []string{"another", "old"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = counter.refresh(ctx, "internal")
 			if (err == nil) != (status != 500) || posts != map[int]int{200: 0, 404: 1, 500: 0}[status] {
 				t.Fatalf("unexpected repair: posts=%d err=%v", posts, err)
 			}

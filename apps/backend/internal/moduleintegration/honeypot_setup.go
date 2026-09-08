@@ -92,7 +92,10 @@ func (r *Runtime) SetupHoneypot(ctx ui.Context) ui.HandlerResult {
 			}
 		}
 		if sent == nil {
-			sent, err = r.session.ChannelMessageSendComplex(channel.ID, &discordgo.MessageSend{Content: content, AllowedMentions: &discordgo.MessageAllowedMentions{}}, discordgo.WithContext(taskCtx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+			sent, err = (&honeypotCounter{session: r.session, service: r.Honeypot}).sendWarningReplacement(taskCtx, actor.GuildID, settings, content)
+		}
+		if errors.Is(err, honeypot.ErrWarningDeliveryUnknown) {
+			return fail("The previous warning send could not be confirmed. Inspect the configured channel before changing setup; another warning was not sent.")
 		}
 		if err != nil || sent == nil {
 			return fail("Could not post the honeypot warning. Check Send Messages permission and run setup again.")

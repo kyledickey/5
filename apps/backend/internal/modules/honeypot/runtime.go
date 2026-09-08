@@ -64,6 +64,10 @@ type IncidentObserver interface {
 	IncidentCreated(context.Context, string) error
 }
 
+// PresentationWorker runs optional derived warning delivery independently of
+// moderation and message cleanup. Cancellation must interrupt transport work.
+type PresentationWorker interface{ RunPresentation(context.Context) }
+
 // Runtime is a bounded, independently drainable honeypot gateway worker pool.
 type Runtime struct {
 	observer      IncidentObserver
@@ -89,6 +93,10 @@ func NewRuntime(ctx context.Context, adapter *DiscordAdapter, capacity, workers 
 	runtime := &Runtime{adapter: adapter, events: make(chan Message, capacity), cleanupCtx: cleanupCtx, cancelCleanup: cancelCleanup}
 	if len(observers) > 0 {
 		runtime.observer = observers[0]
+	}
+	if presenter, ok := runtime.observer.(PresentationWorker); ok {
+		runtime.cleanupWG.Add(1)
+		go func() { defer runtime.cleanupWG.Done(); presenter.RunPresentation(cleanupCtx) }()
 	}
 	for range workers {
 		runtime.wg.Add(1)

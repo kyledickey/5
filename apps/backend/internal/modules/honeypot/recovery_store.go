@@ -2,6 +2,7 @@ package honeypot
 
 import (
 	"context"
+	"gorm.io/gorm"
 	"time"
 )
 
@@ -32,14 +33,20 @@ func (s *Store) claimPendingIncident(ctx context.Context) (*Trigger, error) {
 
 // completeIncident fences a saved case or terminal failure against the current
 // attempt's lease. A timed-out original worker cannot overwrite its recovery.
+// Created outcomes atomically request warning refresh; failure leaves recovery due.
 func (s *Store) completeIncident(ctx context.Context, trigger *Trigger, outcome Outcome, caseID, failureCode string) error {
-	result := s.db.WithContext(ctx).Model(&Trigger{}).Where("id = ? AND outcome = ? AND updated_at = ?", trigger.ID, OutcomePending, trigger.UpdatedAt).
-		Updates(map[string]any{"outcome": outcome, "case_id": caseID, "failure_code": failureCode, "updated_at": time.Now().UTC()})
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected != 1 {
-		return ErrDuplicate
-	}
-	return nil
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&Trigger{}).Where("id = ? AND outcome = ? AND updated_at = ?", trigger.ID, OutcomePending, trigger.UpdatedAt).
+			Updates(map[string]any{"outcome": outcome, "case_id": caseID, "failure_code": failureCode, "updated_at": time.Now().UTC()})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return ErrDuplicate
+		}
+		if outcome == OutcomeCreated {
+			return requestWarningRefresh(ctx, tx, trigger.GuildID)
+		}
+		return nil
+	})
 }

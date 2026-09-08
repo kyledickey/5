@@ -44,7 +44,7 @@ func TestAdoptCurrentSchemaPreservesHistory(t *testing.T) {
 			delete(after.Tables, "quack_current_schema")
 			// Current startup creates delivery and message-cleanup tables; they
 			// contain no historical work and must begin empty on adoption.
-			for _, table := range []string{"case_publications", "honeypot_message_cleanups", "ticket_message_journal"} {
+			for _, table := range []string{"case_publications", "honeypot_message_cleanups", "ticket_message_journal", "honeypot_warning_refreshes"} {
 				var count int64
 				if err := db.Table(table).Count(&count).Error; err != nil || count != 0 {
 					t.Fatalf("expected empty %s after adoption: count=%d err=%v", table, count, err)

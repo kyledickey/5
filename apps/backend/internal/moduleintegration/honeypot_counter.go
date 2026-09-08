@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/modules/honeypot"
 )
 
@@ -24,24 +23,31 @@ type honeypotCounter struct {
 	sharedLocks *sync.Map
 }
 
-// IncidentCreated refreshes the current configured warning after case persistence.
+// IncidentCreated schedules the current warning after case persistence.
 // Delivery is presentation only and never writes another staff audit event.
 func (c *honeypotCounter) IncidentCreated(ctx context.Context, guildID string) error {
-	return c.refresh(ctx, guildID, "", nil)
+	return c.service.RequestWarningRefresh(ctx, guildID)
 }
 
-// WarningDeleted refreshes only the currently configured warning, including bulk
+// WarningDeleted schedules only the currently configured warning, including bulk
 // deletions. Stale duplicate events cannot create another replacement.
 func (c *honeypotCounter) WarningDeleted(ctx context.Context, guildID, channelID string, messageIDs []string) error {
 	if channelID == "" || len(messageIDs) == 0 {
 		return nil
 	}
-	return c.refresh(ctx, guildID, channelID, messageIDs)
+	settings, _, err := c.service.Settings(ctx, honeypot.Actor{GuildID: guildID, CanManage: true})
+	if err != nil {
+		return err
+	}
+	if settings.ChannelDiscordID != channelID || !slices.Contains(messageIDs, settings.WarningMessageID) {
+		return nil
+	}
+	return c.service.RequestWarningRefresh(ctx, guildID)
 }
 
 // refresh reloads current settings under the shared presentation lock before
 // validating the destination and updating or repairing its warning.
-func (c *honeypotCounter) refresh(ctx context.Context, guildID, deletedChannel string, deletedIDs []string) error {
+func (c *honeypotCounter) refresh(ctx context.Context, guildID string) error {
 	locks := c.sharedLocks
 	if locks == nil {
 		locks = &c.guildLocks
@@ -55,10 +61,7 @@ func (c *honeypotCounter) refresh(ctx context.Context, guildID, deletedChannel s
 	if err != nil {
 		return err
 	}
-	if deletedChannel != "" && (settings.ChannelDiscordID != deletedChannel || !slices.Contains(deletedIDs, settings.WarningMessageID)) {
-		return nil
-	}
-	if !status.Enabled || settings.ChannelDiscordID == "" {
+	if !status.Enabled || !status.Configured {
 		return nil
 	}
 	discordGuildID, err := c.resolver.discordID(ctx, guildID)
@@ -83,7 +86,7 @@ func (c *honeypotCounter) refresh(ctx context.Context, guildID, deletedChannel s
 			return err
 		}
 	}
-	message, err := c.session.ChannelMessageSendComplex(channel.ID, ui.Message{Content: content}.SendParams(ui.SessionApplicationID(c.session)), discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+	message, err := c.sendWarningReplacement(ctx, guildID, settings, content)
 	if err != nil {
 		return err
 	}

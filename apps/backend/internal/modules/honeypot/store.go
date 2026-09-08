@@ -38,7 +38,7 @@ func NewStore(db *gorm.DB) *Store { return &Store{db: db} }
 // Migration exposes logical migration 0300 for integration into the production ledger.
 func Migration() modules.Migration {
 	return modules.Migration{Version: 300, Name: "honeypot_triggers", Apply: func(db *gorm.DB) error {
-		return db.AutoMigrate(&Trigger{}, &MessageCleanup{})
+		return db.AutoMigrate(&Trigger{}, &MessageCleanup{}, &WarningRefresh{})
 	}}
 }
 
@@ -64,14 +64,11 @@ func (s *Store) Claim(ctx context.Context, message Message, templateID string, o
 
 // Complete transitions one claimed message to a terminal outcome.
 func (s *Store) Complete(ctx context.Context, id string, outcome Outcome, caseID, failureCode string) error {
-	result := s.db.WithContext(ctx).Model(&Trigger{}).Where("id = ? AND outcome = ?", id, OutcomePending).Updates(map[string]any{"outcome": outcome, "case_id": caseID, "failure_code": failureCode, "updated_at": time.Now().UTC()})
-	if result.Error != nil {
-		return result.Error
+	var trigger Trigger
+	if err := s.db.WithContext(ctx).Where("id = ?", id).First(&trigger).Error; err != nil {
+		return err
 	}
-	if result.RowsAffected != 1 {
-		return ErrDuplicate
-	}
-	return nil
+	return s.completeIncident(ctx, &trigger, outcome, caseID, failureCode)
 }
 
 // Statistics derives per-guild counts without reading cases or other modules.
