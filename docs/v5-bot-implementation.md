@@ -1382,3 +1382,29 @@ means further work is required, not completion.
   and 50 finished delivery receipts. The queue readiness marker is now true.
   The temporary ban-rule form remains unsubmitted pending the specific approval
   requested after automatic review rejection; no ban/rejoin outcome is claimed.
+
+### Evidence readback, copy cleanup, and stopped runtime
+
+- In a fresh Helium admin tab, `/case view case:2` and View evidence displayed
+  the private bounded evidence page with its saved attachment and `Evidence 1
+  of 1`. The existing durable copy link reopened the original synthetic text
+  after the intervening restarts. SQL remained at 50 audit events and 50 finished
+  delivery receipts: these read actions did not add moderation history.
+- `ec41e48` replaces bare capture-status headings such as `uploaded` with
+  readable labels and changes the command description to `View case details.`
+  Focused tests and the full backend/MySQL suite passed
+  (`/tmp/evidence-copy-full.log`); `/tmp/quack-v5-evidence-copy-review` built.
+- Fresh-tab case detail also rendered the correct stored tester ID as
+  `@unknown-user`, and Discord's profile lookup said the user was inaccessible.
+  Existing ticket messages in another Helium tab resolved the same member;
+  the native tester remained in the guild. Source review found the correct
+  string ID and intentional mention suppression, not a proven serialization
+  defect. Missing cold-client member metadata is a hypothesis. Diagnosis would
+  require sanitized returned content/mentions/flags, without interaction tokens;
+  no permission changes, new target fetches, or mention-policy relaxation were made.
+- After the interruption, both tmux panes were at `fish`. The beta log showed
+  Ctrl-C followed by a clean shutdown at 16:56; its new copy build was not started.
+  Previously prepared browser tabs/form were no longer present. The explicit
+  permission request for creating the temporary ban rule remains unanswered.
+  A restart and the blocked ban/evidence/appeal/rejoin rehearsal need user input;
+  no live ban or successful rejoin is claimed.

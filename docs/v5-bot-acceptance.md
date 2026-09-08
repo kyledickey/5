@@ -6,7 +6,9 @@ This matrix maps all 76 answers in [the product interview](v5-product-interview.
 
 ## Work in progress and acceptance gates
 
-- Current loaded beta is `/tmp/quack-v5-audit-queue-review` at `25fd8bc`.
+- Both `quack` panes are currently at their shells. The beta was stopped with
+  Ctrl-C and exited cleanly; the dashboard process is also stopped. The last
+  verified running beta was `/tmp/quack-v5-audit-queue-review` at `25fd8bc`.
   Native evidence navigation now fetches one snapshot at a time. Audit polling
   uses indexed due receipts; the unchanged 85,000-event local assessment improved
   median idle polling from 342 ms to 3.04 ms. Live startup preserved all 50
@@ -19,6 +21,14 @@ This matrix maps all 76 answers in [the product interview](v5-product-interview.
   ban rule was blocked by automatic approval review; its submission and the
   ban/evidence/appeal/rejoin journey await specific permission.
   Runtime references below describe earlier rehearsals, not the latest build.
+- `ec41e48` clarifies evidence headings and the case-view command description;
+  the full backend/MySQL suite passed and `/tmp/quack-v5-evidence-copy-review`
+  built successfully, but it has not been started. Before that copy change,
+  the new native evidence page displayed case #2's saved file and `Evidence 1 of
+  1` privately. Its durable message link reopened the original synthetic text
+  after intervening restarts. Audit history remained at 50 events and 50
+  completed receipts after these reads. This verifies administrator access to
+  an existing copy, not restricted-role access or the ban-preservation journey.
 
 - Live ticket acceptance passed for member open, duplicate-open protection, staff join/reply, member close, new ticket after closure, and admin queue close. Both closed tickets retained queue transcripts and released the member slot. See the [implementation ledger](v5-bot-implementation.md). Original-message journaling is committed in `c6e21ed`; deleted-message/restart live acceptance passed: the published queue transcript retained the tester text deleted before a clean beta restart.
 - Native history totals/import labels and bounded Unicode pages are committed in `b8be3c8`; command/view regression packages pass. Live profile acceptance remains open.
