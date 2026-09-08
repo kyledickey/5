@@ -43,6 +43,6 @@ type UpdateGuildAppealSettingsParams struct {
 
 // CompleteAppealNotificationParams records one delivery outcome without mutating its timeline event.
 type CompleteAppealNotificationParams struct {
-	NotificationID, LeaseToken, DeliveryMessageID, ErrorCode string
-	Status                                                   AppealNotificationStatus
+	NotificationID, LeaseToken, DeliveryMessageID, DeliveryChannelID, ErrorCode string
+	Status                                                                      AppealNotificationStatus
 }

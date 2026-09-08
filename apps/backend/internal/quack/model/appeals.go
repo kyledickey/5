@@ -88,6 +88,8 @@ type AppealNotification struct {
 	Audience            AppealNotificationAudience
 	Status              AppealNotificationStatus
 	Body                string
+	DeliveryChannelID   string
+	RefreshRequested    bool
 	DeliveryMessageID   string
 	LastErrorCode       string
 	LeaseToken          string

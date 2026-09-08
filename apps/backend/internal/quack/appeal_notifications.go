@@ -12,10 +12,13 @@ import (
 // ErrAppealDeliveryDeferred means no message was delivered and a later retry is safe.
 var ErrAppealDeliveryDeferred = errors.New("appeal delivery deferred")
 
+// AppealQueueReceipt identifies the existing staff queue message for in-place refresh.
+type AppealQueueReceipt struct{ ChannelID, MessageID string }
+
 // AppealNotificationClient sends already-rendered, staff-identity-free appeal messages.
 type AppealNotificationClient interface {
 	SendAppealMemberNotification(context.Context, string, string) (string, error)
-	SendAppealStaffNotification(context.Context, string, *AppealResponse) (string, error)
+	SendAppealStaffNotification(context.Context, string, *AppealResponse, AppealQueueReceipt) (AppealQueueReceipt, error)
 }
 
 // AppealNotificationDispatcher drains durable appeal outbox items through a Discord adapter.
@@ -46,6 +49,7 @@ func (d *AppealNotificationDispatcher) DispatchPending(ctx context.Context, limi
 			return err
 		}
 		var messageID string
+		receipt := AppealQueueReceipt{ChannelID: item.DeliveryChannelID, MessageID: item.DeliveryMessageID}
 		var sendErr error
 		switch item.Audience {
 		case model.AppealNotificationMember:
@@ -66,13 +70,14 @@ func (d *AppealNotificationDispatcher) DispatchPending(ctx context.Context, limi
 					sendErr = fmt.Errorf("%w: %v", ErrAppealDeliveryDeferred, sendErr)
 				}
 				if sendErr == nil {
-					messageID, sendErr = d.client.SendAppealStaffNotification(ctx, item.GuildID, appeal)
+					receipt, sendErr = d.client.SendAppealStaffNotification(ctx, item.GuildID, appeal, receipt)
+					messageID = receipt.MessageID
 				}
 			}
 		default:
 			sendErr = errors.New("appeal notification audience is invalid")
 		}
-		params := model.CompleteAppealNotificationParams{NotificationID: item.ID, LeaseToken: item.LeaseToken, DeliveryMessageID: messageID, Status: model.AppealNotificationSent}
+		params := model.CompleteAppealNotificationParams{NotificationID: item.ID, LeaseToken: item.LeaseToken, DeliveryMessageID: messageID, DeliveryChannelID: receipt.ChannelID, Status: model.AppealNotificationSent}
 		if sendErr != nil {
 			params.Status = model.AppealNotificationFailed
 			params.ErrorCode = appealNotificationErrorCode(sendErr)

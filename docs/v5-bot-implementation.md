@@ -464,3 +464,15 @@ means further work is required, not completion.
   schema baseline includes this field; the planned local database reset and live
   setup/DM/rejoin rehearsal are still pending. Invite validity is controlled by
   Discord and is not guaranteed by URL validation.
+
+- Appeal decisions now durably refresh the original staff queue notification,
+  including decisions made outside that queue message. Staff delivery retains its
+  channel/message receipt; decisions mark it for refresh without invalidating an
+  active delivery lease. A decision arriving during delivery schedules a subsequent
+  pass, preventing an older pending snapshot from becoming the final queue state.
+  Discord delivery edits existing messages, safely retries failed edits, and only
+  recreates an existing destination message after explicit Unknown Message. New
+  sends retain the conservative ambiguous-outcome handling. Store race tests and
+  transport edit/recreation tests pass, as does the full backend suite. Queue moves
+  publish to the newly validated destination; cleanup of old-channel copies,
+  unknown-send manual recovery, database reset and live rehearsal remain pending.

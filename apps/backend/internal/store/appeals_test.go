@@ -454,12 +454,12 @@ func (c *appealNotificationClientStub) SendAppealMemberNotification(context.Cont
 	return "member-message", nil
 }
 
-func (c *appealNotificationClientStub) SendAppealStaffNotification(_ context.Context, _ string, appeal *quack.AppealResponse) (string, error) {
+func (c *appealNotificationClientStub) SendAppealStaffNotification(_ context.Context, _ string, appeal *quack.AppealResponse, receipt quack.AppealQueueReceipt) (quack.AppealQueueReceipt, error) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	c.staff++
 	c.lastStaff = appeal
-	return "staff-message", nil
+	return quack.AppealQueueReceipt{ChannelID: "staff-channel", MessageID: "staff-message"}, nil
 }
 
 func (c *appealNotificationClientStub) counts() (int, int) {
@@ -511,5 +511,72 @@ func TestAppealNotificationRecoverySeparatesSafeFailureFromUnknownSend(t *testin
 	var failed AppealNotificationRecord
 	if err := repository.db.First(&failed, "id = ?", first.ID).Error; err != nil || failed.Status != model.AppealNotificationFailed || failed.LastErrorCode != "delivery_outcome_unknown" {
 		t.Fatalf("unknown outcome lost: %+v %v", failed, err)
+	}
+}
+
+// TestAppealDecisionRefreshSurvivesInFlightDelivery verifies service decisions
+// refresh the original staff message even when its first send finishes later.
+func TestAppealDecisionRefreshSurvivesInFlightDelivery(t *testing.T) {
+	for _, inFlight := range []bool{false, true} {
+		t.Run(map[bool]string{false: "sent", true: "sending"}[inFlight], func(t *testing.T) {
+			ctx := context.Background()
+			repository, guild := newAppealTestStore(t)
+			item := createAppealableCase(t, repository, guild.ID, "target", true)
+			service := quack.NewAppealService(repository)
+			appeal, err := service.Submit(ctx, item.ID, "target", quack.AppealSubmissionInput{Answers: []model.AppealAnswer{{QuestionID: "reason", Value: "Please reconsider."}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			claimed, err := repository.ClaimPendingAppealNotifications(ctx, 10)
+			if err != nil || len(claimed) != 1 {
+				t.Fatalf("initial queue: %+v %v", claimed, err)
+			}
+			notification := claimed[0]
+			if err := repository.BeginAppealNotificationDelivery(ctx, notification.ID, notification.LeaseToken); err != nil {
+				t.Fatal(err)
+			}
+			complete := func() {
+				t.Helper()
+				if err := repository.CompleteAppealNotification(ctx, model.CompleteAppealNotificationParams{NotificationID: notification.ID, LeaseToken: notification.LeaseToken, DeliveryChannelID: "queue", DeliveryMessageID: "original", Status: model.AppealNotificationSent}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if !inFlight {
+				complete()
+			}
+			moderator := &quack.GuildStaffContext{Guild: guild, Staff: &model.StaffMember{GuildID: guild.ID, DiscordUserID: "moderator"}, Permissions: map[model.PermissionAction]bool{model.PermissionActionAppealReview: true}}
+			if _, err := service.Reject(ctx, moderator, appeal.ID, "Decision stands."); err != nil {
+				t.Fatal(err)
+			}
+			if inFlight {
+				complete()
+			}
+			claimed, err = repository.ClaimPendingAppealNotifications(ctx, 10)
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, refresh := range claimed {
+				if refresh.Audience != model.AppealNotificationStaff {
+					continue
+				}
+				found = true
+				if refresh.ID != notification.ID || refresh.DeliveryChannelID != "queue" || refresh.DeliveryMessageID != "original" || refresh.RefreshRequested {
+					t.Fatalf("lost refresh receipt: %+v", refresh)
+				}
+				if err := repository.BeginAppealNotificationDelivery(ctx, refresh.ID, refresh.LeaseToken); err != nil {
+					t.Fatal(err)
+				}
+				notification = refresh
+				complete()
+			}
+			if !found {
+				t.Fatal("decision did not queue staff refresh")
+			}
+			var stored AppealNotificationRecord
+			if err := repository.db.First(&stored, "id = ?", notification.ID).Error; err != nil || stored.Status != model.AppealNotificationSent {
+				t.Fatalf("refresh did not settle: %+v %v", stored, err)
+			}
+		})
 	}
 }

@@ -41,22 +41,36 @@ func (a *AppealNotificationAdapter) SendAppealMemberNotification(ctx context.Con
 }
 
 // SendAppealStaffNotification delivers one queue entry only to a configured staff destination.
-func (a *AppealNotificationAdapter) SendAppealStaffNotification(ctx context.Context, guildID string, appeal *quack.AppealResponse) (string, error) {
+func (a *AppealNotificationAdapter) SendAppealStaffNotification(ctx context.Context, guildID string, appeal *quack.AppealResponse, receipt quack.AppealQueueReceipt) (quack.AppealQueueReceipt, error) {
 	if a == nil || a.Session == nil || a.Resolver == nil {
-		return "", fmt.Errorf("%w: staff adapter unavailable", quack.ErrAppealDeliveryDeferred)
+		return receipt, fmt.Errorf("%w: staff adapter unavailable", quack.ErrAppealDeliveryDeferred)
 	}
 	channelID, err := a.Resolver.AppealStaffChannel(ctx, guildID)
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", quack.ErrAppealDeliveryDeferred, err)
+		return receipt, fmt.Errorf("%w: %v", quack.ErrAppealDeliveryDeferred, err)
 	}
 	if strings.TrimSpace(channelID) == "" {
-		return "", fmt.Errorf("%w: staff channel unavailable", quack.ErrAppealDeliveryDeferred)
+		return receipt, fmt.Errorf("%w: staff channel unavailable", quack.ErrAppealDeliveryDeferred)
+	}
+	if receipt.ChannelID == channelID && receipt.MessageID != "" {
+		message := views.AppealStaffMessage(appeal).ForApplication(ui.SessionApplicationID(a.Session))
+		emptyEmbeds := []*discordgo.MessageEmbed{}
+		emptyAttachments := []*discordgo.MessageAttachment{}
+		_, err := a.Session.ChannelMessageEditComplex(&discordgo.MessageEdit{ID: receipt.MessageID, Channel: channelID, Content: &message.Content, Components: &message.Components, Embeds: &emptyEmbeds, Attachments: &emptyAttachments, Files: message.Files, AllowedMentions: &discordgo.MessageAllowedMentions{}}, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+		if err == nil {
+			return receipt, nil
+		}
+		var rest *discordgo.RESTError
+		if !errors.As(err, &rest) || rest.Message == nil || rest.Message.Code != discordgo.ErrCodeUnknownMessage {
+			// Editing a known message is idempotent, even after an uncertain response.
+			return receipt, fmt.Errorf("%w: %v", quack.ErrAppealDeliveryDeferred, err)
+		}
 	}
 	message, err := a.Session.ChannelMessageSendComplex(channelID, views.AppealStaffMessage(appeal).SendParams(ui.SessionApplicationID(a.Session)), discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 	if err != nil {
-		return "", appealSendError(err)
+		return receipt, appealSendError(err)
 	}
-	return message.ID, nil
+	return quack.AppealQueueReceipt{ChannelID: channelID, MessageID: message.ID}, nil
 }
 
 // appealSendError retries only explicit Discord rejections, never ambiguous

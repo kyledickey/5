@@ -67,9 +67,9 @@ func guildAppealSettingsModel(record GuildAppealSettingsRecord) *model.GuildAppe
 }
 
 func appealNotificationRecord(item model.AppealNotification) *AppealNotificationRecord {
-	return &AppealNotificationRecord{ULIDModelRecord: ULIDModelRecord{ID: item.ID, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}, AppealID: item.AppealID, EventID: item.EventID, GuildID: item.GuildID, TargetDiscordUserID: item.TargetDiscordUserID, Audience: item.Audience, Status: item.Status, Body: item.Body, DeliveryMessageID: item.DeliveryMessageID, LastErrorCode: item.LastErrorCode, LeaseToken: item.LeaseToken, LeaseExpiresAt: item.LeaseExpiresAt}
+	return &AppealNotificationRecord{ULIDModelRecord: ULIDModelRecord{ID: item.ID, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}, AppealID: item.AppealID, EventID: item.EventID, GuildID: item.GuildID, TargetDiscordUserID: item.TargetDiscordUserID, Audience: item.Audience, Status: item.Status, Body: item.Body, DeliveryMessageID: item.DeliveryMessageID, DeliveryChannelID: item.DeliveryChannelID, RefreshRequested: item.RefreshRequested, LastErrorCode: item.LastErrorCode, LeaseToken: item.LeaseToken, LeaseExpiresAt: item.LeaseExpiresAt}
 }
 
 func appealNotificationModel(record AppealNotificationRecord) model.AppealNotification {
-	return model.AppealNotification{ULIDModel: model.ULIDModel{ID: record.ID, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}, AppealID: record.AppealID, EventID: record.EventID, GuildID: record.GuildID, TargetDiscordUserID: record.TargetDiscordUserID, Audience: record.Audience, Status: record.Status, Body: record.Body, DeliveryMessageID: record.DeliveryMessageID, LastErrorCode: record.LastErrorCode, LeaseToken: record.LeaseToken, LeaseExpiresAt: record.LeaseExpiresAt}
+	return model.AppealNotification{ULIDModel: model.ULIDModel{ID: record.ID, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}, AppealID: record.AppealID, EventID: record.EventID, GuildID: record.GuildID, TargetDiscordUserID: record.TargetDiscordUserID, Audience: record.Audience, Status: record.Status, Body: record.Body, DeliveryMessageID: record.DeliveryMessageID, DeliveryChannelID: record.DeliveryChannelID, RefreshRequested: record.RefreshRequested, LastErrorCode: record.LastErrorCode, LeaseToken: record.LeaseToken, LeaseExpiresAt: record.LeaseExpiresAt}
 }

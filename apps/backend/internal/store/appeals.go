@@ -299,6 +299,15 @@ func (s *Store) TransitionAppeal(ctx context.Context, params model.TransitionApp
 		if err := tx.Create(appealNotificationRecord(notification)).Error; err != nil {
 			return err
 		}
+		// Preserve an in-flight send's lease and request another pass after it
+		// finishes. Idle queue messages can be refreshed immediately.
+		if err := tx.Model(&AppealNotificationRecord{}).Where("appeal_id = ? AND audience = ?", updated.ID, model.AppealNotificationStaff).Updates(map[string]any{
+			"refresh_requested": true,
+			"status":            gorm.Expr("CASE WHEN status = ? THEN ? ELSE status END", model.AppealNotificationSent, model.AppealNotificationPending),
+			"updated_at":        now,
+		}).Error; err != nil {
+			return err
+		}
 		audit := params.AppealAudit
 		audit.ResourceID = updated.ID
 		return createAuditLogEntry(tx, &audit, now)

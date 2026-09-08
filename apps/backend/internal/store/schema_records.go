@@ -294,6 +294,8 @@ type AppealNotificationRecord struct {
 	Audience            model.AppealNotificationAudience `gorm:"size:32;not null;index"`
 	Status              model.AppealNotificationStatus   `gorm:"size:32;not null;index"`
 	Body                string                           `gorm:"type:text;not null"`
+	DeliveryChannelID   string                           `gorm:"size:32;not null;default:''"`
+	RefreshRequested    bool                             `gorm:"not null;default:false"`
 	DeliveryMessageID   string                           `gorm:"size:32;not null"`
 	LastErrorCode       string                           `gorm:"size:64;not null"`
 	LeaseToken          string                           `gorm:"size:64;not null;index"`

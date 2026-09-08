@@ -42,12 +42,13 @@ func (s *Store) ClaimPendingAppealNotifications(ctx context.Context, limit int) 
 		ids := make([]string, 0, len(records))
 		for index := range records {
 			ids = append(ids, records[index].ID)
+			records[index].RefreshRequested = false
 			records[index].Status = model.AppealNotificationClaimed
 			records[index].LeaseToken = token
 			records[index].LeaseExpiresAt = &expiresAt
 			records[index].UpdatedAt = now
 		}
-		result = tx.Model(&AppealNotificationRecord{}).Where("id IN ?", ids).Updates(map[string]any{"status": model.AppealNotificationClaimed, "lease_token": token, "lease_expires_at": expiresAt, "updated_at": now})
+		result = tx.Model(&AppealNotificationRecord{}).Where("id IN ?", ids).Updates(map[string]any{"refresh_requested": false, "status": model.AppealNotificationClaimed, "lease_token": token, "lease_expires_at": expiresAt, "updated_at": now})
 		if result.Error != nil {
 			return result.Error
 		}
@@ -74,7 +75,12 @@ func (s *Store) CompleteAppealNotification(ctx context.Context, params model.Com
 	if params.Status != model.AppealNotificationSent && params.Status != model.AppealNotificationFailed {
 		return errors.New("appeal notification completion status is invalid")
 	}
-	result := s.db.WithContext(ctx).Model(&AppealNotificationRecord{}).Where("id = ? AND status = ? AND lease_token = ?", params.NotificationID, model.AppealNotificationSending, params.LeaseToken).Updates(map[string]any{"status": params.Status, "delivery_message_id": params.DeliveryMessageID, "last_error_code": params.ErrorCode, "lease_token": "", "lease_expires_at": nil, "updated_at": time.Now().UTC()})
+	result := s.db.WithContext(ctx).Model(&AppealNotificationRecord{}).Where("id = ? AND status = ? AND lease_token = ?", params.NotificationID, model.AppealNotificationSending, params.LeaseToken).Updates(map[string]any{
+		"status":              gorm.Expr("CASE WHEN refresh_requested = ? AND ? = ? THEN ? ELSE ? END", true, params.Status, model.AppealNotificationSent, model.AppealNotificationPending, params.Status),
+		"delivery_message_id": gorm.Expr("CASE WHEN ? <> '' THEN ? ELSE delivery_message_id END", params.DeliveryMessageID, params.DeliveryMessageID),
+		"delivery_channel_id": gorm.Expr("CASE WHEN ? <> '' THEN ? ELSE delivery_channel_id END", params.DeliveryChannelID, params.DeliveryChannelID),
+		"last_error_code":     params.ErrorCode, "lease_token": "", "lease_expires_at": nil, "updated_at": time.Now().UTC(),
+	})
 	if result.Error != nil {
 		return result.Error
 	}
