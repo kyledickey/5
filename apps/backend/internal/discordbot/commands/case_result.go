@@ -3,7 +3,6 @@ package commands
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"slices"
 	"time"
@@ -18,39 +17,27 @@ import (
 // refresh with bot credentials. If storage fails, a bounded interaction worker
 // attempts recovery while the caller retains the private committed-case receipt.
 func updatePublicCaseResult(ctx context.Context, responder ui.Responder, services *quack.Services, created *quack.CaseResponse, messageID string, channelID string, template *quack.TemplateResponse) error {
-	if services == nil || services.Store == nil || responder == nil || created == nil || created.ID == "" || messageID == "" {
+	if services == nil || services.Cases == nil || responder == nil || created == nil || created.ID == "" || messageID == "" {
 		return nil
 	}
-	var persistErr error
-	if repository, ok := services.Store.(interface {
-		SaveCasePublication(context.Context, model.CasePublication) error
-	}); ok {
-		// Explicitly allowlist the initial public display. Never serialize the
-		// full case response, staff context, evidence, or template configuration.
-		publicCase := &quack.CaseResponse{ID: created.ID, CaseNumber: created.CaseNumber, CreatedAt: created.CreatedAt, TargetDiscordUserID: created.TargetDiscordUserID, Validity: created.Validity, EvidenceIncomplete: created.EvidenceIncomplete}
-		if created.SelectedLevel != nil {
-			publicCase.SelectedLevel = &quack.CaseSelectedLevel{TemplateLevelDetails: quack.TemplateLevelDetails{Name: created.SelectedLevel.Name}}
-		}
-		var publicTemplate *quack.TemplateResponse
-		if template != nil {
-			publicTemplate = &quack.TemplateResponse{Name: template.Name, Slug: template.Slug}
-		}
-		encoded, err := json.Marshal(views.CaseCreated{Case: publicCase, Template: publicTemplate})
-		if err != nil {
-			return err
-		}
-		receipt := model.CasePublication{CaseID: created.ID, MessageID: messageID, ChannelID: channelID, PresentationJSON: string(encoded), RetryAt: time.Now().UTC()}
-		for attempt := 0; attempt < 3; attempt++ {
-			persistErr = repository.SaveCasePublication(ctx, receipt)
-			if persistErr == nil {
-				return nil
-			}
-			if ctx.Err() != nil {
-				break
-			}
-		}
-	} else {
-		persistErr = errors.New("durable case publication storage unavailable")
+	// Explicitly allowlist the initial public display. Never serialize the
+	// full case response, staff context, evidence, or template configuration.
+	publicCase := &quack.CaseResponse{ID: created.ID, CaseNumber: created.CaseNumber, CreatedAt: created.CreatedAt, TargetDiscordUserID: created.TargetDiscordUserID, Validity: created.Validity, EvidenceIncomplete: created.EvidenceIncomplete}
+	if created.SelectedLevel != nil {
+		publicCase.SelectedLevel = &quack.CaseSelectedLevel{TemplateLevelDetails: quack.TemplateLevelDetails{Name: created.SelectedLevel.Name}}
+	}
+	var publicTemplate *quack.TemplateResponse
+	if template != nil {
+		publicTemplate = &quack.TemplateResponse{Name: template.Name, Slug: template.Slug}
+	}
+	encoded, err := json.Marshal(views.CaseCreated{Case: publicCase, Template: publicTemplate})
+	if err != nil {
+		return err
+	}
+	receipt := model.CasePublication{CaseID: created.ID, MessageID: messageID, ChannelID: channelID, PresentationJSON: string(encoded), RetryAt: time.Now().UTC()}
+	persistErr := services.Cases.RecordPublicReceipt(ctx, receipt)
+	if persistErr == nil {
+		return nil
 	}
 
 	snapshot := *created
@@ -58,14 +45,14 @@ func updatePublicCaseResult(ctx context.Context, responder ui.Responder, service
 	go func() {
 		ctx, cancel := context.WithTimeout(ctx, 14*time.Minute)
 		defer cancel()
-		refreshPublicCaseResult(ctx, responder, services.Store.ListCaseActionExecutions, &snapshot, messageID, template, 2*time.Second)
+		refreshPublicCaseResult(ctx, responder, services.Cases.PublicReceiptActionStatuses, &snapshot, messageID, template, 2*time.Second)
 	}()
 	return persistErr
 }
 
 // refreshPublicCaseResult publishes changing action statuses and retries failed
 // edits of the same message. The caller owns snapshot; no case action is executed.
-func refreshPublicCaseResult(ctx context.Context, responder ui.Responder, listActions func(context.Context, string) ([]model.CaseActionExecution, error), snapshot *quack.CaseResponse, messageID string, template *quack.TemplateResponse, interval time.Duration) {
+func refreshPublicCaseResult(ctx context.Context, responder ui.Responder, listActions func(context.Context, string) ([]quack.CaseActionResponse, error), snapshot *quack.CaseResponse, messageID string, template *quack.TemplateResponse, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	dirty := false

@@ -110,12 +110,12 @@ func TestPublicCaseRefreshRetriesReadAndEdit(t *testing.T) {
 	defer cancel()
 	responder := &retryingCaseRefresh{}
 	reads := 0
-	list := func(context.Context, string) ([]model.CaseActionExecution, error) {
+	list := func(context.Context, string) ([]quack.CaseActionResponse, error) {
 		reads++
 		if reads == 1 {
 			return nil, errors.New("database unavailable")
 		}
-		return []model.CaseActionExecution{{ULIDModel: model.ULIDModel{ID: "action"}, Status: model.ActionExecutionSucceeded}}, nil
+		return []quack.CaseActionResponse{{ID: "action", Status: model.ActionExecutionSucceeded}}, nil
 	}
 	snapshot := &quack.CaseResponse{ID: "case", Actions: []quack.CaseActionResponse{{ID: "action", Status: model.ActionExecutionPending}}}
 	refreshPublicCaseResult(ctx, responder, list, snapshot, "message", nil, time.Millisecond)
@@ -143,7 +143,7 @@ func TestCasePublicationPersistsOnlyPublicSnapshot(t *testing.T) {
 	repository := &publicationCaptureRepository{}
 	created := &quack.CaseResponse{ID: "case", CaseNumber: 42, TargetDiscordUserID: "member", Reason: "SECRET reason", ModeratorDiscordUserID: "SECRET moderator", ContextURL: "SECRET evidence", Metadata: "SECRET metadata", SelectedLevel: &quack.CaseSelectedLevel{TemplateLevelDetails: quack.TemplateLevelDetails{Name: "Public level", TriggerCaseCount: 12345}, MatchedCaseCount: 54321}}
 	template := &quack.TemplateResponse{Name: "Public rule", Slug: "rule", Description: "SECRET description"}
-	if err := updatePublicCaseResult(context.Background(), &fakeResponder{}, &quack.Services{Store: repository}, created, "message", "channel", template); err != nil {
+	if err := updatePublicCaseResult(context.Background(), &fakeResponder{}, &quack.Services{Cases: quack.NewCaseService(repository)}, created, "message", "channel", template); err != nil {
 		t.Fatal(err)
 	}
 	if repository.receipt.ChannelID != "channel" || repository.receipt.CaseID != "case" || strings.Contains(repository.receipt.PresentationJSON, "SECRET") || strings.Contains(repository.receipt.PresentationJSON, "12345") || strings.Contains(repository.receipt.PresentationJSON, "54321") || !strings.Contains(repository.receipt.PresentationJSON, "Public rule") {
