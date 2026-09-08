@@ -12,8 +12,9 @@ import (
 )
 
 type fakeActionClient struct {
-	dmFailures []error
-	dms        []fakeActionMessage
+	notificationRequests []quack.CaseNotificationRequest
+	dmFailures           []error
+	dms                  []fakeActionMessage
 }
 
 type fakeActionMessage struct {
@@ -36,8 +37,14 @@ func (f *fakeActionClient) SendDM(ctx context.Context, discordUserID, message st
 
 // SendCaseNotification keeps notification-capable fake clients on the same path
 // as production when an appealable case has no configured website.
-func (f *fakeActionClient) SendCaseNotification(ctx context.Context, userID, channelID, message, baseURL, guildID, caseID string) (map[string]any, error) {
-	return f.SendDM(ctx, userID, message)
+func (f *fakeActionClient) SendCaseNotification(ctx context.Context, request quack.CaseNotificationRequest) (quack.CaseNotificationReceipt, error) {
+	f.notificationRequests = append(f.notificationRequests, request)
+	response, err := f.SendDM(ctx, request.TargetDiscordUserID, request.Reason)
+	receipt := quack.CaseNotificationReceipt{RenderedMessage: request.Reason, ChannelID: request.PreparedChannelDiscordID}
+	if response != nil {
+		receipt.MessageID, _ = response["message_id"].(string)
+	}
+	return receipt, err
 }
 
 func TestActionServiceProcessesSafeActions(t *testing.T) {
@@ -59,8 +66,12 @@ func TestActionServiceProcessesSafeActions(t *testing.T) {
 		t.Fatalf("process actions: %v", err)
 	}
 
-	if len(fakeDiscord.dms) != 1 || fakeDiscord.dms[0].TargetID != "target-1" || !strings.Contains(fakeDiscord.dms[0].Message, "No spam") || !strings.Contains(fakeDiscord.dms[0].Message, "**Spam**") || !strings.Contains(fakeDiscord.dms[0].Message, "Case #1") {
+	if len(fakeDiscord.dms) != 1 || fakeDiscord.dms[0].TargetID != "target-1" || !strings.Contains(fakeDiscord.dms[0].Message, "No spam") || fakeDiscord.notificationRequests[0].RuleName != "Spam" || fakeDiscord.notificationRequests[0].CaseNumber != 1 {
 		t.Fatalf("unexpected DMs: %+v", fakeDiscord.dms)
+	}
+	receiptRecord, receiptErr := store.GetCaseNotification(ctx, created.ID)
+	if receiptErr != nil || receiptRecord == nil || receiptRecord.RenderedMessage != fakeDiscord.notificationRequests[0].Reason || receiptRecord.DeliveryMessageDiscordID != "dm-message-1" {
+		t.Fatalf("adapter receipt was not retained: %+v %v", receiptRecord, receiptErr)
 	}
 	actions, err := store.ListCaseActionExecutions(ctx, created.ID)
 	if err != nil {
@@ -106,6 +117,9 @@ func TestActionServiceDoesNotAutomaticallyRetryNotificationFailure(t *testing.T)
 	notification, err := store.GetCaseNotification(ctx, created.ID)
 	if err != nil || notification == nil || notification.Status != model.NotificationFailed {
 		t.Fatalf("expected terminal notification failure, got %+v err=%v", notification, err)
+	}
+	if notification.RenderedMessage != fakeDiscord.notificationRequests[0].Reason || notification.DeliveryMessageDiscordID != "" {
+		t.Fatalf("failed delivery lost adapter receipt: %+v", notification)
 	}
 	if err := quack.NewActionService(store, fakeDiscord).ProcessCaseActions(ctx, created.ID); err != nil {
 		t.Fatalf("process duplicate request: %v", err)

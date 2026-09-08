@@ -26,10 +26,10 @@ type DiscordPreparedDMClient interface {
 	SendPreparedDM(context.Context, string, string) (map[string]any, error)
 }
 
-// DiscordCaseNotificationClient delivers a case notification with the secure
-// dashboard appeal control when the immutable case snapshot permits appeals.
+// DiscordCaseNotificationClient owns case-notification presentation and delivery,
+// returning the rendered attempt even on error for durable core bookkeeping.
 type DiscordCaseNotificationClient interface {
-	SendCaseNotification(context.Context, string, string, string, string, string, string) (map[string]any, error)
+	SendCaseNotification(context.Context, CaseNotificationRequest) (CaseNotificationReceipt, error)
 }
 
 // DiscordActionError carries classified discord action error failure details across package boundaries.

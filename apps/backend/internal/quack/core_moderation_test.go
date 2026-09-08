@@ -189,10 +189,16 @@ func (f *fakeEnforcementClient) SendPreparedDM(context.Context, string, string) 
 	f.calls = append(f.calls, "send_prepared_dm")
 	return map[string]any{"message_id": "dm"}, nil
 }
-func (f *fakeEnforcementClient) SendCaseNotification(_ context.Context, _, _ string, _ string, dashboardBaseURL, guildID, caseID string) (map[string]any, error) {
-	f.calls = append(f.calls, "send_case_notification")
-	f.dashboardBaseURL, f.notificationGuildID, f.notificationCaseID = dashboardBaseURL, guildID, caseID
-	return map[string]any{"message_id": "dm"}, nil
+func (f *fakeEnforcementClient) SendCaseNotification(_ context.Context, request quack.CaseNotificationRequest) (quack.CaseNotificationReceipt, error) {
+	if request.AppealControl {
+		f.calls = append(f.calls, "send_case_notification")
+	} else if request.PreparedChannelDiscordID != "" {
+		f.calls = append(f.calls, "send_prepared_dm")
+	} else {
+		f.calls = append(f.calls, "send_dm")
+	}
+	f.dashboardBaseURL, f.notificationGuildID, f.notificationCaseID = request.DashboardBaseURL, request.GuildID, request.CaseID
+	return quack.CaseNotificationReceipt{RenderedMessage: request.Reason, ChannelID: request.PreparedChannelDiscordID, MessageID: "dm"}, nil
 }
 func (f *fakeEnforcementClient) TimeoutMember(_ context.Context, _, _ string, duration int, reason string) (map[string]any, error) {
 	f.calls = append(f.calls, "timeout")

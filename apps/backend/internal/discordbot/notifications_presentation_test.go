@@ -10,6 +10,8 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordtext"
+	"github.com/quackdiscord/bot/internal/quack"
+	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 // TestNotificationAdaptersSendApplicationText checks real REST serialization
@@ -37,7 +39,11 @@ func TestNotificationAdaptersSendApplicationText(t *testing.T) {
 					if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
 						t.Fatal(err)
 					}
-					if payload.Content != discordtext.Resolve(body, appID) || len(payload.Embeds) != 0 || payload.AllowedMentions == nil || len(payload.AllowedMentions.Parse) != 0 {
+					expectedBody := body
+					if count == 3 {
+						expectedBody = renderCaseNotification(quack.CaseNotificationRequest{GuildName: "The Pond", Reason: "A reason.", CaseNumber: 12, IncludeAppealInstructions: true, AppealControl: true, Outcomes: []quack.CaseNotificationOutcome{{ActionType: model.ActionTimeoutUser, Status: model.ActionExecutionSucceeded}}})
+					}
+					if payload.Content != discordtext.Resolve(expectedBody, appID) || len(payload.Embeds) != 0 || payload.AllowedMentions == nil || len(payload.AllowedMentions.Parse) != 0 {
 						t.Errorf("invalid text DM: %+v", payload)
 					}
 					if count == 3 && len(payload.Components) != 1 {
@@ -54,7 +60,7 @@ func TestNotificationAdaptersSendApplicationText(t *testing.T) {
 			if _, err := bot.SendPreparedDM(context.Background(), "dm-channel", body); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := bot.SendCaseNotification(context.Background(), "member", "dm-channel", body, "https://dashboard.example", "guild", "case"); err != nil {
+			if _, err := bot.SendCaseNotification(context.Background(), quack.CaseNotificationRequest{TargetDiscordUserID: "member", PreparedChannelDiscordID: "dm-channel", DashboardBaseURL: "https://dashboard.example", GuildID: "guild", CaseID: "case", GuildName: "The Pond", Reason: "A reason.", CaseNumber: 12, IncludeAppealInstructions: true, AppealControl: true, Outcomes: []quack.CaseNotificationOutcome{{ActionType: model.ActionTimeoutUser, Status: model.ActionExecutionSucceeded}}}); err != nil {
 				t.Fatal(err)
 			}
 			adapter := &AppealNotificationAdapter{Session: session}
