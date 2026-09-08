@@ -44,8 +44,14 @@ func (s *AppealService) response(ctx context.Context, item *model.Appeal, member
 		if actionErr != nil {
 			return nil, actionErr
 		}
+		queued := make(map[string]bool)
 		for _, action := range actions {
-			if action.Status != model.ActionExecutionSucceeded || action.ReversalOfExecutionID != nil {
+			if action.ReversalOfExecutionID != nil {
+				queued[*action.ReversalOfExecutionID] = true
+			}
+		}
+		for _, action := range actions {
+			if action.Status != model.ActionExecutionSucceeded || action.ReversalOfExecutionID != nil || queued[action.ID] {
 				continue
 			}
 			switch action.ActionType {
@@ -67,7 +73,7 @@ func memberNotificationBody(status model.AppealStatus, reason string) string {
 	case model.AppealStatusNeedsInformation:
 		icon, lead, next = "reply", "Staff need a little more information to review your appeal.", "You can reply from your Quack dashboard."
 	case model.AppealStatusAccepted:
-		icon, lead, next = "accept", "Your appeal was accepted.", "Any ban or timeout removal is handled separately. Check your case for updates."
+		icon, lead, next = "accept", "Your appeal was accepted.", "Your case was voided. Quack will try to remove any ban or timeout from it."
 	case model.AppealStatusRejected:
 		icon, lead = "decline", "Your appeal was declined."
 	}

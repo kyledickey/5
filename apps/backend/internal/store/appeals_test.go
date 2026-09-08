@@ -215,12 +215,12 @@ func TestAppealServiceOwnershipSnapshotTimelineAndAtomicAcceptance(t *testing.T)
 		t.Fatalf("submit information: %v", err)
 	}
 	accepted, err := service.Accept(ctx, moderator, appeal.ID, "The added context changes the decision.")
-	if err != nil || accepted.Status != model.AppealStatusAccepted || len(accepted.ReversalOffers) != 1 || accepted.ReversalOffers[0].ActionType != model.ActionUnbanUser {
+	if err != nil || accepted.Status != model.AppealStatusAccepted || len(accepted.ReversalOffers) != 0 {
 		t.Fatalf("accept appeal: %+v err=%v", accepted, err)
 	}
 	actionsBeforeReversal, err := repository.ListCaseActionExecutions(ctx, caseModel.ID)
-	if err != nil || len(actionsBeforeReversal) != 2 || actionsBeforeReversal[1].Status != model.ActionExecutionCancelled || actionsBeforeReversal[1].LastErrorCode != "case_voided" {
-		t.Fatalf("acceptance silently queued a reversal: actions=%+v err=%v", actionsBeforeReversal, err)
+	if err != nil || len(actionsBeforeReversal) != 3 || actionsBeforeReversal[2].ActionType != model.ActionUnbanUser || actionsBeforeReversal[2].Status != model.ActionExecutionPending || actionsBeforeReversal[1].Status != model.ActionExecutionCancelled || actionsBeforeReversal[1].LastErrorCode != "case_voided" {
+		t.Fatalf("acceptance did not queue punishment removal: actions=%+v err=%v", actionsBeforeReversal, err)
 	}
 	var cancelledNotification model.CaseNotification
 	if err := repository.db.First(&cancelledNotification, "id = ?", queuedCaseNotification.ID).Error; err != nil || cancelledNotification.Status != model.NotificationFailed || cancelledNotification.LastErrorCode != "case_voided" {

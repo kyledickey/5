@@ -116,6 +116,15 @@ func (s *ActionService) processClaimedAction(ctx context.Context, workerID strin
 		result = actionmods.RetryableError("guild_lookup_failed", "Guild information is temporarily unavailable")
 	case discordGuildID == "":
 		result = actionmods.PermanentError("guild_not_found", "The case guild is unavailable")
+	case claimed.Execution.ReversalOfExecutionID != nil:
+		actorID, _ := config["requested_by"].(string)
+		if s.authorizer == nil || actorID == "" {
+			result = actionmods.PermanentError("reversal_authorization_unavailable", "Could not verify permission to undo this punishment. A moderator can retry it.")
+		} else if err := s.authorizer.PreflightReversal(ctx, &GuildStaffContext{Guild: guild, ActorDiscordUserID: actorID}, claimed.Case.TargetDiscordUserID, claimed.Execution.ActionType); err != nil {
+			result = actionmods.PermanentError("reversal_permission_denied", "Could not verify permission to undo this punishment. A moderator with the required permission can retry it.")
+		} else {
+			result = s.executeAction(ctx, handler, actionContext)
+		}
 	default:
 		result = s.executeAction(ctx, handler, actionContext)
 	}

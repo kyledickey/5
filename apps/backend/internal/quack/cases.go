@@ -298,6 +298,9 @@ func (s *CaseService) Void(ctx context.Context, guildContext *GuildStaffContext,
 	if voided == nil {
 		return nil, ErrCaseNotFound
 	}
+	if s.scheduler != nil {
+		s.scheduler.Submit(ctx, voided.ID)
+	}
 	slog.InfoContext(ctx, "Case voided", "guild_id", voided.GuildID, "case_id", voided.ID, "case_number", voided.CaseNumber)
 	actions, err := s.store.ListCaseActionExecutions(ctx, voided.ID)
 	if err != nil {

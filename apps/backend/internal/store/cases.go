@@ -246,11 +246,11 @@ func (s *Store) VoidCase(ctx context.Context, params model.VoidCaseParams) (*mod
 		if err := tx.Select("*").Save(&item).Error; err != nil {
 			return err
 		}
-		if err := tx.Model(&model.CaseActionExecution{}).Where("case_id = ? AND status IN ?", item.ID, []model.ActionExecutionStatus{model.ActionExecutionPending, model.ActionExecutionRetrying}).Updates(map[string]any{"status": model.ActionExecutionCancelled, "last_error_code": "case_voided", "last_error": "case was voided before enforcement", "finished_at": now, "next_retry_at": nil}).Error; err != nil {
-			return fmt.Errorf("cancel voided case actions: %w", err)
+		if err := cancelVoidedCaseWork(tx, item.ID, now); err != nil {
+			return err
 		}
-		if err := tx.Model(&model.CaseNotification{}).Where("case_id = ? AND status IN ?", item.ID, []model.NotificationStatus{model.NotificationPending, model.NotificationPrepared, model.NotificationClaimed}).Updates(map[string]any{"status": model.NotificationFailed, "last_error_code": "case_voided", "last_error": "case was voided before notification", "lease_token": "", "lease_expires_at": nil, "updated_at": now}).Error; err != nil {
-			return fmt.Errorf("cancel voided case notification: %w", err)
+		if err := queueVoidedCaseReversals(tx, item, now); err != nil {
+			return err
 		}
 		event := model.CaseEvent{CaseID: item.ID, EventType: model.CaseEventVoided, ActorDiscordUserID: params.ActorDiscordUserID, ActorType: "staff", Visibility: model.EventVisibilityPublic, Body: "Case voided", MetadataJSON: marshalJSONObject(map[string]any{"reason": params.Reason, "replacement_case_id": params.ReplacementCaseID})}
 		if err := appendCaseEvent(tx, &event, now); err != nil {

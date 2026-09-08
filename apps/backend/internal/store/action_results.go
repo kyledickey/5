@@ -19,6 +19,11 @@ func (s *Store) CompleteCaseAction(ctx context.Context, params CompleteCaseActio
 
 	now := time.Now().UTC()
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Serialize completion with void/claim using the same case-first order.
+		var caseRecord model.Case
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id IN (SELECT case_id FROM case_action_executions WHERE id = ?)", params.ExecutionID).Limit(1).Find(&caseRecord).Error; err != nil {
+			return err
+		}
 		var execution model.CaseActionExecution
 		query := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", params.ExecutionID)
 		if params.LeaseToken != "" {
@@ -74,6 +79,12 @@ func (s *Store) CompleteCaseAction(ctx context.Context, params CompleteCaseActio
 			return fmt.Errorf("complete case action attempt: %w", err)
 		}
 
+		// A failure finishing after a void must not resurrect automatic enforcement.
+		if caseRecord.Validity == model.CaseValidityVoided && execution.ReversalOfExecutionID == nil && params.ExecutionStatus == model.ActionExecutionRetrying {
+			params.ExecutionStatus = model.ActionExecutionFailed
+			params.NextRetryAt = nil
+			params.EventBody = "Enforcement failed after the case was voided; review the outcome"
+		}
 		execution.Status = params.ExecutionStatus
 		execution.LastErrorCode = params.ErrorCode
 		execution.LastError = params.ErrorMessage
@@ -106,6 +117,9 @@ func (s *Store) CompleteCaseAction(ctx context.Context, params CompleteCaseActio
 			}
 		}
 
+		if err := queueVoidedCaseReversals(tx, caseRecord, now); err != nil {
+			return err
+		}
 		if err := createCaseActionAudit(tx, execution, params, now); err != nil {
 			return err
 		}

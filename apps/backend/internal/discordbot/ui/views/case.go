@@ -103,3 +103,17 @@ func casePrimaryControls(caseID, targetID string, voided bool) []discordgo.Messa
 		button("void", caseID, "Void case", discordgo.DangerButton, voided),
 	}
 }
+
+// CaseVoidedMessage distinguishes a saved void from asynchronous punishment removal.
+func CaseVoidedMessage(item *quack.CaseResponse) ui.Message {
+	status := "It stays in history and no longer counts toward escalation."
+	for _, action := range item.Actions {
+		if action.ActionType == model.ActionRemoveTimeout || action.ActionType == model.ActionUnbanUser {
+			status += "\n" + publicActionStatus([]quack.CaseActionResponse{action})
+		} else if action.Status == model.ActionExecutionRunning {
+			status += "\nEnforcement is still finishing. Quack will try to undo any ban or timeout that succeeds."
+		}
+	}
+	status += fmt.Sprintf("\nUse `/case view case:%d` to check the result or retry a failed removal.", item.CaseNumber)
+	return ui.Conversation("case_void", fmt.Sprintf("Case #%d was voided.", item.CaseNumber), "", status, "", false)
+}

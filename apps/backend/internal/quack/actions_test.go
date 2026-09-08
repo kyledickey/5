@@ -253,4 +253,29 @@ func TestRetryUnbanRefreshesPermissionsForDepartedMember(t *testing.T) {
 	if _, err := service.Retry(ctx, moderator, reversal.ID); err == nil {
 		t.Fatal("repeat retry ignored revoked ban permission")
 	}
+	client := &fakeEnforcementClient{}
+	worker := quack.NewActionService(store, client).WithRecoveryControls(quack.NewGuildService(store, fakeDiscordClient{authorization: snapshot}), nil)
+	if err := worker.ProcessCaseActions(ctx, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	failed, err := store.GetCaseActionExecution(ctx, moderator.Guild.ID, reversal.ID)
+	if err != nil || failed.Status != model.ActionExecutionFailed || len(client.calls) != 0 {
+		t.Fatalf("unauthorized worker removal: %+v calls=%v err=%v", failed, client.calls, err)
+	}
+	// A different moderator can recover the failure; the worker must check the
+	// retrying moderator, rather than the original voider's revoked permissions.
+	other := templateGuildContext(t, store, "guild-1", "mod-2", uint64(discordgo.PermissionModerateMembers|discordgo.PermissionBanMembers))
+	snapshot.Actor.DiscordUserID = "mod-2"
+	snapshot.Actor.PermissionBits = uint64(discordgo.PermissionModerateMembers | discordgo.PermissionBanMembers)
+	retried, err = service.Retry(ctx, other, reversal.ID)
+	if err != nil || !strings.Contains(retried.ConfigSnapshotJSON, "mod-2") {
+		t.Fatalf("retry did not retain current requester: %+v %v", retried, err)
+	}
+	if err := worker.ProcessCaseActions(ctx, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	finished, err := store.GetCaseActionExecution(ctx, moderator.Guild.ID, reversal.ID)
+	if err != nil || finished.Status != model.ActionExecutionSucceeded || len(client.calls) != 1 || client.calls[0] != "unban" {
+		t.Fatalf("removal recovery: %+v calls=%v err=%v", finished, client.calls, err)
+	}
 }

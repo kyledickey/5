@@ -40,7 +40,8 @@ func (s *Store) ListFailedCaseActions(ctx context.Context, filter model.FailedCa
 	return &model.FailedCaseActionResult{Executions: items, Total: total}, nil
 }
 
-// RetryCaseAction requeues the same immutable action after live authorization has been performed by the service.
+// RetryCaseAction requeues the same action after live service authorization.
+// Reversals retain the new requester for a second permission check by the worker.
 func (s *Store) RetryCaseAction(ctx context.Context, params model.RetryCaseActionParams) (*model.CaseActionExecution, error) {
 	return s.controlCaseAction(ctx, params.GuildID, params.ExecutionID, func(tx *gorm.DB, item *model.CaseActionExecution, now time.Time) error {
 		var caseRecord model.Case
@@ -55,6 +56,9 @@ func (s *Store) RetryCaseAction(ctx context.Context, params model.RetryCaseActio
 		}
 		if item.Status != model.ActionExecutionFailed {
 			return errors.New("action is not failed")
+		}
+		if item.ReversalOfExecutionID != nil {
+			item.ConfigSnapshotJSON = marshalJSONObject(map[string]any{"requested_by": params.ActorDiscordUserID})
 		}
 		item.Status = model.ActionExecutionPending
 		item.NextRetryAt = nil
@@ -148,55 +152,11 @@ func (s *Store) QueueCaseReversal(ctx context.Context, params model.QueueCaseRev
 	now := time.Now().UTC()
 	var reversal model.CaseActionExecution
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var original model.CaseActionExecution
-		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND case_id = ? AND case_id IN (SELECT id FROM cases WHERE guild_id = ?)", params.OriginalExecutionID, params.CaseID, params.GuildID).First(&original)
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return gorm.ErrRecordNotFound
-		}
-		if result.Error != nil {
-			return result.Error
-		}
-		if original.Status != model.ActionExecutionSucceeded {
-			return errors.New("only a succeeded action can be reversed")
-		}
-		valid := (original.ActionType == model.ActionTimeoutUser && params.ActionType == model.ActionRemoveTimeout) || (original.ActionType == model.ActionBanUser && params.ActionType == model.ActionUnbanUser)
-		if !valid {
-			return errors.New("reversal does not match original action")
-		}
-		if params.AppealID != nil {
-			var count int64
-			if err := tx.Model(&model.Appeal{}).Where("id = ? AND case_id = ? AND status = ?", *params.AppealID, params.CaseID, model.AppealStatusAccepted).Count(&count).Error; err != nil {
-				return err
-			}
-			if count != 1 {
-				return errors.New("reversal appeal is not accepted for this case")
-			}
-		}
-		var maxPosition int
-		if err := tx.Model(&model.CaseActionExecution{}).Where("case_id = ?", params.CaseID).Select("COALESCE(MAX(position), -1)").Scan(&maxPosition).Error; err != nil {
-			return fmt.Errorf("find reversal position: %w", err)
-		}
-		originalID := original.ID
-		reversal = model.CaseActionExecution{CaseID: params.CaseID, Position: maxPosition + 1, ActionType: params.ActionType, Status: model.ActionExecutionPending, IdempotencyKey: fmt.Sprintf("case:%s:reversal:%s:%s", params.CaseID, original.ID, params.ActionType), ConfigSnapshotJSON: "{}", SafeForRetry: false, Irreversible: true, ReversalOfExecutionID: &originalID, ReversalAppealID: params.AppealID}
-		var existing model.CaseActionExecution
-		existingResult := tx.Where("idempotency_key = ?", reversal.IdempotencyKey).First(&existing)
-		if existingResult.Error == nil {
-			reversal = existing
-			return nil
-		} else if !errors.Is(existingResult.Error, gorm.ErrRecordNotFound) {
-			return existingResult.Error
-		}
-		if err := prepareULIDModel(&reversal.ULIDModel, now); err != nil {
+		var caseRecord model.Case
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND guild_id = ?", params.CaseID, params.GuildID).First(&caseRecord).Error; err != nil {
 			return err
 		}
-		if err := tx.Select("*").Create(&reversal).Error; err != nil {
-			return fmt.Errorf("queue reversal: %w", err)
-		}
-		event := model.CaseEvent{CaseID: params.CaseID, EventType: model.CaseEventReversalQueued, ActorDiscordUserID: params.ActorDiscordUserID, ActorType: "staff", Visibility: model.EventVisibilityStaff, Body: "Action reversal queued", MetadataJSON: marshalJSONObject(map[string]any{"original_execution_id": original.ID, "reversal_execution_id": reversal.ID})}
-		if err := appendCaseEvent(tx, &event, now); err != nil {
-			return err
-		}
-		return createOptionalActionControlAudit(tx, params.Audit, reversal.ID, now)
+		return queueCaseReversal(tx, params, now, &reversal)
 	})
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
@@ -205,6 +165,60 @@ func (s *Store) QueueCaseReversal(ctx context.Context, params model.QueueCaseRev
 		return nil, err
 	}
 	return &reversal, nil
+}
+
+// queueCaseReversal appends one inverse inside a transaction that already holds
+// the case lock. Its stable key prevents duplicate reversal work across callers.
+func queueCaseReversal(tx *gorm.DB, params model.QueueCaseReversalParams, now time.Time, reversal *model.CaseActionExecution) error {
+	var original model.CaseActionExecution
+	result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND case_id = ? AND case_id IN (SELECT id FROM cases WHERE guild_id = ?)", params.OriginalExecutionID, params.CaseID, params.GuildID).First(&original)
+	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+		return gorm.ErrRecordNotFound
+	}
+	if result.Error != nil {
+		return result.Error
+	}
+	if original.Status != model.ActionExecutionSucceeded {
+		return errors.New("only a succeeded action can be reversed")
+	}
+	valid := (original.ActionType == model.ActionTimeoutUser && params.ActionType == model.ActionRemoveTimeout) || (original.ActionType == model.ActionBanUser && params.ActionType == model.ActionUnbanUser)
+	if !valid {
+		return errors.New("reversal does not match original action")
+	}
+	if params.AppealID != nil {
+		var count int64
+		if err := tx.Model(&model.Appeal{}).Where("id = ? AND case_id = ? AND status = ?", *params.AppealID, params.CaseID, model.AppealStatusAccepted).Count(&count).Error; err != nil {
+			return err
+		}
+		if count != 1 {
+			return errors.New("reversal appeal is not accepted for this case")
+		}
+	}
+	var maxPosition int
+	if err := tx.Model(&model.CaseActionExecution{}).Where("case_id = ?", params.CaseID).Select("COALESCE(MAX(position), -1)").Scan(&maxPosition).Error; err != nil {
+		return fmt.Errorf("find reversal position: %w", err)
+	}
+	originalID := original.ID
+	*reversal = model.CaseActionExecution{CaseID: params.CaseID, Position: maxPosition + 1, ActionType: params.ActionType, Status: model.ActionExecutionPending, IdempotencyKey: fmt.Sprintf("case:%s:reversal:%s:%s", params.CaseID, original.ID, params.ActionType), ConfigSnapshotJSON: marshalJSONObject(map[string]any{"requested_by": params.ActorDiscordUserID}), SafeForRetry: false, Irreversible: true, ReversalOfExecutionID: &originalID, ReversalAppealID: params.AppealID}
+	var existing model.CaseActionExecution
+	existingResult := tx.Where("idempotency_key = ?", reversal.IdempotencyKey).First(&existing)
+	if existingResult.Error == nil {
+		*reversal = existing
+		return nil
+	} else if !errors.Is(existingResult.Error, gorm.ErrRecordNotFound) {
+		return existingResult.Error
+	}
+	if err := prepareULIDModel(&reversal.ULIDModel, now); err != nil {
+		return err
+	}
+	if err := tx.Select("*").Create(reversal).Error; err != nil {
+		return fmt.Errorf("queue reversal: %w", err)
+	}
+	event := model.CaseEvent{CaseID: params.CaseID, EventType: model.CaseEventReversalQueued, ActorDiscordUserID: params.ActorDiscordUserID, ActorType: "staff", Visibility: model.EventVisibilityStaff, Body: "Action reversal queued", MetadataJSON: marshalJSONObject(map[string]any{"original_execution_id": original.ID, "reversal_execution_id": reversal.ID})}
+	if err := appendCaseEvent(tx, &event, now); err != nil {
+		return err
+	}
+	return createOptionalActionControlAudit(tx, params.Audit, reversal.ID, now)
 }
 
 // PrepareCaseNotification durably records a DM channel opened before kick or ban enforcement.

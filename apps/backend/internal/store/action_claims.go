@@ -77,7 +77,7 @@ func (s *Store) ClaimNextCaseAction(ctx context.Context, params ClaimCaseActionP
 				return priorResult.Error
 			}
 		}
-		if recovering && (!execution.SafeForRetry || execution.Irreversible || execution.AttemptCount > execution.MaxRetries || execution.AttemptCount == 255) {
+		if recovering && ((caseModel.Validity == model.CaseValidityVoided && execution.ReversalOfExecutionID == nil) || !execution.SafeForRetry || execution.Irreversible || execution.AttemptCount > execution.MaxRetries || execution.AttemptCount == 255) {
 			// An expired lease proves only that a worker stopped reporting. It
 			// does not prove Discord rejected the request. Preserve the attempt
 			// and require review when repeating it is unsafe or retries ran out.
@@ -144,7 +144,7 @@ func failExpiredAction(tx *gorm.DB, item model.Case, execution *model.CaseAction
 		return err
 	}
 	return createAuditLogEntry(tx, &model.AuditLogEntry{GuildID: item.GuildID,
-		Source: model.AuditSourceSystem, Action: string(model.AuditActionActionRecovered),
+		Source: model.AuditSourceSystem, Action: string(model.AuditActionActionFailed),
 		ResourceType: "case_action_execution", ResourceID: execution.ID,
 		Result: model.AuditResultFailure, FailureReason: execution.LastErrorCode,
 		CorrelationID: firstNonEmpty(execution.CorrelationID, item.CorrelationID),

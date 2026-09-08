@@ -205,3 +205,121 @@ func TestRetryCannotResurrectVoidedPunishment(t *testing.T) {
 		t.Fatalf("voided punishment became executable: %+v, %v", claimed, err)
 	}
 }
+
+// TestVoidQueuesReversalAcrossCompletionRace exercises both transaction orders:
+// completed punishment then void, and void while Discord enforcement is in flight.
+func TestVoidQueuesReversalAcrossCompletionRace(t *testing.T) {
+	for _, late := range []bool{false, true} {
+		t.Run(map[bool]string{false: "completed", true: "in_flight"}[late], func(t *testing.T) {
+			ctx := context.Background()
+			repository, guildID := templateTestStore(t)
+			created, err := repository.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), ActionExecutions: []model.CaseActionExecution{{ActionType: model.ActionBanUser, ConfigSnapshotJSON: `{}`}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			claimed, err := repository.ClaimNextCaseAction(ctx, storage.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker"})
+			if err != nil || claimed == nil {
+				t.Fatalf("claim: %+v %v", claimed, err)
+			}
+			complete := func() {
+				t.Helper()
+				if err := repository.CompleteCaseAction(ctx, storage.CompleteCaseActionParams{ExecutionID: claimed.Execution.ID, LeaseToken: claimed.Execution.LeaseToken, AttemptNumber: claimed.Execution.AttemptCount, AttemptStatus: model.ActionAttemptSucceeded, ExecutionStatus: model.ActionExecutionSucceeded}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			void := func() {
+				t.Helper()
+				if _, err := repository.VoidCase(ctx, model.VoidCaseParams{GuildID: guildID, CaseID: created.Case.ID, ActorDiscordUserID: "moderator", Reason: "Mistaken identity"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if !late {
+				complete()
+			}
+			void()
+			if late {
+				complete()
+			}
+			void()
+			actions, err := repository.ListCaseActionExecutions(ctx, created.Case.ID)
+			if err != nil || len(actions) != 2 || actions[1].ActionType != model.ActionUnbanUser || actions[1].Status != model.ActionExecutionPending || actions[1].ReversalOfExecutionID == nil || *actions[1].ReversalOfExecutionID != claimed.Execution.ID {
+				t.Fatalf("reversal: %+v %v", actions, err)
+			}
+			// A fresh polling cycle must discover removal even though the case is voided.
+			ids, err := repository.ListExecutableCaseIDs(ctx, 10)
+			if err != nil || len(ids) != 1 || ids[0] != created.Case.ID {
+				t.Fatalf("durable polling lost reversal: %v %v", ids, err)
+			}
+		})
+	}
+}
+
+// TestVoidedInFlightFailureCannotRetry verifies both a reported safe retry and a
+// lost worker lease stay out of automatic punishment execution after a void.
+func TestVoidedInFlightFailureCannotRetry(t *testing.T) {
+	for _, expired := range []bool{false, true} {
+		t.Run(map[bool]string{false: "reported_failure", true: "expired_worker"}[expired], func(t *testing.T) {
+			ctx := context.Background()
+			repository, guildID := templateTestStore(t)
+			created, err := repository.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), ActionExecutions: []model.CaseActionExecution{{ActionType: model.ActionTimeoutUser, SafeForRetry: true, MaxRetries: 3, ConfigSnapshotJSON: `{}`}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			claimed, err := repository.ClaimNextCaseAction(ctx, storage.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker"})
+			if err != nil || claimed == nil {
+				t.Fatalf("claim: %v", err)
+			}
+			if _, err := repository.VoidCase(ctx, model.VoidCaseParams{GuildID: guildID, CaseID: created.Case.ID, ActorDiscordUserID: "mod", Reason: "Mistake"}); err != nil {
+				t.Fatal(err)
+			}
+			if expired {
+				if err := repository.DB().Model(&model.CaseActionExecution{}).Where("id = ?", claimed.Execution.ID).Update("lease_expires_at", time.Now().Add(-time.Minute)).Error; err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				if err := repository.CompleteCaseAction(ctx, storage.CompleteCaseActionParams{ExecutionID: claimed.Execution.ID, LeaseToken: claimed.Execution.LeaseToken, AttemptNumber: claimed.Execution.AttemptCount, AttemptStatus: model.ActionAttemptFailed, ExecutionStatus: model.ActionExecutionRetrying, ErrorCode: "transport_failed"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			next, err := repository.ClaimNextCaseAction(ctx, storage.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "next"})
+			if err != nil || next != nil {
+				t.Fatalf("void retried enforcement: %+v %v", next, err)
+			}
+			actions, err := repository.ListCaseActionExecutions(ctx, created.Case.ID)
+			if err != nil || len(actions) != 1 || actions[0].Status != model.ActionExecutionFailed {
+				t.Fatalf("lost review failure: %+v %v", actions, err)
+			}
+		})
+	}
+}
+
+// TestVoidRollsBackWhenRemovalCannotBeStored proves a saved void cannot lose its
+// removal work when writing the inverse fails before the transaction commits.
+func TestVoidRollsBackWhenRemovalCannotBeStored(t *testing.T) {
+	ctx := context.Background()
+	repository, guildID := templateTestStore(t)
+	created, err := repository.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), ActionExecutions: []model.CaseActionExecution{{ActionType: model.ActionTimeoutUser, Status: model.ActionExecutionSucceeded, ConfigSnapshotJSON: `{}`}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.DB().Exec("CREATE TRIGGER reject_inverse BEFORE INSERT ON case_action_executions WHEN NEW.reversal_of_execution_id IS NOT NULL BEGIN SELECT RAISE(ABORT, 'simulated storage failure'); END").Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.VoidCase(ctx, model.VoidCaseParams{GuildID: guildID, CaseID: created.Case.ID, ActorDiscordUserID: "mod", Reason: "Mistake"}); err == nil {
+		t.Fatal("void committed without inverse")
+	}
+	persisted, err := repository.GetCaseByID(ctx, created.Case.ID)
+	if err != nil || persisted.Validity != model.CaseValidityValid {
+		t.Fatalf("void escaped rollback: %+v %v", persisted, err)
+	}
+	if err := repository.DB().Exec("DROP TRIGGER reject_inverse").Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.VoidCase(ctx, model.VoidCaseParams{GuildID: guildID, CaseID: created.Case.ID, ActorDiscordUserID: "mod", Reason: "Mistake"}); err != nil {
+		t.Fatal(err)
+	}
+	actions, err := repository.ListCaseActionExecutions(ctx, created.Case.ID)
+	if err != nil || len(actions) != 2 || actions[1].ActionType != model.ActionRemoveTimeout {
+		t.Fatalf("timeout removal: %+v %v", actions, err)
+	}
+}

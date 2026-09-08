@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -298,11 +297,8 @@ func (s *Store) TransitionAppeal(ctx context.Context, params model.TransitionApp
 			if result := tx.Model(&CaseRecord{}).Where("id = ? AND status = ?", item.ID, model.CaseValidityValid).Updates(caseUpdates); result.Error != nil || result.RowsAffected != 1 {
 				return model.ErrAppealStateConflict
 			}
-			if err := tx.Model(&model.CaseActionExecution{}).Where("case_id = ? AND status IN ?", item.ID, []model.ActionExecutionStatus{model.ActionExecutionPending, model.ActionExecutionRetrying}).Updates(map[string]any{"status": model.ActionExecutionCancelled, "last_error_code": "case_voided", "last_error": "case was voided before enforcement", "finished_at": now, "next_retry_at": nil}).Error; err != nil {
-				return fmt.Errorf("cancel appeal-voided case actions: %w", err)
-			}
-			if err := tx.Model(&model.CaseNotification{}).Where("case_id = ? AND status IN ?", item.ID, []model.NotificationStatus{model.NotificationPending, model.NotificationPrepared, model.NotificationClaimed}).Updates(map[string]any{"status": model.NotificationFailed, "last_error_code": "case_voided", "last_error": "case was voided before notification", "lease_token": "", "lease_expires_at": nil, "updated_at": now}).Error; err != nil {
-				return fmt.Errorf("cancel appeal-voided case notification: %w", err)
+			if err := cancelVoidedCaseWork(tx, item.ID, now); err != nil {
+				return err
 			}
 			caseEvent := model.CaseEvent{CaseID: item.ID, GuildID: item.GuildID, EventType: model.CaseEventVoided, ActorDiscordUserID: params.ActorDiscordUserID, ActorType: "staff", Visibility: model.EventVisibilityPublic, Body: "Case voided after appeal accepted", MetadataJSON: "{}"}
 			if err := appendCaseEvent(tx, &caseEvent, now); err != nil {
@@ -329,6 +325,15 @@ func (s *Store) TransitionAppeal(ctx context.Context, params model.TransitionApp
 		})
 		if result.Error != nil || result.RowsAffected != 1 {
 			return model.ErrAppealStateConflict
+		}
+		if params.VoidCase {
+			var item model.Case
+			if err := tx.Where("id = ?", *updated.CaseID).First(&item).Error; err != nil {
+				return err
+			}
+			if err := queueVoidedCaseReversals(tx, item, now); err != nil {
+				return err
+			}
 		}
 		event := params.Event
 		event.AppealID = updated.ID

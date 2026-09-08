@@ -120,3 +120,15 @@ means further work is required, not completion.
   permissions, including unban for departed members; repeated requests also
   refresh permissions. Focused and full backend tests pass. Automatic reversal
   on void/appeal acceptance and late worker completion remain pending.
+
+- Voiding a case and accepting its appeal now transactionally queue linked unban
+  or timeout removal for successful original punishments. Pending original work
+  and notices are cancelled; existing reversals remain intact. Late successful
+  enforcement also queues removal, while late failures and expired workers cannot
+  restart punishment on a voided case. Durable polling discovers queued removals.
+  Workers check the requester's live permissions; a different authorized moderator
+  can retry a failed removal. Case/appeal copy distinguishes voiding from removal
+  completion. Regression tests cover both completion/void orders, deduplication,
+  rollback on inverse storage failure, appeal linking, and permission failure then
+  successful unban recovery. Live Discord rehearsal and enriched audit controls
+  remain pending; existing Discord action retries are available on case detail.

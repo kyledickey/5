@@ -2,7 +2,6 @@ package commands
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -72,7 +71,7 @@ func handleVoidModal(ctx ui.Context) ui.HandlerResult {
 			_, editErr := responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(voidErr)))
 			return editErr
 		}
-		_, editErr := ui.Publish(responder, ui.Conversation("case_void", fmt.Sprintf("Case #%d was voided.", item.CaseNumber), "", "It stays in history and no longer counts toward escalation.", "", false))
+		_, editErr := ui.Publish(responder, views.CaseVoidedMessage(item))
 		return editErr
 	})
 }

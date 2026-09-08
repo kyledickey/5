@@ -206,7 +206,7 @@ func (s *AppealService) Reopen(ctx context.Context, guildContext *GuildStaffCont
 	return s.transition(ctx, guildContext, appealID, reason, []model.AppealStatus{model.AppealStatusRejected, model.AppealStatusClosed}, model.AppealStatusNeedsInformation, model.AppealEventReopened, false)
 }
 
-// Accept records the decision and atomically voids the case; it never queues a Discord reversal.
+// Accept atomically records the decision, voids the case, and queues punishment removal.
 func (s *AppealService) Accept(ctx context.Context, guildContext *GuildStaffContext, appealID, reason string) (*AppealResponse, error) {
 	return s.transition(ctx, guildContext, appealID, reason, []model.AppealStatus{model.AppealStatusPending}, model.AppealStatusAccepted, model.AppealEventAccepted, true)
 }

@@ -71,8 +71,11 @@ func handleCaseStaffSubcommand(ctx ui.Context, data discordgo.ApplicationCommand
 			if confirm := selected.GetOption("confirm"); confirm == nil || !confirm.BoolValue() {
 				err = quack.ErrCaseValidation
 			} else {
-				_, err = ctx.Services.Cases.Void(taskCtx, guildContext, optionStringValue(selected.GetOption("case")), optionStringValue(selected.GetOption("reason")), nil)
-				response = ui.Signal("case_void", "Case voided. The correction remains in its history.", false)
+				var item *quack.CaseResponse
+				item, err = ctx.Services.Cases.Void(taskCtx, guildContext, optionStringValue(selected.GetOption("case")), optionStringValue(selected.GetOption("reason")), nil)
+				if item != nil {
+					response = views.CaseVoidedMessage(item)
+				}
 			}
 		case "reverse":
 			if confirm := selected.GetOption("confirm"); confirm == nil || !confirm.BoolValue() {

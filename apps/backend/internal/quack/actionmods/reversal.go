@@ -2,7 +2,7 @@ package actionmods
 
 import "context"
 
-// RemoveTimeout executes a staff-confirmed timeout reversal.
+// RemoveTimeout executes a permission-checked timeout reversal.
 func RemoveTimeout(client DiscordClient) Executor {
 	return Func(func(ctx context.Context, action Context) Result {
 		enforcement, ok := client.(EnforcementClient)
@@ -17,7 +17,7 @@ func RemoveTimeout(client DiscordClient) Executor {
 	})
 }
 
-// UnbanUser executes a staff-confirmed ban reversal.
+// UnbanUser executes a permission-checked ban reversal.
 func UnbanUser(client DiscordClient) Executor {
 	return Func(func(ctx context.Context, action Context) Result {
 		enforcement, ok := client.(EnforcementClient)
