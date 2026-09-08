@@ -6,6 +6,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/quack"
+	"strings"
 )
 
 // SetupHandlers supplies optional-module configuration without coupling commands to their runtime.
@@ -16,6 +17,7 @@ func SetupCommandSpec(moduleSetup ...SetupHandlers) CommandSpec {
 	permissions := int64(discordgo.PermissionManageServer)
 	dm := false
 	spec := CommandSpec{Definition: &discordgo.ApplicationCommand{Name: "setup", Description: "Configure Quack for this server", DefaultMemberPermissions: &permissions, DMPermission: &dm, Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "appeals", Description: "Choose the private channel for appeal reviews", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionChannel, Name: "channel", Description: "Private text channel for the appeal queue", Required: true, ChannelTypes: []discordgo.ChannelType{discordgo.ChannelTypeGuildText}}}}}}, Handler: handleSetup}
+	spec.Definition.Options[0].Options = append(spec.Definition.Options[0].Options, &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionString, Name: "rejoin", Description: "Discord invite for accepted appeals; use none to remove it", MaxLength: 256})
 	spec.Definition.Options = append(spec.Definition.Options, &discordgo.ApplicationCommandOption{
 		Type: discordgo.ApplicationCommandOptionSubCommand, Name: "tickets", Description: "Set up private support tickets",
 		Options: []*discordgo.ApplicationCommandOption{
@@ -70,9 +72,17 @@ func handleSetup(ctx ui.Context) ui.HandlerResult {
 			_, err = responder.EditOriginal(ui.ErrorEdit("Could not verify your server permissions."))
 			return err
 		}
-		_, err = ctx.Services.Settings.Update(taskCtx, guild, quack.GuildSettingsInput{AppealQueueChannelDiscordID: &channelID})
+		input := quack.GuildSettingsInput{AppealQueueChannelDiscordID: &channelID}
+		if option := options[0].GetOption("rejoin"); option != nil {
+			value := strings.TrimSpace(option.StringValue())
+			if strings.EqualFold(value, "none") {
+				value = ""
+			}
+			input.AppealRejoinURL = &value
+		}
+		_, err = ctx.Services.Settings.Update(taskCtx, guild, input)
 		if err != nil {
-			_, err = responder.EditOriginal(ui.ErrorEdit("Could not save the appeal queue. You need Manage Server permission, and the channel must be private, in this server, and accessible to Quack."))
+			_, err = responder.EditOriginal(ui.ErrorEdit("Could not save appeal settings. Check Manage Server permission, the private queue channel, and the HTTPS Discord invite (or none)."))
 			return err
 		}
 		_, err = ui.Publish(responder, ui.Signal("settings", fmt.Sprintf("Appeal reviews will go to <#%s>. Members can appeal from their case DM; moderators can accept or reject in this channel.", channelID), true))

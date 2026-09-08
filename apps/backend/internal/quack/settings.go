@@ -41,6 +41,7 @@ func (s *GuildSettingsService) WithStaffChannelValidator(channels StaffChannelVa
 
 // GuildSettingsInput is a partial settings update; omitted fields retain their current values.
 type GuildSettingsInput struct {
+	AppealRejoinURL                 *string `json:"appeal_rejoin_url"`
 	AppealQueueChannelDiscordID     *string `json:"appeal_queue_channel_discord_id"`
 	AuditMirrorChannelDiscordID     *string `json:"audit_mirror_channel_discord_id"`
 	ManagedEvidenceChannelDiscordID *string `json:"managed_evidence_channel_discord_id"`
@@ -53,6 +54,7 @@ type GuildSettingsInput struct {
 
 // GuildSettingsResponse is the transport-neutral guild setup contract shared by the dashboard and internal adapters.
 type GuildSettingsResponse struct {
+	AppealRejoinURL                   string     `json:"appeal_rejoin_url,omitempty"`
 	AppealQueueChannelDiscordID       string     `json:"appeal_queue_channel_discord_id,omitempty"`
 	ID                                string     `json:"id"`
 	GuildID                           string     `json:"guild_id"`
@@ -210,6 +212,13 @@ func applyGuildSettingsInput(settings *model.GuildSettings, input GuildSettingsI
 	if settings == nil {
 		return fmt.Errorf("%w: settings are required", ErrGuildSettingsValidation)
 	}
+	if input.AppealRejoinURL != nil {
+		value, err := normalizeAppealRejoinURL(*input.AppealRejoinURL)
+		if err != nil {
+			return err
+		}
+		settings.AppealRejoinURL = value
+	}
 	if input.AppealQueueChannelDiscordID != nil {
 		value, err := normalizeDiscordChannelReference(*input.AppealQueueChannelDiscordID)
 		if err != nil {
@@ -298,6 +307,7 @@ func guildSettingsResponse(settings model.GuildSettings) GuildSettingsResponse {
 	return GuildSettingsResponse{
 		ID: settings.ID, GuildID: settings.GuildID,
 		AppealQueueChannelDiscordID:     settings.AppealQueueChannelDiscordID,
+		AppealRejoinURL:                 settings.AppealRejoinURL,
 		AuditMirrorChannelDiscordID:     settings.AuditMirrorChannelDiscordID,
 		ManagedEvidenceChannelDiscordID: settings.ManagedEvidenceChannelDiscordID,
 		NotificationIntroduction:        settings.NotificationIntroduction, NotificationFooter: settings.NotificationFooter,

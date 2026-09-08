@@ -202,6 +202,9 @@ func TestAppealServiceOwnershipSnapshotTimelineAndAtomicAcceptance(t *testing.T)
 			t.Fatalf("member timeline leaked staff identity: %+v", event)
 		}
 	}
+	if err := repository.db.Create(&GuildSettingsRecord{ULIDModelRecord: ULIDModelRecord{ID: "01KXAPPEALSETTINGS000000001"}, GuildID: guild.ID, AppealRejoinURL: "https://discord.gg/pond"}).Error; err != nil {
+		t.Fatal(err)
+	}
 	accepted, err := service.Accept(ctx, moderator, appeal.ID, "The statement changes the decision.")
 	if err != nil || accepted.Status != model.AppealStatusAccepted || len(accepted.ReversalOffers) != 0 {
 		t.Fatalf("accept appeal: %+v err=%v", accepted, err)
@@ -249,6 +252,10 @@ func TestAppealServiceOwnershipSnapshotTimelineAndAtomicAcceptance(t *testing.T)
 		t.Fatalf("expected staff and member notifications, got %+v err=%v", notifications, err)
 	}
 	for _, notification := range notifications {
+		if notification.Audience == model.AppealNotificationMember && (!strings.Contains(notification.Body, "https://discord.gg/pond") || !strings.Contains(notification.Body, "once any ban has been removed")) {
+			t.Fatalf("accepted notification missing conditional rejoin link: %s", notification.Body)
+		}
+
 		if notification.Audience == model.AppealNotificationMember && (notification.Body == "" || strings.Contains(notification.Body, "moderator")) {
 			t.Fatalf("member notification leaked staff identity: %+v", notification)
 		}

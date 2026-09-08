@@ -133,3 +133,35 @@ func TestAppealQueueSettingIsIndependentAndRequiresValidation(t *testing.T) {
 		t.Fatalf("deletion cleared wrong destination: %+v %v", loaded, err)
 	}
 }
+
+// TestAppealRejoinSettingValidatesAndPersists checks partial updates and explicit
+// removal without permitting arbitrary destinations in member-facing notices.
+func TestAppealRejoinSettingValidatesAndPersists(t *testing.T) {
+	ctx := context.Background()
+	repository := newMigratedStore(t)
+	_, err := repository.BootstrapGuild(ctx, model.BootstrapGuildParams{DiscordGuildID: "rejoin-settings", Name: "Pond", OwnerDiscordUserID: "owner"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := templateGuildContext(t, repository, "rejoin-settings", "manager", uint64(discordgo.PermissionManageGuild))
+	service := quack.NewGuildSettingsService(repository)
+	invite := "https://discord.com/invite/pond-code"
+	saved, err := service.Update(ctx, manager, quack.GuildSettingsInput{AppealRejoinURL: &invite})
+	if err != nil || saved.AppealRejoinURL != "https://discord.gg/pond-code" {
+		t.Fatalf("invite not normalized: %+v %v", saved, err)
+	}
+	for _, invalid := range []string{"https://example.com/invite/a", "http://discord.gg/a", "https://discord.gg.evil/a", "https://discord.gg/a?x=1", "https://discord.gg/a#fragment", "https://discord.gg/a/b", "https://name@discord.gg/a"} {
+		if _, err := service.Update(ctx, manager, quack.GuildSettingsInput{AppealRejoinURL: &invalid}); !errors.Is(err, quack.ErrGuildSettingsValidation) {
+			t.Fatalf("accepted %q: %v", invalid, err)
+		}
+	}
+	saved, err = service.Update(ctx, manager, quack.GuildSettingsInput{})
+	if err != nil || saved.AppealRejoinURL != "https://discord.gg/pond-code" {
+		t.Fatalf("partial update lost invite: %+v %v", saved, err)
+	}
+	empty := ""
+	saved, err = service.Update(ctx, manager, quack.GuildSettingsInput{AppealRejoinURL: &empty})
+	if err != nil || saved.AppealRejoinURL != "" {
+		t.Fatalf("invite not removed: %+v %v", saved, err)
+	}
+}

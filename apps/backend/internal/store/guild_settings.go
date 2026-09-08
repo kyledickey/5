@@ -41,6 +41,7 @@ func (s *Store) UpdateGuildSettings(ctx context.Context, params model.UpdateGuil
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("guild_id = ?", params.Settings.GuildID).First(&record).Error; err != nil {
 			return fmt.Errorf("get guild settings for update: %w", err)
 		}
+		record.AppealRejoinURL = params.Settings.AppealRejoinURL
 		record.AppealQueueChannelDiscordID = params.Settings.AppealQueueChannelDiscordID
 		record.AuditMirrorChannelDiscordID = params.Settings.AuditMirrorChannelDiscordID
 		record.ManagedEvidenceChannelDiscordID = params.Settings.ManagedEvidenceChannelDiscordID
@@ -362,6 +363,7 @@ func guildSettingsModelFromRecord(record GuildSettingsRecord) model.GuildSetting
 	return model.GuildSettings{
 		ULIDModel:                   model.ULIDModel{ID: record.ID, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt},
 		AppealQueueChannelDiscordID: record.AppealQueueChannelDiscordID,
+		AppealRejoinURL:             record.AppealRejoinURL,
 		GuildID:                     record.GuildID, AuditMirrorChannelDiscordID: record.AuditMirrorChannelDiscordID,
 		ManagedEvidenceChannelDiscordID: record.ManagedEvidenceChannelDiscordID,
 		NotificationIntroduction:        record.NotificationIntroduction, NotificationFooter: record.NotificationFooter,

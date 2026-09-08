@@ -194,3 +194,8 @@ func TestAppealConversationRoutesAreRemoved(t *testing.T) {
 func (r *appealRouteRepository) BeginAppealNotificationDelivery(context.Context, string, string) error {
 	return nil
 }
+
+// GetGuildSettings models a guild without an optional appeal rejoin invite.
+func (r *appealRouteRepository) GetGuildSettings(context.Context, string) (*model.GuildSettings, error) {
+	return nil, nil
+}

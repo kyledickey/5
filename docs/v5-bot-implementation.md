@@ -453,3 +453,14 @@ means further work is required, not completion.
   Tests prove the initial callback needs no services and both deferred paths reject
   revoked authority. Focused and full backend suites pass. Initial context-command
   lookup timing, private failure presentation and live rehearsal remain pending.
+
+- Added the optional accepted-appeal rejoin invite to shared guild settings and
+  `/setup appeals rejoin`. Omission preserves the current value; `none` removes it.
+  Only HTTPS Discord invite URLs are accepted and normalized. Accepted decisions
+  snapshot the link in their durable member notification with conditional wording
+  that does not claim punishment removal already succeeded. Rejected decisions do
+  not append a link. Persistence/removal/invalid-destination tests and the accepted
+  decision outbox test pass, along with the full backend suite. The pre-release
+  schema baseline includes this field; the planned local database reset and live
+  setup/DM/rejoin rehearsal are still pending. Invite validity is controlled by
+  Discord and is not guaranteed by URL validation.

@@ -25,6 +25,7 @@ var (
 
 // AppealRepository is the package-owned persistence boundary exposed by the store adapter.
 type AppealRepository interface {
+	GetGuildSettings(context.Context, string) (*model.GuildSettings, error)
 	CreateAppeal(context.Context, model.CreateAppealParams) (*model.Appeal, error)
 	GetAppealByID(context.Context, string) (*model.Appeal, error)
 	GetAppealByCaseID(context.Context, string) (*model.Appeal, error)
@@ -216,12 +217,22 @@ func (s *AppealService) transition(ctx context.Context, guildContext *GuildStaff
 	if item == nil || item.GuildID != guildContext.Guild.ID {
 		return nil, ErrAppealNotFound
 	}
+	body := memberNotificationBody(to, reason)
+	if to == model.AppealStatusAccepted {
+		settings, err := s.store.GetGuildSettings(ctx, item.GuildID)
+		if err != nil {
+			return nil, err
+		}
+		if settings != nil && settings.AppealRejoinURL != "" {
+			body += "\n\nIf you left or were banned, you can rejoin once any ban has been removed: " + settings.AppealRejoinURL
+		}
+	}
 	params := model.TransitionAppealParams{
 		GuildID: item.GuildID, AppealID: item.ID, ActorDiscordUserID: guildContext.Staff.DiscordUserID,
 		AllowedFrom: from, To: to, Reason: reason, VoidCase: voidCase,
 		Event:        model.AppealEvent{EventType: string(eventType), ActorDiscordUserID: guildContext.Staff.DiscordUserID, ActorType: "staff", Body: reason, MetadataJSON: "{}"},
 		AppealAudit:  appealAudit(ctx, item.GuildID, guildContext.Staff.DiscordUserID, guildContext.PermissionBits, "appeal."+string(eventType), "appeal", item.ID, model.AuditResultSuccess),
-		Notification: model.AppealNotification{TargetDiscordUserID: item.TargetDiscordUserID, Audience: model.AppealNotificationMember, Status: model.AppealNotificationPending, Body: memberNotificationBody(to, reason)},
+		Notification: model.AppealNotification{TargetDiscordUserID: item.TargetDiscordUserID, Audience: model.AppealNotificationMember, Status: model.AppealNotificationPending, Body: body},
 	}
 	if voidCase {
 		caseAudit := appealAudit(ctx, item.GuildID, guildContext.Staff.DiscordUserID, guildContext.PermissionBits, "case.void.appeal", "case", "", model.AuditResultSuccess)

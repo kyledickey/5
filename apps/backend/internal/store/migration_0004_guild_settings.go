@@ -42,6 +42,7 @@ type migration0004GuildSettingsRecord struct {
 	UpdatedAt                         time.Time  `gorm:"not null"`
 	GuildID                           string     `gorm:"type:char(26);not null;uniqueIndex"`
 	AppealQueueChannelDiscordID       string     `gorm:"size:32;not null;default:''"`
+	AppealRejoinURL                   string     `gorm:"size:256;not null;default:''"`
 	AuditMirrorChannelDiscordID       string     `gorm:"size:32;not null;default:''"`
 	ManagedEvidenceChannelDiscordID   string     `gorm:"size:32;not null;default:''"`
 	NotificationIntroduction          string     `gorm:"type:text;not null"`
