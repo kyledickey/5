@@ -137,7 +137,11 @@ func handleTemplateLevel(ctx ui.Context, option *discordgo.ApplicationCommandInt
 		}
 		text := fmt.Sprintf("**%s** now uses **%s** from case **%d** onward, until a higher level applies. Existing cases are unchanged.", ui.PlainText(template.Name), outcome, count)
 		if outcome == "timeout" {
-			text += fmt.Sprintf(" Timeout: %d minutes.", minutes)
+			minuteLabel := "minutes"
+			if minutes == 1 {
+				minuteLabel = "minute"
+			}
+			text += fmt.Sprintf(" Timeout: %d %s.", minutes, minuteLabel)
 		}
 		if value := option.GetOption("notify"); value != nil {
 			if value.BoolValue() {

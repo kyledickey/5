@@ -100,5 +100,9 @@ func honeypotWarningContent(warning string, count uint64) string {
 	if strings.TrimSpace(warning) == "" {
 		warning = defaultHoneypotWarning
 	}
-	return fmt.Sprintf("%s\n\n-# %d incidents caught.", warning, count)
+	incidentLabel := "incidents"
+	if count == 1 {
+		incidentLabel = "incident"
+	}
+	return fmt.Sprintf("%s\n\n-# %d %s caught.", warning, count, incidentLabel)
 }
