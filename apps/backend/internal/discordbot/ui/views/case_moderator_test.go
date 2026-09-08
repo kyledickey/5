@@ -32,3 +32,25 @@ func TestCaseListPaginationIsStableAndScoped(t *testing.T) {
 		t.Fatalf("unexpected pagination: %+v", message)
 	}
 }
+
+// TestVoidedCaseDoesNotInviteAnotherAppeal keeps the staff detail consistent with
+// the terminal correction made when an appeal is accepted.
+func TestVoidedCaseDoesNotInviteAnotherAppeal(t *testing.T) {
+	detail := &quack.CaseDetailResponse{
+		CaseResponse:     quack.CaseResponse{ID: "case-1", CaseNumber: 1, Validity: model.CaseValidityValid},
+		TemplateSnapshot: &quack.CaseTemplateSnapshotResponse{},
+	}
+	detail.TemplateSnapshot.Template.Appealable = true
+	if !strings.Contains(CaseDetailMessage(detail).Content, "The member can appeal this case.") {
+		t.Fatal("valid appealable case lost its appeal guidance")
+	}
+	detail.Validity = model.CaseValidityVoided
+	message := CaseDetailMessage(detail)
+	if strings.Contains(message.Content, "The member can appeal this case.") || !strings.Contains(message.Content, "This case was voided") {
+		t.Fatalf("voided case has misleading guidance: %s", message.Content)
+	}
+	row := message.Components[0].(discordgo.ActionsRow)
+	if !row.Components[3].(discordgo.Button).Disabled {
+		t.Fatal("voided case still offers an enabled void control")
+	}
+}

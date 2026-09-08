@@ -32,7 +32,7 @@ func CaseCreatedMessage(result CaseCreated) ui.Message {
 	}
 	icon := "case_add"
 	if len(created.Actions) == 0 {
-		icon = "note"
+		icon = "warn"
 	}
 	for _, action := range created.Actions {
 		if action.Status == model.ActionExecutionFailed {
@@ -67,7 +67,7 @@ func FormatCaseCreated(result CaseCreated) string {
 // publicActionStatus never mistakes a queued action for completed enforcement.
 func publicActionStatus(actions []quack.CaseActionResponse) string {
 	if len(actions) == 0 {
-		return "Recorded without a Discord action."
+		return "Warning recorded."
 	}
 	parts := make([]string, 0, len(actions))
 	for _, action := range actions {

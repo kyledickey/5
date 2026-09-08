@@ -105,7 +105,7 @@ func TestHandleCaseInteractionCreatesCase(t *testing.T) {
 	if responder.deleted || responder.followup.Content != "" || responder.edit.Content == nil || responder.edit.Embeds == nil || len(*responder.edit.Embeds) != 0 || responder.editCount != 1 {
 		t.Fatalf("expected original response to become the result: %+v", responder)
 	}
-	for _, want := range []string{"Case added for", "<@target-1>", "Spam", "Default", "Recorded without a Discord action."} {
+	for _, want := range []string{"Case added for", "<@target-1>", "Spam", "Default", "Warning recorded."} {
 		if !strings.Contains(*responder.edit.Content, want) {
 			t.Fatalf("missing %q in %q", want, *responder.edit.Content)
 		}

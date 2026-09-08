@@ -725,3 +725,21 @@ means further work is required, not completion.
   rule` through the native Discord modal and displayed its private confirmation
   (warning, DM enabled, appeals enabled). Discord's native app remains the monkey
   tester account. Command pruning still awaits separate explicit approval.
+
+- Continued live rehearsal through both real accounts: dickey used the current
+  `/case add` entry in Helium to create warning case #1 for monkey. Monkey received
+  the rule/reason DM with an Appeal decision button, submitted the one-answer modal,
+  and received a submission receipt. Dickey found that appeal with `/appeals` and
+  accepted it. The review message updated to accepted with a next-pending control;
+  monkey received the acceptance DM. A direct read of the local database confirms
+  case #1 is `voided` and its appeal is `accepted`. This verifies the warning path;
+  punishment reversal and the dedicated review-channel delivery remain unverified
+  live. Duplicate legacy slash entries still require care during command selection.
+- The rehearsal exposed technical warning copy. Public warning receipts now use
+  the warning icon and say `Warning recorded.`; staff detail uses the same wording.
+  Voided case details no longer claim that the member can appeal the case. A
+  regression checks valid versus voided appeal guidance and disabled void controls.
+  Focused tests and the full MySQL-enabled backend suite pass. These view changes
+  are committed source changes; the running beta still uses the earlier logging
+  fix binary until the next deliberate reload. Remaining bot acceptance work is
+  still open.

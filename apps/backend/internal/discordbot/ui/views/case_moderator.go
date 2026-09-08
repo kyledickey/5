@@ -36,7 +36,7 @@ func CaseDetailMessage(detail *quack.CaseDetailResponse) ui.Message {
 	if detail.Notification != nil {
 		outcome = append(outcome, notificationDeliverySentence(string(detail.Notification.Status)))
 	}
-	if detail.TemplateSnapshot != nil && detail.TemplateSnapshot.Template.Appealable {
+	if detail.Validity != model.CaseValidityVoided && detail.TemplateSnapshot != nil && detail.TemplateSnapshot.Template.Appealable {
 		outcome = append(outcome, "The member can appeal this case.")
 	}
 	parts = append(parts, strings.Join(outcome, " "))
@@ -200,7 +200,7 @@ func caseDetailComponents(detail *quack.CaseDetailResponse) []discordgo.MessageC
 // staffActionSummary preserves enforcement and failure details in readable sentences.
 func staffActionSummary(actions []quack.CaseActionDetailResponse) string {
 	if len(actions) == 0 {
-		return "Recorded without a Discord action."
+		return "Warning recorded."
 	}
 	rows := make([]string, 0, len(actions))
 	for _, action := range actions {
