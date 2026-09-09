@@ -1685,3 +1685,25 @@ means further work is required, not completion.
   and ordinary closure after recovery. A true interrupted send, successful
   nondelivery-confirmation replacement, and repeated transcript replacement
   remain separate from this rehearsal's evidence.
+
+### Restricted moderator evidence and general-log checks
+
+- After explicit user approval, temporary role `1547046319816843324` granted
+  only Moderate Members to monkey. Its evidence-channel overwrite added View
+  Channel and Read Message History on `1546756720037073008`; existing overwrites
+  were left intact.
+- Native Discord monkey opened View evidence on case #14, paged to its second
+  snapshot, followed the saved message link `1547038685508149380`, and displayed
+  the checkerboard pixels in the image viewer. This proves file opening by a
+  limited moderator with channel access, not just private metadata visibility.
+- Cleanup removed the temporary overwrite and role. Read-only REST confirmed
+  monkey's roles were empty and the channel returned to exactly its original
+  bot allow `101376` and everyone deny `1024`. Native Discord reported No Access
+  for the former storage-channel view after removal.
+- Monkey sent synthetic message `1547047086514507776` in commands, edited its
+  text, and deleted only that message. Beta-authored log `1547047333559144490`
+  retained the correct before/after strings, author, channel, and source ID;
+  deletion log `1547047613478473878` retained the revised string and same
+  attribution in configured channel `1546795992249147474`. The user was composing
+  in Helium, so final log inspection used read-only beta REST instead of changing
+  that active draft. This does not add attachment/bulk-deletion evidence.
