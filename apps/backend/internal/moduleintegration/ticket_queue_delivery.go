@@ -37,7 +37,13 @@ func (c ticketDiscordClient) PublishTicketQueue(ctx context.Context, ticket *tic
 	payload := message.SendParams(ui.SessionApplicationID(c.session))
 	var sent *discordgo.Message
 	if ticket.LogMessageDiscordID != "" && ticket.LogChannelDiscordID == settings.QueueChannelDiscordID {
-		sent, err = c.session.ChannelMessageEditComplex(&discordgo.MessageEdit{ID: ticket.LogMessageDiscordID, Channel: settings.QueueChannelDiscordID, Content: &payload.Content, Components: &payload.Components, Embeds: &payload.Embeds, Files: payload.Files, AllowedMentions: payload.AllowedMentions}, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+		edit := &discordgo.MessageEdit{ID: ticket.LogMessageDiscordID, Channel: settings.QueueChannelDiscordID, Content: &payload.Content, Components: &payload.Components, Embeds: &payload.Embeds, Files: payload.Files, AllowedMentions: payload.AllowedMentions}
+		if transcript != nil {
+			// Files alone append to an existing post. Retain only this request's
+			// files[0] upload so adopted receipts and retries replace older copies.
+			edit.Attachments = &[]*discordgo.MessageAttachment{{ID: "0", Filename: payload.Files[0].Name}}
+		}
+		sent, err = c.session.ChannelMessageEditComplex(edit, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 	} else {
 		sent, err = c.session.ChannelMessageSendComplex(settings.QueueChannelDiscordID, payload, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 	}
