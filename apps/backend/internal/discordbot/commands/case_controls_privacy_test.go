@@ -105,13 +105,18 @@ func TestRecoveryModalsKeepFailuresPrivate(t *testing.T) {
 				interaction.Type = discordgo.InteractionModalSubmit
 				interaction.Data = discordgo.ModalSubmitInteractionData{CustomID: ui.MustCustomID(ui.CustomID{Namespace: "case", Action: operation + "_submit", Version: "v1", Payload: payload}), Components: []discordgo.MessageComponent{ui.Row(discordgo.TextInput{CustomID: field, Value: value})}}
 				result := handler(ui.Context{Context: context.Background(), Services: services, Interaction: interaction})
-				assertRecoveryPrivate(t, result)
+				if result.Task == nil {
+					assertRecoveryPrivate(t, result)
+				}
 				responder := &fakeResponder{}
 				if result.Task != nil {
 					_ = result.Task(context.Background(), responder)
 				}
-				if responder.followup.Content != "" || responder.updated.Content != nil {
-					t.Fatal("failed request touched public source")
+				if responder.updated.Content != nil || responder.edit.Content != nil {
+					t.Fatal("failed request exposed a public result")
+				}
+				if result.Task != nil && (!responder.deleted || !responder.followup.Ephemeral || responder.followup.Content == "") {
+					t.Fatal("failure was not delivered privately")
 				}
 			})
 		}
@@ -134,8 +139,8 @@ func TestCommittedRecoveryPublicationRetainsReceipt(t *testing.T) {
 			if failure != "edit" && (responder.edit.Content == nil || !strings.Contains(*responder.edit.Content, "was voided")) {
 				t.Fatal("committed result lost")
 			}
-			if failure == "none" && (responder.followup.Content == "" || responder.followup.Ephemeral) {
-				t.Fatal("public success missing")
+			if failure == "none" && (responder.followup.Content != "" || responder.channelPublishes != 0) {
+				t.Fatal("duplicate success response")
 			}
 			if failure == "edit" && !responder.followup.Ephemeral {
 				t.Fatal("unconfirmed acknowledgement made public")
@@ -182,7 +187,9 @@ func TestRecoveryModalSuccessSurvivesPublicationFailure(t *testing.T) {
 			interaction.Type = discordgo.InteractionModalSubmit
 			interaction.Data = discordgo.ModalSubmitInteractionData{CustomID: ui.MustCustomID(ui.CustomID{Namespace: "case", Action: operation + "_submit", Version: "v1", Payload: payload}), Components: []discordgo.MessageComponent{ui.Row(discordgo.TextInput{CustomID: field, Value: value})}}
 			result := handler(ui.Context{Context: context.Background(), Services: services, Interaction: interaction})
-			assertRecoveryPrivate(t, result)
+			if result.Response.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource || (result.Response.Data != nil && result.Response.Data.Flags&discordgo.MessageFlagsEphemeral != 0) {
+				t.Fatal("successful command should defer publicly")
+			}
 			responder := &failingCasePublication{failPublish: true}
 			if err := result.Task(context.Background(), responder); err != nil {
 				t.Fatal(err)

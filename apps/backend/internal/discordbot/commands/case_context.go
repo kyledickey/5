@@ -22,7 +22,7 @@ func handleMessageTemplateComponent(ctx ui.Context) ui.HandlerResult {
 	if err != nil || len(parts) != 3 || len(data.Values) != 1 {
 		return ui.Immediate(ui.Error("That message case flow is invalid."))
 	}
-	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
+	return ui.Async(ui.DeferUpdate(), func(taskCtx context.Context, responder ui.Responder) error {
 		guildContext, resolveErr := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
 		if resolveErr != nil {
 			_, err := responder.EditOriginal(ui.ErrorEdit(caseCreateErrorMessage(resolveErr)))
@@ -39,7 +39,7 @@ func handleMessageTemplateComponent(ctx ui.Context) ui.HandlerResult {
 		}
 		link := fmt.Sprintf("https://discord.com/channels/%s/%s/%s", ctx.Interaction.GuildID, parts[1], parts[2])
 		values := messageLinkContext(template, link)
-		created, createErr := ctx.Services.Cases.Create(taskCtx, guildContext, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: parts[0], Source: model.CaseSourceDiscord, ContextChannelDiscordID: parts[1], ContextMessageDiscordID: parts[2], ContextValues: values, EvidenceLinks: []string{link}, IdempotencyKey: ctx.Interaction.ID})
+		created, createErr := ctx.Services.Cases.Create(taskCtx, guildContext, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: parts[0], Source: model.CaseSourceDiscord, ContextChannelDiscordID: parts[1], ContextMessageDiscordID: parts[2], ContextValues: values, EvidenceLinks: []string{link}, IdempotencyKey: caseSelectionKey(ctx.Interaction)})
 		if createErr != nil {
 			_, err := responder.EditOriginal(ui.ErrorEdit(caseCreateErrorMessage(createErr)))
 			return err
@@ -85,41 +85,46 @@ func modalTextValue(data discordgo.ModalSubmitInteractionData, customID string) 
 	return ""
 }
 
-// publishPrivateContextCase retains a private moderator receipt before sending
-// a standalone public notice. The notice never references the hidden receipt;
-// failed or uncertain publication cannot discard the committed case.
+// publishPrivateContextCase completes a private selector with one public result.
+// The selector is removed after successful publication; no private success copy remains.
 func publishPrivateContextCase(ctx context.Context, responder ui.Responder, services *quack.Services, created *quack.CaseResponse, template *quack.TemplateResponse) error {
+	return publishCaseResult(ctx, responder, services, created, template, false)
+}
+
+// publishCaseResult edits the slash-command response or publishes the result of
+// a private context selector. Only the public projection leaves this boundary.
+func publishCaseResult(ctx context.Context, responder ui.Responder, services *quack.Services, created *quack.CaseResponse, template *quack.TemplateResponse, original bool) error {
 	projection := initialModeratorReceipt(created, template)
 	if services != nil && services.Cases != nil {
 		if loaded, err := services.Cases.ReceiptForPublication(ctx, created.ID); err == nil {
-			loaded.Case.EvidenceIncomplete = loaded.Case.EvidenceIncomplete || created.EvidenceIncomplete
 			projection = loaded
 		}
 	}
-	private := views.CaseModeratorReceipt(projection)
-	if _, err := establishPrivateCaseReceipt(ctx, responder, private); err != nil {
-		private.Content += "\n\nThe case was created. Use View case to check its result; Do not create it again."
-		private.Ephemeral = true
-		_, _ = responder.Followup(private)
-		return nil
-	}
-	// Public presentation is built independently: even a private delivery failure
-	// cannot accidentally copy staff fields into the channel.
 	publicCase := *projection.Case
 	publicCase.Reason = ""
-	public := views.CaseCreatedMessage(views.CaseCreated{MemberReason: projection.MemberReason, Case: &publicCase, Template: &quack.TemplateResponse{Name: projection.RuleName}})
-	message, err := responder.PublishChannel(ctx, public)
+	rule := &quack.TemplateResponse{Name: projection.RuleName, ReasonTemplate: projection.MemberReason}
+	public := views.CaseCreatedMessage(views.CaseCreated{MemberReason: projection.MemberReason, Case: &publicCase, Template: rule})
+	var message *discordgo.Message
+	var err error
+	if original {
+		message, err = establishPrivateCaseReceipt(ctx, responder, public)
+	} else {
+		message, err = responder.PublishChannel(ctx, public)
+	}
 	if err != nil {
-		private.Content += "\n\nThe case was created, but Quack could not post its result publicly. This private copy is still usable."
-		_, _ = responder.EditOriginal(ui.EditMessage(private))
-	} else if message != nil {
-		if err := updatePublicCaseResult(ctx, responder, services, &publicCase, message.ID, message.ChannelID, &quack.TemplateResponse{Name: projection.RuleName, ReasonTemplate: projection.MemberReason}); err != nil {
-			private.Content += "\n\nThe case was created, but automatic public result updates could not be saved. Use View case to check the outcome."
-			_, _ = responder.EditOriginal(ui.EditMessage(private))
+		failure := ui.Signal("error", fmt.Sprintf("Case #%d was saved, but I couldn't post the result. Check `/case view` before trying again.", created.CaseNumber), true)
+		_, _ = responder.Followup(failure)
+		return nil
+	}
+	if !original {
+		if err := responder.DeleteOriginal(); err != nil {
+			_, _ = responder.EditOriginal(ui.EditMessage(ui.Content(fmt.Sprintf("Case #%d created.", created.CaseNumber), true)))
 		}
 	}
-	if services != nil && services.Cases != nil && projection.Pending() {
-		go refreshPrivateCaseReceipt(ctx, responder, services.Cases.ReceiptForPublication, created.ID, 2*time.Second, 14*time.Minute)
+	if message != nil {
+		if err := updatePublicCaseResult(ctx, responder, services, &publicCase, message.ID, message.ChannelID, rule); err != nil {
+			_, _ = responder.Followup(ui.Signal("error", fmt.Sprintf("Case #%d was saved, but its live updates aren't working. Check `/case view` for the result.", created.CaseNumber), true))
+		}
 	}
 	return nil
 }
@@ -145,4 +150,13 @@ func establishPrivateCaseReceipt(ctx context.Context, responder ui.Responder, re
 		}
 	}
 	return nil, lastErr
+}
+
+// caseSelectionKey makes a selector single-use even if its cleanup fails or two
+// clicks arrive together. Each fresh context-menu invocation has its own message.
+func caseSelectionKey(interaction *discordgo.InteractionCreate) string {
+	if interaction.Message != nil && interaction.Message.ID != "" {
+		return "case-selector:" + interaction.Message.ID
+	}
+	return interaction.ID
 }

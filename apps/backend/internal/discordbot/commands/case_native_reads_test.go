@@ -63,6 +63,12 @@ func TestNativeDetailReadsPreservePages(t *testing.T) {
 			actual = responder.edit
 		}
 		want := ui.EditMessage(views.CaseDetailPage(full, page, ""))
+		if page == 1 {
+			want = ui.EditMessage(views.PublicCaseDetail(full))
+			if actual.Content != nil && strings.Contains(*actual.Content, "Original evidence") {
+				t.Fatal("public case command leaked evidence")
+			}
+		}
 		if !reflect.DeepEqual(actual, want) {
 			t.Fatalf("page %d output changed: %+v %+v", page, actual, want)
 		}

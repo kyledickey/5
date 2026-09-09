@@ -80,7 +80,7 @@ func handleVoidComponent(ctx ui.Context) ui.HandlerResult {
 		return ui.Immediate(ui.Error("That case control is invalid."))
 	}
 	customID := ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "void_submit", Version: "v1", Payload: parsed.Payload})
-	return ui.Immediate(ui.Modal("Void case", customID, []discordgo.MessageComponent{ui.Row(discordgo.TextInput{CustomID: "reason", Label: "Required correction reason", Style: discordgo.TextInputParagraph, Required: true, MinLength: 3, MaxLength: 500})}))
+	return ui.Immediate(ui.Modal("Void case", customID, []discordgo.MessageComponent{ui.Row(discordgo.TextInput{CustomID: "reason", Label: "Why are you voiding this case?", Style: discordgo.TextInputParagraph, Required: true, MinLength: 3, MaxLength: 500})}))
 }
 
 // handleVoidModal authorizes and saves a void before publishing its success.
@@ -90,7 +90,7 @@ func handleVoidModal(ctx ui.Context) ui.HandlerResult {
 		return ui.Immediate(ui.Error("That case control is invalid."))
 	}
 	reason := modalTextValue(ctx.Interaction.ModalSubmitData(), "reason")
-	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
+	return ui.AsyncPublic(func(taskCtx context.Context, responder ui.Responder) error {
 		guildContext, resolveErr := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
 		if resolveErr != nil {
 			return resolveErr
@@ -122,7 +122,7 @@ func handleReverseModal(ctx ui.Context) ui.HandlerResult {
 	if err != nil || len(parts) != 3 || modalTextValue(ctx.Interaction.ModalSubmitData(), "confirm") != "REVERSE" {
 		return ui.Immediate(ui.Error("Reversal confirmation did not match."))
 	}
-	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
+	return ui.AsyncPublic(func(taskCtx context.Context, responder ui.Responder) error {
 		guildContext, resolveErr := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
 		if resolveErr != nil {
 			return resolveErr
@@ -137,21 +137,11 @@ func handleReverseModal(ctx ui.Context) ui.HandlerResult {
 	})
 }
 
-// retainRecoveryReceipt delivers a committed result without surfacing publication
-// failures as failed moderation. The private original stays available; a public
-// notice is attempted only after its private receipt has been established by editing
-// the deferred original. No cleanup can erase the moderator's success receipt.
-func retainRecoveryReceipt(ctx context.Context, responder ui.Responder, receipt ui.Message, publish bool) {
+// retainRecoveryReceipt updates one committed result without repeating moderation.
+// Normal commands defer publicly; private recovery browsers keep their own source.
+func retainRecoveryReceipt(ctx context.Context, responder ui.Responder, receipt ui.Message, _ bool) {
 	if _, err := establishPrivateCaseReceipt(ctx, responder, receipt); err != nil {
 		slog.WarnContext(ctx, "Could not edit committed recovery receipt", "error_type", "discord_response")
-		receipt.Ephemeral = true
-		_, _ = responder.Followup(receipt)
-		return
-	}
-	if publish {
-		receipt.Ephemeral = false
-		if _, err := responder.PublishChannel(ctx, receipt); err != nil {
-			slog.WarnContext(ctx, "Could not publish committed recovery receipt", "error_type", "discord_response")
-		}
+		_, _ = responder.Followup(ui.Signal("error", "The change was saved, but I couldn’t update this message. Check `/case view` for the result.", true))
 	}
 }

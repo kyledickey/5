@@ -47,14 +47,15 @@ func CaseDetailMessage(detail *quack.CaseDetailResponse) ui.Message {
 	if detail == nil {
 		return ui.Signal("error", "That case couldn’t be found. Check its number and try again.", true)
 	}
-	lead := "Case for <@" + detail.TargetDiscordUserID + ">"
+	lead := fmt.Sprintf("Case #%d · <@%s>", detail.CaseNumber, detail.TargetDiscordUserID)
 	if detail.TemplateSnapshot != nil && detail.TemplateSnapshot.Template.Name != "" {
-		lead += " for **" + ui.PlainText(detail.TemplateSnapshot.Template.Name) + "**"
+		lead += " · **" + ui.PlainText(detail.TemplateSnapshot.Template.Name) + "**"
 	}
 	icon := "case"
 	parts := []string{}
 	if detail.Validity == model.CaseValidityVoided {
 		icon = "case_void"
+		lead = "**Voided** · " + lead
 		parts = append(parts, "This case was voided and no longer counts toward escalation.")
 		if detail.VoidedReason != "" {
 			parts = append(parts, ui.Quote(ui.PlainText(detail.VoidedReason)))
@@ -141,9 +142,9 @@ func caseHistoryMessageWithLabels(list *quack.CaseListResponse, page int, target
 	if list != nil {
 		for _, item := range list.Cases {
 			summary := "Case recorded"
-			if item.SelectedLevel != nil {
-				summary = ui.PlainText(ui.TruncateRunes(item.SelectedLevel.Name, labelLimit))
-				if len([]rune(item.SelectedLevel.Name)) > labelLimit {
+			if item.RuleName != "" {
+				summary = ui.PlainText(ui.TruncateRunes(item.RuleName, labelLimit))
+				if len([]rune(item.RuleName)) > labelLimit {
 					summary += "…"
 				}
 			}
@@ -155,7 +156,7 @@ func caseHistoryMessageWithLabels(list *quack.CaseListResponse, page int, target
 				row += " · **Voided**"
 			}
 			if date := ui.RelativeTime(item.CreatedAt); date != "" {
-				row += "\n" + date
+				row += "\n-# " + date
 			}
 			rows = append(rows, row)
 		}
@@ -201,10 +202,8 @@ func CaseProfileMessage(profile *quack.CaseProfileResponse, page int, targetID s
 		message.Ephemeral = true
 		return message
 	}
-	summary := fmt.Sprintf("\n\n**All-time history:** %d total · %d valid · %d voided.", profile.Summary.Total, profile.Summary.ByValidity[string(model.CaseValidityValid)], profile.Summary.ByValidity[string(model.CaseValidityVoided)])
-	summary += "\nThese history totals include imported v4 cases. Escalation uses eligible v5 cases for the selected rule and its decay setting."
+	summary := fmt.Sprintf("\n-# %d total · %d active · %d voided", profile.Summary.Total, profile.Summary.ByValidity[string(model.CaseValidityValid)], profile.Summary.ByValidity[string(model.CaseValidityVoided)])
 	message := boundedCaseHistoryMessage(&quack.CaseListResponse{Cases: profile.Cases, Total: profile.Total, Limit: profile.Limit, Offset: profile.Offset}, page, targetID, summary)
-	message.Ephemeral = true
 	return message
 }
 
@@ -282,7 +281,7 @@ func staffActionSummary(actions []quack.CaseActionDetailResponse) string {
 	}
 	rows := make([]string, 0, len(actions))
 	for _, action := range actions {
-		row := ui.ActionSentence(action.ActionType, action.Status)
+		row := caseActionSentence(action.CaseActionResponse)
 		if action.LastErrorCode != "" {
 			row += "\n" + safeFailure(action.LastErrorCode)
 		}

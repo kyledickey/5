@@ -22,7 +22,11 @@ func handleCaseStaffSubcommand(ctx ui.Context, data discordgo.ApplicationCommand
 	if selected == nil {
 		return ui.Immediate(ui.Error("Choose a case operation."))
 	}
-	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
+	run := ui.AsyncPublic
+	if selected.Name == "failures" {
+		run = func(task ui.Task) ui.HandlerResult { return ui.Async(ui.DeferEphemeral(), task) }
+	}
+	return run(func(taskCtx context.Context, responder ui.Responder) error {
 		guildContext, err := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
 		if err != nil {
 			_, editErr := responder.EditOriginal(ui.ErrorEdit(caseCommandErrorMessage(err)))
@@ -34,13 +38,13 @@ func handleCaseStaffSubcommand(ctx ui.Context, data discordgo.ApplicationCommand
 			detail, addErr := ctx.Services.Cases.AddEvidence(taskCtx, guildContext, optionStringValue(selected.GetOption("case")), evidenceLinksFromOption(selected.GetOption("message_link")), interactionEvidenceFiles(ctx.Interaction, selected.GetOption("file")))
 			err = addErr
 			if detail != nil {
-				response = caseWebLink(views.CaseDetailPage(detail, 1, ui.SessionApplicationID(ctx.Session)), ctx.Services.Config.ApplicationBaseURL, guildContext.Guild.DiscordGuildID, "cases", detail.ID)
+				response = caseWebLink(views.PublicCaseDetail(detail), ctx.Services.Config.ApplicationBaseURL, guildContext.Guild.DiscordGuildID, "cases", detail.ID)
 			}
 		case "view":
 			detail, getErr := ctx.Services.Cases.GetNativeDetail(taskCtx, guildContext, optionStringValue(selected.GetOption("case")))
 			err = getErr
 			if detail != nil {
-				response = caseWebLink(views.CaseDetailPage(detail, 1, ui.SessionApplicationID(ctx.Session)), ctx.Services.Config.ApplicationBaseURL, guildContext.Guild.DiscordGuildID, "cases", detail.ID)
+				response = caseWebLink(views.PublicCaseDetail(detail), ctx.Services.Config.ApplicationBaseURL, guildContext.Guild.DiscordGuildID, "cases", detail.ID)
 			}
 		case "list":
 			list, listErr := ctx.Services.Cases.List(taskCtx, guildContext, quack.CaseListInput{Limit: "10"})

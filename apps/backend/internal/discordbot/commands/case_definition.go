@@ -7,7 +7,7 @@ import (
 
 const caseCommandName = "case"
 
-const messageCaseCommandName = "Create moderation case"
+const messageCaseCommandName = "Add case"
 
 // CaseCommandSpec binds the /case definition to its interaction handler for explicit runtime registration.
 func CaseCommandSpec() CommandSpec {

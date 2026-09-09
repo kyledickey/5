@@ -42,6 +42,9 @@ func CaseCreatedMessage(result CaseCreated) ui.Message {
 		}
 	}
 	status := publicActionStatus(created.Actions)
+	if created.EvidenceIncomplete {
+		status += "\nSome evidence couldn’t be saved. Staff can check **View evidence**."
+	}
 	message := ui.Conversation(icon, FormatCaseCreated(result), ui.PlainText(ui.TruncateRunes(result.MemberReason, 350)), status, strings.Join(meta, " · "), false)
 	message.Components = []discordgo.MessageComponent{ui.Row(casePrimaryControls(created.ID, created.TargetDiscordUserID, created.Validity == model.CaseValidityVoided)...)}
 	return message
@@ -52,11 +55,14 @@ func FormatCaseCreated(result CaseCreated) string {
 	if result.Case == nil {
 		return "Case added."
 	}
-	lead := fmt.Sprintf("Case added for <@%s>", result.Case.TargetDiscordUserID)
+	lead := fmt.Sprintf("Case #%d · <@%s>", result.Case.CaseNumber, result.Case.TargetDiscordUserID)
 	if name := caseTemplateDisplayName(result.Template); name != "" {
-		lead += " for **" + ui.PlainText(name) + "**"
+		lead += " · **" + ui.PlainText(name) + "**"
 	}
-	return lead + "."
+	if result.Case.Validity == model.CaseValidityVoided {
+		lead = "**Voided** · " + lead
+	}
+	return lead
 }
 
 // publicActionStatus never mistakes a queued action for completed enforcement.
@@ -66,7 +72,7 @@ func publicActionStatus(actions []quack.CaseActionResponse) string {
 	}
 	parts := make([]string, 0, len(actions))
 	for _, action := range actions {
-		parts = append(parts, ui.ActionSentence(action.ActionType, action.Status))
+		parts = append(parts, caseActionSentence(action))
 	}
 	return strings.Join(parts, "\n")
 }
@@ -94,7 +100,7 @@ func casePrimaryControls(caseID, targetID string, voided bool) []discordgo.Messa
 	return []discordgo.MessageComponent{
 		button("edit_context", caseID, "Edit context", discordgo.SecondaryButton, false),
 		button("evidence", caseID, "View evidence", discordgo.SecondaryButton, false),
-		button("user_detail", targetID, "View user", discordgo.SecondaryButton, false),
+		button("user_detail", targetID, "History", discordgo.SecondaryButton, false),
 		button("void", caseID, "Void case", discordgo.DangerButton, voided),
 	}
 }
@@ -109,6 +115,6 @@ func CaseVoidedMessage(item *quack.CaseResponse) ui.Message {
 			status += "\nEnforcement is still finishing. Quack will try to undo any ban or timeout that succeeds."
 		}
 	}
-	status += fmt.Sprintf("\nUse `/case view case:%d` to check the result or retry a failed removal.", item.CaseNumber)
+
 	return ui.Conversation("case_void", fmt.Sprintf("Case #%d was voided.", item.CaseNumber), "", status, "", false)
 }

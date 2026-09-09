@@ -14,20 +14,13 @@ import (
 )
 
 // failingCasePublication simulates delivery and cleanup failures after moderation
-// has already committed, without obscuring the persisted private receipt.
+// has already committed, without hiding its saved-case identity.
 type failingCasePublication struct {
 	fakeResponder
+	editAttempts  int
 	failEditCount int
 	failPublish   bool
 	failCleanup   bool
-}
-
-// Followup fails only public publication, preserving the earlier private edit.
-func (r *failingCasePublication) Followup(message ui.Message) (*discordgo.Message, error) {
-	if r.failPublish {
-		return nil, errors.New("Discord unavailable")
-	}
-	return r.fakeResponder.Followup(message)
 }
 
 // DeleteOriginal simulates failure to remove the now-redundant private copy.
@@ -38,24 +31,30 @@ func (r *failingCasePublication) DeleteOriginal() error {
 	return r.fakeResponder.DeleteOriginal()
 }
 
-// TestCasePublicationFailureKeepsSuccessfulReceipt ensures the dispatcher cannot
-// replace an already-created case with a generic command-failed response.
+// TestCasePublicationFailureKeepsSuccessfulReceipt preserves the committed case
+// on a one-shot context publication failure without sending another public copy.
 func TestCasePublicationFailureKeepsSuccessfulReceipt(t *testing.T) {
 	for _, failure := range []string{"publish", "cleanup"} {
 		t.Run(failure, func(t *testing.T) {
 			responder := &failingCasePublication{failPublish: failure == "publish", failCleanup: failure == "cleanup"}
-			created := &quack.CaseResponse{ID: "case", CaseNumber: 12, TargetDiscordUserID: "member", Reason: "Rule violation"}
+			created := &quack.CaseResponse{ID: "case", CaseNumber: 12, TargetDiscordUserID: "member", Reason: "PRIVATE reason", ContextURL: "PRIVATE evidence", ModeratorDiscordUserID: "PRIVATE moderator"}
 			if err := publishPrivateContextCase(context.Background(), responder, nil, created, nil); err != nil {
-				t.Fatalf("committed case reported as failed: %v", err)
+				t.Fatalf("committed case reported failed: %v", err)
 			}
-			if responder.edit.Content == nil || !strings.Contains(*responder.edit.Content, "12") {
-				t.Fatalf("case receipt lost: %+v", responder.edit.Content)
+			if responder.channelPublishes != 1 || (failure == "publish" && responder.editCount != 0) {
+				t.Fatal("context result was duplicated", responder)
 			}
-			if failure == "publish" && (responder.channelPublishes != 1 || responder.webhookFollowups != 0 || !strings.Contains(*responder.edit.Content, "case was created") || responder.deleted) {
-				t.Fatal("publication failure discarded successful private result")
+			if failure == "publish" {
+				if responder.webhookFollowups != 1 || !responder.followup.Ephemeral || !strings.Contains(responder.followup.Content, "Case #12 was saved") || len(responder.followup.Components) != 0 || responder.deleted {
+					t.Fatal("missing private committed-case failure", responder)
+				}
+			} else if responder.editCount != 1 || responder.edit.Components == nil || len(*responder.edit.Components) != 0 {
+				t.Fatal("failed cleanup left an active selector", responder)
+			} else if responder.webhookFollowups != 0 || responder.followup.Ephemeral || !strings.Contains(responder.followup.Content, "Case #12") {
+				t.Fatal("public result lost after cleanup failure", responder)
 			}
-			if failure == "cleanup" && responder.followup.Content == "" {
-				t.Fatal("public receipt missing")
+			if strings.Contains(responder.followup.Content, "PRIVATE") {
+				t.Fatal("private case data leaked", responder.followup.Content)
 			}
 		})
 	}
@@ -63,6 +62,7 @@ func TestCasePublicationFailureKeepsSuccessfulReceipt(t *testing.T) {
 
 // EditOriginal injects acknowledgement failures without recording a successful edit.
 func (r *failingCasePublication) EditOriginal(edit ui.Edit) (*discordgo.Message, error) {
+	r.editAttempts++
 	if r.failEditCount > 0 {
 		r.failEditCount--
 		return nil, errors.New("Discord unavailable")
@@ -70,20 +70,23 @@ func (r *failingCasePublication) EditOriginal(edit ui.Edit) (*discordgo.Message,
 	return r.fakeResponder.EditOriginal(edit)
 }
 
-// TestCaseReceiptInitialEditRecovery checks both transient acknowledgement recovery
-// and a private fallback that never reports the committed moderation as failed.
+// TestCaseReceiptInitialEditRecovery retries only the original slash response;
+// a terminal edit failure gets a private saved-case notice without another public send.
 func TestCaseReceiptInitialEditRecovery(t *testing.T) {
 	for _, failures := range []int{1, 3} {
 		responder := &failingCasePublication{failEditCount: failures}
 		created := &quack.CaseResponse{ID: "case", CaseNumber: 12, TargetDiscordUserID: "member"}
-		if err := publishPrivateContextCase(context.Background(), responder, nil, created, nil); err != nil {
+		if err := publishCaseResult(context.Background(), responder, nil, created, nil, true); err != nil {
 			t.Fatal(err)
 		}
-		if failures == 1 && (responder.followup.Ephemeral || responder.deleted) {
-			t.Fatal("recovered edit did not produce public receipt")
+		if responder.channelPublishes != 0 || responder.deleted {
+			t.Fatal("slash result moved to another message", responder)
 		}
-		if failures == 3 && (!responder.followup.Ephemeral || responder.deleted || !strings.Contains(responder.followup.Content, "Do not create it again")) {
-			t.Fatal("failed acknowledgement lost private committed-case fallback")
+		if failures == 1 && (responder.editAttempts != 2 || responder.editCount != 1 || responder.webhookFollowups != 0 || responder.edit.Content == nil || !strings.Contains(*responder.edit.Content, "Case #12")) {
+			t.Fatal("original edit did not recover", responder)
+		}
+		if failures == 3 && (responder.editAttempts != 3 || responder.editCount != 0 || responder.webhookFollowups != 1 || !responder.followup.Ephemeral || !strings.Contains(responder.followup.Content, "Case #12 was saved") || len(responder.followup.Components) != 0) {
+			t.Fatal("saved-case fallback missing", responder)
 		}
 	}
 }

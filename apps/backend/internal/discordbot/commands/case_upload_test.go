@@ -2,6 +2,8 @@ package commands
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
@@ -22,7 +24,8 @@ func TestCaseAttachmentOptionCreatesCaseWithVisibleCopyFailure(t *testing.T) {
 	if result.Task == nil {
 		t.Fatalf("attachment creation was not scheduled: %+v", result)
 	}
-	if err := result.Task(context.Background(), &fakeResponder{}); err != nil {
+	responder := &fakeResponder{}
+	if err := result.Task(context.Background(), responder); err != nil {
 		t.Fatal(err)
 	}
 	cases, err := repository.ListCases(context.Background(), storeGuildID(t, repository, "guild-1"))
@@ -37,11 +40,24 @@ func TestCaseAttachmentOptionCreatesCaseWithVisibleCopyFailure(t *testing.T) {
 	data.Options = []*discordgo.ApplicationCommandInteractionDataOption{{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "evidence", Options: []*discordgo.ApplicationCommandInteractionDataOption{{Type: discordgo.ApplicationCommandOptionString, Name: "case", Value: cases[0].ID}, fileOption}}}
 	command.Data = data
 	result = HandleCaseInteraction(ui.Context{Context: context.Background(), Services: services, Interaction: command})
-	if result.Task == nil || result.Response.Data.Flags&discordgo.MessageFlagsEphemeral == 0 {
-		t.Fatalf("staff evidence response is not private: %+v", result)
+	if result.Task == nil || result.Response == nil || (result.Response.Data != nil && result.Response.Data.Flags&discordgo.MessageFlagsEphemeral != 0) {
+		t.Fatalf("evidence command did not acknowledge publicly: %+v", result)
 	}
-	if err := result.Task(context.Background(), &fakeResponder{}); err != nil {
+	responder = &fakeResponder{}
+	if err := result.Task(context.Background(), responder); err != nil {
 		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(responder.edit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, private := range []string{"screenshot.png", "cdn.discordapp.com", files[0].Warning} {
+		if strings.Contains(string(encoded), private) {
+			t.Fatalf("public evidence result leaked %q: %s", private, encoded)
+		}
+	}
+	if responder.channelPublishes != 0 || responder.webhookFollowups != 0 || responder.editCount != 1 {
+		t.Fatal("evidence result duplicated", responder)
 	}
 	_, files, err = repository.ListCaseEvidence(context.Background(), cases[0].ID)
 	if err != nil || len(files) != 2 {

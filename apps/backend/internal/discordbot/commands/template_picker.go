@@ -15,7 +15,7 @@ import (
 // context menus while preserving the selected target in every component ID.
 func caseTemplatePicker(templates []quack.TemplateResponse, kind, payload string, page int) ui.Message {
 	if len(templates) == 0 {
-		return ui.Signal("error", "No active case template is available.", true)
+		return ui.Signal("error", "There are no rules yet. Create one with `/template create`.", true)
 	}
 	pages := (len(templates) + 24) / 25
 	page = max(0, min(page, pages-1))
@@ -31,8 +31,8 @@ func caseTemplatePicker(templates []quack.TemplateResponse, kind, payload string
 	for _, template := range templates[page*25 : min((page+1)*25, len(templates))] {
 		options = append(options, discordgo.SelectMenuOption{Label: templateAutocompleteLabel(template), Value: template.ID})
 	}
-	menu := discordgo.SelectMenu{CustomID: id, Placeholder: "Choose an active case template", MinValues: intPointer(1), MaxValues: 1, Options: options}
-	message := ui.Signal("case", "Choose the template for this case.", true)
+	menu := discordgo.SelectMenu{CustomID: id, Placeholder: "Select a rule", MinValues: intPointer(1), MaxValues: 1, Options: options}
+	message := ui.Signal("case", "Which rule did they break?", true)
 	message.Components = []discordgo.MessageComponent{ui.Row(menu)}
 	if pages > 1 {
 		makeButton := func(label string, next int, disabled bool) discordgo.Button {

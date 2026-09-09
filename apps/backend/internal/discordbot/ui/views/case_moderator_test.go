@@ -19,7 +19,7 @@ func TestCaseDetailSeparatesStateContextEvidenceAndRecovery(t *testing.T) {
 	if message.Ephemeral || len(message.Embeds) != 0 || len(message.Components) != 2 {
 		t.Fatalf("unexpected detail view: %+v", message)
 	}
-	for _, required := range []string{"Case for <@target>.", "> Official reason", "Timeout couldn’t be completed", "permission denied", "> Details — Visible context", "[View message](https://discord.com/channels/1/2/3)", "Case created", "-# Case #7"} {
+	for _, required := range []string{"Case #7 · <@target>.", "> Official reason", "Timeout couldn’t be completed", "permission denied", "> Details — Visible context", "[View message](https://discord.com/channels/1/2/3)", "Case created", "-# Case #7"} {
 		if !strings.Contains(message.Content, required) {
 			t.Fatalf("missing %q from staff conversation: %s", required, message.Content)
 		}
@@ -120,13 +120,13 @@ func TestVoidedCaseDoesNotInviteAnotherAppeal(t *testing.T) {
 func TestCaseProfileUsesAllTimeCountsAndLabelsLegacy(t *testing.T) {
 	profile := &quack.CaseProfileResponse{Cases: []quack.CaseResponse{{CaseNumber: 8, TargetDiscordUserID: "member", Source: model.CaseSourceV4Import, Validity: model.CaseValidityValid}}, Total: 21, Limit: 10, Offset: 20, Summary: quack.CaseProfileSummary{Total: 21, ByValidity: map[string]int64{"valid": 17, "voided": 4}}}
 	message := CaseProfileMessage(profile, 3, "member")
-	for _, text := range []string{"21 total · 17 valid · 4 voided", "Imported v4", "eligible v5 cases", "Page 3/3"} {
+	for _, text := range []string{"21 total · 17 active · 4 voided", "Imported v4", "Page 3/3"} {
 		if !strings.Contains(message.Content, text) {
 			t.Fatalf("missing %q: %s", text, message.Content)
 		}
 	}
-	if !message.Ephemeral || len(message.Components) == 0 {
-		t.Fatal("profile privacy or pagination lost")
+	if message.Ephemeral || len(message.Components) == 0 {
+		t.Fatal("public profile or pagination lost")
 	}
 }
 

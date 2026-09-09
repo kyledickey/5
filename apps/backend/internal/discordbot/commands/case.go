@@ -75,13 +75,13 @@ func HandleCaseInteraction(ctx ui.Context) ui.HandlerResult {
 		return ui.Immediate(ui.Error(caseCreateErrorMessage(err)))
 	}
 
-	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
+	return ui.AsyncPublic(func(taskCtx context.Context, responder ui.Responder) error {
 		result, err := createCaseFromInteraction(taskCtx, ctx.Services, interaction, add)
 		if err != nil {
 			_, editErr := responder.EditOriginal(ui.ErrorEdit(caseCreateErrorMessage(err)))
 			return editErr
 		}
-		return publishPrivateContextCase(taskCtx, responder, ctx.Services, result.Case, result.Template)
+		return publishCaseResult(taskCtx, responder, ctx.Services, result.Case, result.Template, true)
 	})
 }
 

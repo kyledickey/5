@@ -13,7 +13,7 @@ import (
 func UserCaseCommandSpec() CommandSpec {
 	permissions := int64(discordgo.PermissionModerateMembers)
 	dm := false
-	return CommandSpec{Definition: &discordgo.ApplicationCommand{Type: discordgo.UserApplicationCommand, Name: "Create case for member", DefaultMemberPermissions: &permissions, DMPermission: &dm}, Handler: HandleUserCaseInteraction}
+	return CommandSpec{Definition: &discordgo.ApplicationCommand{Type: discordgo.UserApplicationCommand, Name: "Add case for member", DefaultMemberPermissions: &permissions, DMPermission: &dm}, Handler: HandleUserCaseInteraction}
 }
 
 // HandleUserCaseInteraction selects a policy for the member chosen in Discord.
@@ -61,7 +61,7 @@ func handleUserTemplateComponent(ctx ui.Context) ui.HandlerResult {
 	if err != nil || parsed.Payload == "" || len(data.Values) != 1 {
 		return ui.Immediate(ui.Error("That case selection is unavailable."))
 	}
-	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
+	return ui.Async(ui.DeferUpdate(), func(taskCtx context.Context, responder ui.Responder) error {
 		guild, err := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
 		if err != nil {
 			_, err = responder.EditOriginal(ui.ErrorEdit(caseCreateErrorMessage(err)))
@@ -76,7 +76,7 @@ func handleUserTemplateComponent(ctx ui.Context) ui.HandlerResult {
 			_, err = responder.EditOriginal(ui.ErrorEdit("That case template is not available."))
 			return err
 		}
-		created, err := ctx.Services.Cases.Create(taskCtx, guild, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: parsed.Payload, Source: model.CaseSourceDiscord, IdempotencyKey: ctx.Interaction.ID})
+		created, err := ctx.Services.Cases.Create(taskCtx, guild, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: parsed.Payload, Source: model.CaseSourceDiscord, IdempotencyKey: caseSelectionKey(ctx.Interaction)})
 		if err != nil {
 			_, err = responder.EditOriginal(ui.ErrorEdit(caseCreateErrorMessage(err)))
 			return err

@@ -87,14 +87,18 @@ func (s *CaseService) getDetail(ctx context.Context, guildContext *GuildStaffCon
 	}
 
 	var attempts []model.CaseActionAttempt
-	if !native {
+	{
 		executionIDs := make([]string, 0, len(actions))
 		for _, action := range actions {
-			executionIDs = append(executionIDs, action.ID)
+			if !native || (action.ActionType == model.ActionTimeoutUser && action.Status == model.ActionExecutionSucceeded) {
+				executionIDs = append(executionIDs, action.ID)
+			}
 		}
-		attempts, err = s.store.ListCaseActionAttempts(ctx, executionIDs)
-		if err != nil {
-			return nil, err
+		if len(executionIDs) > 0 {
+			attempts, err = s.store.ListCaseActionAttempts(ctx, executionIDs)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -108,6 +112,11 @@ func (s *CaseService) getDetail(ctx context.Context, guildContext *GuildStaffCon
 	}
 	base := caseResponseFromModel(*caseModel, actions)
 	base.EvidenceIncomplete = evidenceIncomplete(evidence)
+	for i := range base.Actions {
+		if base.Actions[i].ActionType == model.ActionTimeoutUser && base.Actions[i].Status == model.ActionExecutionSucceeded {
+			base.Actions[i].TimeoutUntil = RecordedTimeoutUntil(base.Actions[i].ID, attempts)
+		}
+	}
 	if err := s.audit(ctx, guildContext, "case.read", "case", caseModel.ID, model.AuditResultSuccess, ""); err != nil {
 		return nil, err
 	}

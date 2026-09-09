@@ -159,9 +159,9 @@ func caseCreateErrorMessage(err error) string {
 	case errors.Is(err, quack.ErrCasePermissionDenied):
 		return "No case was created. You need Moderate Members permission to create cases. Ask a staff member with that permission to handle this case."
 	case errors.Is(err, quack.ErrAuthorizationDenied):
-		return "No case was created. Your current authority does not allow this case. Ask a server administrator to review your permissions and the target's role."
+		return "No case was created. Your permissions or role position don’t allow this action."
 	case errors.Is(err, quack.ErrAuthorizationUnavailable):
-		return "No case was created. Quack could not verify current Discord permissions. Try again shortly."
+		return "I couldn’t check Discord permissions, so no case was created. Try again in a moment."
 	default:
 		return caseCommandErrorMessage(err)
 	}
@@ -172,16 +172,16 @@ func caseCreateErrorMessage(err error) string {
 func caseCommandErrorMessage(err error) string {
 	switch {
 	case errors.Is(err, quack.ErrCasePermissionDenied), errors.Is(err, quack.ErrAuthorizationDenied):
-		return "You do not have permission to perform that case operation."
+		return "You don’t have permission to do that. Ask a moderator with the required permission."
 	case errors.Is(err, quack.ErrCaseTemplateNotAvailable):
-		return "That case template is not available."
+		return "That rule is no longer available. Choose another from the suggestions."
 	case errors.Is(err, quack.ErrCaseValidation):
-		return "That case request is invalid."
+		return "Something is missing or doesn’t look right. Check the case number and command options."
 	case errors.Is(err, quack.ErrBotNotInGuild):
-		return "Quack is not active in this server."
+		return "I’m not set up in this server yet."
 	default:
 		slog.Error("case command failed", "error", err)
-		return "Quack could not complete that case operation."
+		return "I couldn’t finish that. Try again in a moment."
 	}
 }
 
@@ -226,7 +226,7 @@ func caseAuthorizationErrorMessage(denial *quack.AuthorizationError) string {
 	case "actor_not_in_guild":
 		return prefix + "You are no longer a member of this server. Ask a current authorized staff member to handle this case."
 	case "bot_not_in_guild":
-		return prefix + "Quack is not active in this server. Ask a server administrator to restore Quack before trying again."
+		return prefix + "I’m not set up in this server yet. Ask a server administrator to restore Quack before trying again."
 	}
 	return prefix + "Quack could not confirm authority for this case. Ask a server administrator to review your permissions and the target, then try again."
 }

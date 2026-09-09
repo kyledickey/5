@@ -89,6 +89,7 @@ type CaseProfileSummary struct {
 
 // CaseResponse presents the immutable moderation decision separately from its current validity and action progress.
 type CaseResponse struct {
+	RuleName                string                     `json:"rule_name,omitempty"`
 	EvidenceIncomplete      bool                       `json:"evidence_incomplete"`
 	CreatedAt               time.Time                  `json:"created_at"`
 	UpdatedAt               time.Time                  `json:"updated_at"`
@@ -157,6 +158,7 @@ type CaseSelectedLevel struct {
 
 // CaseActionResponse summarizes configured enforcement without exposing worker lease tokens.
 type CaseActionResponse struct {
+	TimeoutUntil     *time.Time                  `json:"timeout_until,omitempty"`
 	ID               string                      `json:"id"`
 	Position         int                         `json:"position"`
 	ActionType       model.ActionType            `json:"action_type"`

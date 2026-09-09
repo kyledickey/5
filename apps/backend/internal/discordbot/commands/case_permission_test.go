@@ -52,7 +52,7 @@ func TestCaseCreatePermissionGuidance(t *testing.T) {
 // reversals from claiming that no case exists when a shared error is mapped.
 func TestExistingCasePermissionErrorsDoNotClaimCreation(t *testing.T) {
 	got := caseCommandErrorMessage(&quack.AuthorizationError{Reason: "permission_required", RequiredPermission: uint64(discordgo.PermissionBanMembers)})
-	if got != "You do not have permission to perform that case operation." {
+	if got != "You don’t have permission to do that. Ask a moderator with the required permission." {
 		t.Fatalf("unexpected existing-case error: %s", got)
 	}
 }

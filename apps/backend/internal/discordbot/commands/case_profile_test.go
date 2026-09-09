@@ -76,7 +76,7 @@ func TestCaseProfileSummarySurvivesEveryNativeEntryPoint(t *testing.T) {
 			if entry == "page" {
 				content = responder.updated.Content
 			}
-			if content == nil || !strings.Contains(*content, "11 total · 10 valid · 1 voided") {
+			if content == nil || !strings.Contains(*content, "11 total · 10 active · 1 voided") {
 				t.Fatalf("summary lost on %s: %v", entry, content)
 			}
 			if entry == "page" && !strings.Contains(*content, "Page 2/2") {

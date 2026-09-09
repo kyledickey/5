@@ -25,7 +25,7 @@ func TestTemplateSelectionDefersLiveAuthorization(t *testing.T) {
 			interaction.Data = discordgo.MessageComponentInteractionData{CustomID: ui.MustCustomID(ui.CustomID{Namespace: "case", Action: selection.action, Version: "v1", Payload: selection.payload}), Values: []string{"template"}}
 			// Missing services prove that the initial handler performs no eager lookup.
 			result := selection.handler(ui.Context{Context: context.Background(), Interaction: interaction})
-			if result.Response == nil || result.Response.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource || result.Task == nil || result.Response.Data.Flags&discordgo.MessageFlagsEphemeral == 0 {
+			if result.Response == nil || result.Response.Type != discordgo.InteractionResponseDeferredMessageUpdate || result.Task == nil {
 				t.Fatalf("selection was not deferred: %+v", result)
 			}
 			_, services, _ := newCaseCommandHarnessWithLivePermissions(t, 0)
@@ -73,8 +73,8 @@ func TestContextCommandsDeferBeforeLookups(t *testing.T) {
 	}
 }
 
-// TestSingleTemplateContextPublishesPublicCase confirms private acknowledgement
-// precedes a standalone public notice without using the interaction webhook.
+// TestSingleTemplateContextPublishesPublicCase removes the private acknowledgement
+// after one standalone public notice, without a redundant success confirmation.
 func TestSingleTemplateContextPublishesPublicCase(t *testing.T) {
 	_, services, _ := newCaseCommandHarness(t)
 	interaction := caseAddInteraction("", "target", uint64(discordgo.PermissionModerateMembers))
@@ -84,7 +84,7 @@ func TestSingleTemplateContextPublishesPublicCase(t *testing.T) {
 	if err := result.Task(context.Background(), responder); err != nil {
 		t.Fatal(err)
 	}
-	if responder.channelPublishes != 1 || responder.webhookFollowups != 0 || responder.editCount == 0 || responder.followup.Ephemeral || !strings.Contains(responder.followup.Content, "<@target>") || responder.deleted {
+	if responder.channelPublishes != 1 || responder.webhookFollowups != 0 || responder.editCount != 0 || responder.followup.Ephemeral || !strings.Contains(responder.followup.Content, "<@target>") || !responder.deleted {
 		t.Fatalf("public result failed: %+v", responder)
 	}
 }

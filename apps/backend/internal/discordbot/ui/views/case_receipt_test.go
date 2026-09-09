@@ -22,7 +22,7 @@ func TestReceiptAudienceAndVoidedState(t *testing.T) {
 		t.Fatal("private receipt unsafe")
 	}
 	public := CaseCreatedMessage(CaseCreated{Case: receipt.Case, Template: &quack.TemplateResponse{Name: "Spam"}, MemberReason: receipt.MemberReason})
-	for _, hidden := range []string{"STAFF LEVEL", "missing permission", "PRIVATE RAW ERROR", "evidence", "DM"} {
+	for _, hidden := range []string{"STAFF LEVEL", "missing permission", "PRIVATE RAW ERROR", "DM"} {
 		if strings.Contains(public.Content, hidden) {
 			t.Fatal("public leak", hidden)
 		}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +22,7 @@ type publicationRepositoryStub struct {
 	receipt    model.CasePublication
 	item       *model.Case
 	actions    []model.CaseActionExecution
+	attempts   []model.CaseActionAttempt
 	failRead   bool
 	incomplete bool
 	deleted    bool
@@ -87,7 +89,7 @@ func TestCasePublicationReconcilesTerminalAndVoid(t *testing.T) {
 		if strings.Contains(message.Content, "SECRET") || !strings.Contains(message.Content, "Original rule") {
 			t.Fatalf("unsafe or changed presentation: %s", message.Content)
 		}
-		if edits == 2 && !strings.Contains(message.Content, "voided") {
+		if edits == 2 && !strings.Contains(strings.SplitN(message.Content, "\n", 2)[0], "**Voided**") {
 			t.Fatal("void outcome missing")
 		}
 		return nil
@@ -213,13 +215,53 @@ func TestCasePublicationRepairsLateStaleEdit(t *testing.T) {
 	if err := refreshCasePublications(context.Background(), repository, edit, now); err != nil {
 		t.Fatal(err)
 	}
-	if !repository.receipt.RefreshRequested || strings.Contains(visible, "voided") {
+	if !repository.receipt.RefreshRequested || strings.Contains(strings.SplitN(visible, "\n", 2)[0], "**Voided**") {
 		t.Fatal("did not model late stale delivery")
 	}
 	if err := refreshCasePublications(context.Background(), repository, edit, now.Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	if edits != 3 || !strings.Contains(visible, "voided") || repository.receipt.RefreshRequested {
+	if edits != 3 || !strings.Contains(strings.SplitN(visible, "\n", 2)[0], "**Voided**") || repository.receipt.RefreshRequested {
 		t.Fatal("stale delivery was not repaired then retired from polling")
+	}
+}
+
+// ListCaseActionAttempts supplies persisted Discord receipts for expiry display.
+func (r *publicationRepositoryStub) ListCaseActionAttempts(context.Context, []string) ([]model.CaseActionAttempt, error) {
+	return r.attempts, nil
+}
+
+// TestCasePublicationRefreshShowsConfirmedTimeoutExpiry verifies the live refresh
+// replaces its pending snapshot with the exact Discord-confirmed expiry, without
+// leaking action payload fields or estimating a timestamp for a failed attempt.
+func TestCasePublicationRefreshShowsConfirmedTimeoutExpiry(t *testing.T) {
+	repository := publicationFixture(t)
+	repository.actions = []model.CaseActionExecution{{ULIDModel: model.ULIDModel{ID: "timeout"}, ActionType: model.ActionTimeoutUser, Status: model.ActionExecutionPending}}
+	now := time.Now().UTC()
+	var content string
+	edit := func(_ context.Context, _ model.CasePublication, message ui.Message) error {
+		content = message.Content
+		return nil
+	}
+	if err := refreshCasePublications(context.Background(), repository, edit, now); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(content, "<t:") {
+		t.Fatalf("invented expiry before execution: %s", content)
+	}
+	repository.actions[0].Status = model.ActionExecutionSucceeded
+	repository.attempts = []model.CaseActionAttempt{
+		{ExecutionID: "timeout", Status: model.ActionAttemptFailed, ResponsePayloadJSON: `{"timeout_until":"2030-01-01T00:00:00Z"}`},
+		{ExecutionID: "timeout", Status: model.ActionAttemptSucceeded, ResponsePayloadJSON: `{"timeout_until":"2026-09-10T00:00:00Z","private":"SECRET"}`},
+	}
+	if err := refreshCasePublications(context.Background(), repository, edit, now.Add(3*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	until := time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC)
+	if !strings.Contains(content, fmt.Sprintf("<t:%d:", until.Unix())) || strings.Contains(content, "SECRET") || strings.Contains(content, "1893456000") {
+		t.Fatalf("wrong or unsafe confirmed expiry: %s", content)
+	}
+	if repository.receipt.RefreshRequested {
+		t.Fatal("terminal timeout kept polling")
 	}
 }

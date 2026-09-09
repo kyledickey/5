@@ -113,19 +113,33 @@ func refreshCasePublication(ctx context.Context, repository CasePublicationRepos
 	if err != nil {
 		return
 	}
+	var attempts []model.CaseActionAttempt
+	if reader, ok := repository.(interface {
+		ListCaseActionAttempts(context.Context, []string) ([]model.CaseActionAttempt, error)
+	}); ok {
+		ids := []string{}
+		for _, action := range actions {
+			if action.ActionType == model.ActionTimeoutUser && action.Status == model.ActionExecutionSucceeded {
+				ids = append(ids, action.ID)
+			}
+		}
+		if len(ids) > 0 {
+			attempts, err = reader.ListCaseActionAttempts(ctx, ids)
+			if err != nil {
+				return
+			}
+		}
+	}
 	presentation.Case.Actions = nil
 	delay = 0
 	for _, action := range actions {
-		presentation.Case.Actions = append(presentation.Case.Actions, quack.CaseActionResponse{ID: action.ID, ActionType: action.ActionType, Status: action.Status})
+		presentation.Case.Actions = append(presentation.Case.Actions, quack.CaseActionResponse{ID: action.ID, ActionType: action.ActionType, Status: action.Status, TimeoutUntil: quack.RecordedTimeoutUntil(action.ID, attempts)})
 		switch action.Status {
 		case model.ActionExecutionPending, model.ActionExecutionRunning, model.ActionExecutionRetrying:
 			delay = 2 * time.Second
 		}
 	}
 	message := views.CaseCreatedMessage(presentation)
-	if item.Validity == model.CaseValidityVoided {
-		message.Content += "\n\nThis case has been voided."
-	}
 	var encoded []byte
 	encoded, err = json.Marshal(message)
 	if err != nil {

@@ -92,8 +92,8 @@ func TestHandleCaseInteractionCreatesCase(t *testing.T) {
 	if response.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource {
 		t.Fatalf("expected deferred success response, got %v", response.Type)
 	}
-	if response.Data == nil || response.Data.Flags&discordgo.MessageFlagsEphemeral == 0 {
-		t.Fatalf("expected private acknowledgement, got %+v", response.Data)
+	if response.Data != nil && response.Data.Flags&discordgo.MessageFlagsEphemeral != 0 {
+		t.Fatalf("expected public acknowledgement, got %+v", response.Data)
 	}
 	if result.Task == nil {
 		t.Fatalf("expected deferred case creation task")
@@ -102,10 +102,10 @@ func TestHandleCaseInteractionCreatesCase(t *testing.T) {
 	if err := result.Task(ctx, responder); err != nil {
 		t.Fatalf("run deferred task: %v", err)
 	}
-	if responder.channelPublishes != 1 || responder.webhookFollowups != 0 || responder.deleted || responder.followup.Content == "" || responder.followup.Ephemeral || responder.edit.Content == nil || responder.edit.Embeds == nil || len(*responder.edit.Embeds) != 0 || responder.editCount != 1 {
+	if responder.channelPublishes != 0 || responder.webhookFollowups != 0 || responder.deleted || responder.followup.Content != "" || responder.edit.Content == nil || responder.edit.Embeds == nil || len(*responder.edit.Embeds) != 0 || responder.editCount != 1 {
 		t.Fatalf("expected original response to become the result: %+v", responder)
 	}
-	for _, want := range []string{"Case #1 added for", "<@target-1>", "Spam", "Default", "Warning recorded."} {
+	for _, want := range []string{"Case #1", "<@target-1>", "Spam", "Warning"} {
 		if !strings.Contains(*responder.edit.Content, want) {
 			t.Fatalf("missing %q in %q", want, *responder.edit.Content)
 		}
@@ -123,6 +123,13 @@ func TestHandleCaseInteractionCreatesCase(t *testing.T) {
 	}
 	if cases[0].Reason != "Spam" {
 		t.Fatalf("expected immutable template reason, got %q", cases[0].Reason)
+	}
+	var receipts []model.CasePublication
+	if err := store.DB().Find(&receipts).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(receipts) != 1 || receipts[0].CaseID != cases[0].ID || receipts[0].MessageID != "message-1" || receipts[0].ChannelID != "channel-1" {
+		t.Fatalf("original result not tracked: %+v", receipts)
 	}
 }
 
@@ -269,9 +276,6 @@ func (f *fakeResponder) EditOriginal(edit ui.Edit) (*discordgo.Message, error) {
 
 func (f *fakeResponder) Followup(message ui.Message) (*discordgo.Message, error) {
 	f.webhookFollowups++
-	if f.editCount == 0 {
-		message.Ephemeral = true
-	}
 	f.followup = message
 	return &discordgo.Message{ID: "followup-1", ChannelID: "channel-1"}, nil
 }
@@ -450,4 +454,25 @@ func (f *fakeResponder) PublishChannel(_ context.Context, message ui.Message) (*
 func (f *fakeResponder) EditChannel(_ context.Context, messageID string, edit ui.Edit) (*discordgo.Message, error) {
 	f.updated = edit
 	return &discordgo.Message{ID: messageID, ChannelID: "channel-1"}, nil
+}
+
+// TestCaseAddFailureStaysPrivate removes the public defer before explaining a
+// pre-creation failure privately, without producing a case or public error copy.
+func TestCaseAddFailureStaysPrivate(t *testing.T) {
+	repository, services, _ := newCaseCommandHarness(t)
+	result := HandleCaseInteraction(ui.Context{Context: context.Background(), Services: services, Interaction: caseAddInteraction("missing-template", "target", uint64(discordgo.PermissionModerateMembers))})
+	if result.Task == nil {
+		t.Fatal("expected deferred creation")
+	}
+	responder := &fakeResponder{}
+	if err := result.Task(context.Background(), responder); err != nil {
+		t.Fatal(err)
+	}
+	if !responder.deleted || responder.editCount != 0 || responder.channelPublishes != 0 || responder.webhookFollowups != 1 || !responder.followup.Ephemeral || responder.followup.Content == "" {
+		t.Fatalf("creation failure was not private: %+v", responder)
+	}
+	cases, err := repository.ListCases(context.Background(), storeGuildID(t, repository, "guild-1"))
+	if err != nil || len(cases) != 0 {
+		t.Fatalf("failed request created a case: %+v %v", cases, err)
+	}
 }

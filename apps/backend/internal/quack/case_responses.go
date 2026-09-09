@@ -37,6 +37,9 @@ func caseResponseFromModel(caseModel model.Case, actionExecutions []model.CaseAc
 		Actions:       make([]CaseActionResponse, 0, len(actionExecutions)),
 	}
 
+	if snapshot := templateSnapshotResponse(caseModel.TemplateSnapshotJSON); snapshot != nil {
+		response.RuleName = snapshot.Template.Name
+	}
 	for _, action := range actionExecutions {
 		response.Actions = append(response.Actions, caseActionResponse(action))
 	}
@@ -110,7 +113,7 @@ func caseActionDetailResponses(actions []model.CaseActionExecution, attempts []m
 	responses := make([]CaseActionDetailResponse, 0, len(actions))
 	for _, action := range actions {
 		responses = append(responses, CaseActionDetailResponse{
-			CaseActionResponse: caseActionResponse(action),
+			CaseActionResponse: caseActionResponseWithExpiry(action, attempts),
 			ConfigSnapshot:     parseJSON(action.ConfigSnapshotJSON),
 			AttemptCount:       action.AttemptCount,
 			LastErrorCode:      action.LastErrorCode,
@@ -230,4 +233,13 @@ func evidenceIncomplete(evidence []model.CaseEvidenceSnapshot) bool {
 		}
 	}
 	return false
+}
+
+// caseActionResponseWithExpiry enriches a staff action using confirmed timeout facts.
+func caseActionResponseWithExpiry(action model.CaseActionExecution, attempts []model.CaseActionAttempt) CaseActionResponse {
+	result := caseActionResponse(action)
+	if action.ActionType == model.ActionTimeoutUser && action.Status == model.ActionExecutionSucceeded {
+		result.TimeoutUntil = RecordedTimeoutUntil(action.ID, attempts)
+	}
+	return result
 }
