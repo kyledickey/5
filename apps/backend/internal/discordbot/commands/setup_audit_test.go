@@ -23,7 +23,7 @@ func (v *auditSetupValidator) ValidateStaffChannel(context.Context, string, stri
 }
 
 // TestAuditSetupUsesLiveManagerAuthorityAndValidatedDestination follows the
-// registered slash command through persistence, rejection and private feedback.
+// registered slash command through persistence, public success and private errors.
 func TestAuditSetupUsesLiveManagerAuthorityAndValidatedDestination(t *testing.T) {
 	for _, scenario := range []struct {
 		name        string
@@ -59,15 +59,17 @@ func TestAuditSetupUsesLiveManagerAuthorityAndValidatedDestination(t *testing.T)
 				t.Fatal("audit command missing")
 			}
 			result := spec.Handler(ui.Context{Context: context.Background(), Services: services, Interaction: interaction})
-			if result.Task == nil || result.Response.Data.Flags&discordgo.MessageFlagsEphemeral == 0 || validator.calls != 0 {
+			assertPublicCommandAcknowledgement(t, result)
+			if validator.calls != 0 {
 				t.Fatal("setup did not acknowledge before lookups")
 			}
 			responder := &fakeResponder{}
 			if err := result.Task(context.Background(), responder); err != nil {
 				t.Fatal(err)
 			}
-			if responder.edit.Content == nil || !strings.Contains(*responder.edit.Content, scenario.want) {
-				t.Fatalf("unexpected feedback: %+v", responder.edit.Content)
+			feedback := commandFeedback(t, responder, scenario.name == "manager")
+			if !strings.Contains(feedback, scenario.want) {
+				t.Fatalf("unexpected feedback: %s", feedback)
 			}
 			settings, err := repository.GetGuildSettings(context.Background(), bootstrap.Guild.ID)
 			if err != nil {

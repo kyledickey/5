@@ -63,3 +63,28 @@ func TestSetupRoutesLoggingToModule(t *testing.T) {
 		t.Fatal("logging setup handler not called")
 	}
 }
+
+// assertPublicCommandAcknowledgement requires an attributed public defer before
+// any slow lookups, while tolerating Discord's omitted flags object.
+func assertPublicCommandAcknowledgement(t *testing.T, result ui.HandlerResult) {
+	t.Helper()
+	if result.Task == nil || result.Response == nil || result.Response.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource || result.Response.Data != nil && result.Response.Data.Flags&discordgo.MessageFlagsEphemeral != 0 {
+		t.Fatal("command did not defer publicly")
+	}
+}
+
+// commandFeedback checks success remains one original response and handled
+// failures remove the placeholder and send exactly one private error instead.
+func commandFeedback(t *testing.T, responder *fakeResponder, success bool) string {
+	t.Helper()
+	if success {
+		if responder.editCount != 1 || responder.edit.Content == nil || responder.deleted || responder.webhookFollowups != 0 || responder.channelPublishes != 0 {
+			t.Fatalf("success was not one original response: %+v", responder)
+		}
+		return *responder.edit.Content
+	}
+	if responder.editCount != 0 || !responder.deleted || responder.webhookFollowups != 1 || !responder.followup.Ephemeral || responder.channelPublishes != 0 {
+		t.Fatalf("error was public or duplicated: %+v", responder)
+	}
+	return responder.followup.Content
+}

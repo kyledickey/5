@@ -63,21 +63,19 @@ func TestSetupToggleUsesCanonicalSettings(t *testing.T) {
 					interaction.Data = discordgo.ApplicationCommandInteractionData{Name: "setup", Options: []*discordgo.ApplicationCommandInteractionDataOption{{Name: command, Type: discordgo.ApplicationCommandOptionSubCommand, Options: []*discordgo.ApplicationCommandInteractionDataOption{{Name: "enabled", Type: discordgo.ApplicationCommandOptionBoolean, Value: enabled}}}}}
 					// No Session is supplied: toggle execution must not create/edit channels.
 					result := SetupCommandSpec().Handler(ui.Context{Context: context.Background(), Services: services, Interaction: interaction})
-					if result.Task == nil || result.Response.Data.Flags&discordgo.MessageFlagsEphemeral == 0 || len(validator.calls) != 0 {
-						t.Fatal("toggle did not defer privately before validation")
+					assertPublicCommandAcknowledgement(t, result)
+					if len(validator.calls) != 0 {
+						t.Fatal("toggle did not defer before validation")
 					}
 					responder := &fakeResponder{}
 					if err := result.Task(context.Background(), responder); err != nil {
 						t.Fatal(err)
 					}
-					if responder.edit.Content == nil {
-						t.Fatal("missing private feedback")
-					}
-					text := *responder.edit.Content
+					text := commandFeedback(t, responder, scenario == "manager")
 					if strings.Contains(text, "private") {
 						t.Fatalf("internal error leaked: %s", text)
 					}
-					want := "enabled using the saved setup"
+					want := "turned on"
 					if !enabled {
 						want = "enabled:true"
 					}

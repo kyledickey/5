@@ -21,7 +21,7 @@ func handleAuditSetup(ctx ui.Context) ui.HandlerResult {
 		return ui.Immediate(ui.Error("Choose the audit channel."))
 	}
 	channelID := optionStringValue(option.GetOption("channel"))
-	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
+	return ui.AsyncPublic(func(taskCtx context.Context, responder ui.Responder) error {
 		guild, err := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
 		if err != nil {
 			_, err = responder.EditOriginal(ui.ErrorEdit("Could not verify your current server permissions."))

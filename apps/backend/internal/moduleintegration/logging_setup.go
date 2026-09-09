@@ -7,7 +7,8 @@ import (
 
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/modules/generallogging"
-	"github.com/quackdiscord/bot/internal/modules/tickets"
+	"github.com/quackdiscord/bot/internal/quack"
+	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 // SetupLogging enables the supported Discord event categories in one staff channel.
@@ -24,7 +25,15 @@ func (r *Runtime) SetupLogging(ctx ui.Context) ui.HandlerResult {
 	if option := options[0].GetOption("channel"); option != nil {
 		channelID, _ = option.Value.(string)
 	}
-	return r.ticketTask(ctx, func(taskCtx context.Context, responder ui.Responder, identity tickets.Actor) error {
+	return ui.AsyncPublic(func(taskCtx context.Context, responder ui.Responder) error {
+		taskCtx = quack.ContextWithAuditSource(taskCtx, model.AuditSourceDiscord)
+		current := ctx
+		current.Context = taskCtx
+		identity, err := r.ticketActor(current)
+		if err != nil {
+			_, err = responder.EditOriginal(ui.ErrorEdit("I couldn’t check your permissions. Try again."))
+			return err
+		}
 		if !identity.CanManage {
 			_, err := responder.EditOriginal(ui.ErrorEdit("You need Manage Server permission to set up logging."))
 			return err
@@ -49,7 +58,7 @@ func (r *Runtime) SetupLogging(ctx ui.Context) ui.HandlerResult {
 			_, err = responder.EditOriginal(ui.ErrorEdit("Could not enable logging. Choose a text channel where Quack can View Channel, Send Messages and Attach Files."))
 			return err
 		}
-		_, err = responder.EditOriginal(ui.EditMessage(ui.Signal("settings", fmt.Sprintf("Discord event logs will go to <#%s>. Message edits and deletions will include available content and attachment details.", channelID), true)))
+		_, err = responder.EditOriginal(ui.EditMessage(ui.Signal("settings", fmt.Sprintf("Discord logs will go to <#%s>.", channelID), true)))
 		return err
 	})
 }

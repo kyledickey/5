@@ -54,10 +54,19 @@ func TestSetupChannelSelection(t *testing.T) {
 					if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
 						t.Fatal(err)
 					}
-					if data.Name != "appeals" || len(data.PermissionOverwrites) != 2 {
+					if data.Name != "appeals" || data.Topic == "" || len(data.PermissionOverwrites) != 2 {
 						t.Fatalf("invalid creation: %+v", data)
 					}
 					body = &discordgo.Channel{ID: "new", GuildID: "guild"}
+				case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/channels/new/messages"):
+					var message discordgo.MessageSend
+					if err := json.NewDecoder(r.Body).Decode(&message); err != nil {
+						t.Fatal(err)
+					}
+					if !strings.HasPrefix(message.Content, "# Appeals\n") || message.AllowedMentions == nil {
+						t.Fatalf("invalid intro: %+v", message)
+					}
+					body = &discordgo.Message{ID: "intro"}
 				default:
 					t.Fatalf("unexpected mutation or request: %s %s", r.Method, r.URL.Path)
 				}
@@ -118,6 +127,52 @@ func TestCreatedChannelEffectivePermissions(t *testing.T) {
 			if member&discordgo.PermissionSendMessages == 0 || bot&discordgo.PermissionManageMessages == 0 {
 				t.Fatal("trap cannot receive and remove messages")
 			}
+		}
+	}
+}
+
+// TestSetupChannelIntroFailureRetainsCreatedDestination ensures a failed welcome
+// cannot turn a successful channel creation into another creation on setup retry.
+func TestSetupChannelIntroFailureRetainsCreatedDestination(t *testing.T) {
+	session, _ := discordgo.New("Bot test")
+	session.State.User = &discordgo.User{ID: "bot"}
+	creates, intros := 0, 0
+	session.Client = &http.Client{Transport: setupTransport(func(r *http.Request) (*http.Response, error) {
+		code, body := 200, `{"id":"guild"}`
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/guilds/guild/channels"):
+			creates++
+			body = `{"id":"created","guild_id":"guild","type":0}`
+		case strings.HasSuffix(r.URL.Path, "/channels/created/messages"):
+			intros++
+			code, body = 503, `{"code":0,"message":"Unavailable"}`
+		case strings.HasSuffix(r.URL.Path, "/channels/created"):
+			body = `{"id":"created","guild_id":"guild","type":0}`
+		case strings.HasSuffix(r.URL.Path, "/guilds/guild"):
+		default:
+			t.Fatalf("unexpected request: %s", r.URL.Path)
+		}
+		return &http.Response{StatusCode: code, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
+	})}
+	id, err := SetupChannel(context.Background(), session, "guild", "", "", "appeals", SetupStaffChannel)
+	if err != nil || id != "created" {
+		t.Fatalf("lost creation receipt: %s, %v", id, err)
+	}
+	if _, err := SetupChannel(context.Background(), session, "guild", "", id, "appeals", SetupStaffChannel); err != nil {
+		t.Fatal(err)
+	}
+	if creates != 1 || intros != 1 {
+		t.Fatalf("repeated creation or intro: %d, %d", creates, intros)
+	}
+}
+
+// TestChannelPanelsSupplyTheirOwnWelcome keeps entry controls and warnings as the
+// only welcome while giving every newly-created channel a useful description.
+func TestChannelPanelsSupplyTheirOwnWelcome(t *testing.T) {
+	for _, kind := range []SetupChannelKind{SetupTicketEntry, SetupHoneypotChannel} {
+		topic, intro := setupChannelPresentation("channel", kind)
+		if topic == "" || intro != "" {
+			t.Fatalf("entry presentation: %q %q", topic, intro)
 		}
 	}
 }

@@ -39,7 +39,7 @@ func handleSetupToggle(ctx ui.Context, command *discordgo.ApplicationCommandInte
 	if ctx.Services == nil || ctx.Services.Guilds == nil || ctx.Services.Settings == nil {
 		return ui.Immediate(ui.Error("This setup feature is unavailable."))
 	}
-	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
+	return ui.AsyncPublic(func(taskCtx context.Context, responder ui.Responder) error {
 		guild, err := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
 		if err != nil {
 			_, err = responder.EditOriginal(ui.ErrorEdit("Could not verify your server permissions. Try again."))
@@ -60,9 +60,9 @@ func handleSetupToggle(ctx ui.Context, command *discordgo.ApplicationCommandInte
 			_, err = responder.EditOriginal(ui.ErrorEdit(text))
 			return err
 		}
-		text := name + " enabled using the saved setup."
+		text := name + " turned on."
 		if !enabled {
-			text = fmt.Sprintf("%s disabled. Existing setup is kept. Re-enable with `/setup %s enabled:true`.", name, command.Name)
+			text = fmt.Sprintf("%s turned off. Your channels are saved. Turn it back on with `/setup %s enabled:true`.", name, command.Name)
 		}
 		_, err = responder.EditOriginal(ui.EditMessage(ui.Signal("settings", text, true)))
 		return err

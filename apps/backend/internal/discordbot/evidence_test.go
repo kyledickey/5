@@ -112,7 +112,7 @@ func TestCreatedEvidenceChannelAllowsCurrentStaffOnly(t *testing.T) {
 				{ID: "former-mod", Permissions: discordgo.PermissionViewChannel},
 			}
 			var created discordgo.GuildChannelCreateData
-			roleLookups := 0
+			roleLookups, introductions := 0, 0
 			session.Client = &http.Client{Transport: requestTransport(func(request *http.Request) (*http.Response, error) {
 				status, body := http.StatusOK, "{}"
 				switch {
@@ -127,13 +127,23 @@ func TestCreatedEvidenceChannelAllowsCurrentStaffOnly(t *testing.T) {
 						t.Fatal(err)
 					}
 					body = `{"id":"new-storage","guild_id":"guild","type":0}`
+				case request.Method == http.MethodPost && strings.HasSuffix(request.URL.Path, "/channels/new-storage/messages"):
+					introductions++
+					var message discordgo.MessageSend
+					if err := json.NewDecoder(request.Body).Decode(&message); err != nil {
+						t.Fatal(err)
+					}
+					if !strings.HasPrefix(message.Content, "# Case evidence\n") || message.AllowedMentions == nil {
+						t.Fatalf("wrong intro: %+v", message)
+					}
+					body = `{"id":"intro"}`
 				default:
 					t.Fatalf("unexpected Discord call: %s %s", request.Method, request.URL.Path)
 				}
 				return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
 			})}
 			id, err := (&Bot{Session: session}).EnsureEvidenceChannel(context.Background(), "guild", current)
-			if err != nil || id != "new-storage" || roleLookups != 1 {
+			if err != nil || id != "new-storage" || roleLookups != 1 || introductions != 1 || created.Topic == "" {
 				t.Fatalf("creation failed: id=%s lookups=%d err=%v", id, roleLookups, err)
 			}
 			guild := &discordgo.Guild{ID: "guild", Roles: roles, Members: []*discordgo.Member{

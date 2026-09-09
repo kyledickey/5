@@ -7,12 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/quackdiscord/bot/internal/quack/actionmods"
 )
@@ -168,6 +170,15 @@ func (b *Bot) EnsureEvidenceChannel(ctx context.Context, guildID, currentChannel
 	created, err := b.Session.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{Name: "quack-evidence", Type: discordgo.ChannelTypeGuildText, Topic: "Saved case evidence. Keep these messages to preserve attached files.", PermissionOverwrites: overwrites}, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 	if err != nil {
 		return "", classifyDiscordOperation("evidence_channel_create", err, false)
+	}
+	if created == nil || created.ID == "" {
+		return "", errors.New("Discord did not confirm the evidence channel")
+	}
+	// Preserve the creation receipt even when the introductory message fails;
+	// storage setup must not create a duplicate channel on its next attempt.
+	intro := ui.Content("# Case evidence\nQuack saves copies of case attachments here. Keep these messages so the files stay available when the original messages are gone.", false)
+	if _, err := b.Session.ChannelMessageSendComplex(created.ID, intro.SendParams(botID), discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false)); err != nil {
+		slog.WarnContext(ctx, "Could not send evidence channel introduction", "channel_id", created.ID, "error", err)
 	}
 	return created.ID, nil
 }

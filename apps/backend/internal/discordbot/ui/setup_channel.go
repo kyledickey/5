@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/bwmarrin/discordgo"
@@ -60,12 +61,20 @@ func SetupChannel(ctx context.Context, session *discordgo.Session, guildID, spec
 		}
 		botID = user.ID
 	}
+	topic, intro := setupChannelPresentation(name, kind)
 	channel, err := session.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{
-		Name: name, Type: discordgo.ChannelTypeGuildText,
+		Name: name, Type: discordgo.ChannelTypeGuildText, Topic: topic,
 		PermissionOverwrites: setupChannelPermissions(guild, botID, kind),
 	}, options...)
 	if err != nil || channel == nil || channel.ID == "" {
 		return "", fmt.Errorf("Could not create #%s. Quack needs Manage Channels permission. You can also specify an existing channel.", name)
+	}
+	// The channel already exists. Return its identity even if presentation fails,
+	// allowing the caller to save it instead of creating another channel on retry.
+	if intro != "" {
+		if _, err := session.ChannelMessageSendComplex(channel.ID, Content(intro, false).SendParams(SessionApplicationID(session)), options...); err != nil {
+			slog.WarnContext(ctx, "Could not send new channel introduction", "channel_id", channel.ID, "error", err)
+		}
 	}
 	return channel.ID, nil
 }
@@ -96,4 +105,28 @@ func setupChannelPermissions(guild *discordgo.Guild, botID string, kind SetupCha
 		bot.Allow |= discordgo.PermissionManageMessages
 	}
 	return overwrites
+}
+
+// setupChannelPresentation describes newly created destinations. Entry channels
+// use their feature's durable panel or warning as the welcome message instead of
+// posting a second introduction that would compete with its primary control.
+func setupChannelPresentation(name string, kind SetupChannelKind) (topic, intro string) {
+	switch kind {
+	case SetupTicketEntry:
+		return "Need a hand? Open a private ticket with the team below.", ""
+	case SetupHoneypotChannel:
+		return "Do not post here. Read the warning below for what happens if you do.", ""
+	}
+	switch name {
+	case "appeals":
+		return "Case appeals for the team to review.", "# Appeals\nNew appeals will appear here for the team to review."
+	case "moderation-log":
+		return "Quack case activity, moderation actions, and settings changes.", "# Moderation log\nQuack will keep case activity, moderation actions, and settings changes here."
+	case "discord-log":
+		return "Message activity, member arrivals and departures, and server changes recorded by Quack.", "# Server activity\nQuack will record message edits and deletions, member arrivals and departures, bans, and server changes here."
+	case "ticket-log":
+		return "Support tickets and updates for the team.", "# Tickets\nNew tickets and updates will appear here. Open a ticket's thread to help out."
+	default:
+		return "Updates from Quack for the moderation team.", "# Quack updates\nUpdates for the team will appear here."
+	}
 }
