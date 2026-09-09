@@ -31,6 +31,8 @@ const (
 	EventReopened            EventType = "reopened"
 	EventChannelMissing      EventType = "channel_missing"
 	EventPermissionsRepaired EventType = "permissions_repaired"
+	// EventQueueReconciled records an administrator's explicit delivery decision.
+	EventQueueReconciled EventType = "queue_reconciled"
 )
 
 var (
@@ -70,6 +72,7 @@ type Actor struct {
 
 // Ticket is the module-owned ticket state; it does not reference cases or appeals.
 type Ticket struct {
+	QueueDeliveryAttemptID  string     `json:"queue_delivery_attempt_id,omitempty"`
 	LogMessageDiscordID     string     `json:"log_message_discord_id,omitempty"`
 	LogChannelDiscordID     string     `json:"log_channel_discord_id,omitempty"`
 	TranscriptURL           string     `json:"transcript_url,omitempty"`

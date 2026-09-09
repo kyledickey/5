@@ -15,6 +15,7 @@ import (
 )
 
 type ticketRecord struct {
+	QueueDeliveryAttemptID  string `gorm:"type:char(26)"`
 	ID                      string `gorm:"type:char(26);primaryKey"`
 	GuildID                 string `gorm:"type:char(26);not null;index:idx_ticket_guild_status,priority:1;index:idx_ticket_guild_owner,priority:1"`
 	OwnerDiscordUserID      string `gorm:"size:32;not null;index:idx_ticket_guild_owner,priority:2"`
@@ -315,20 +316,27 @@ func (s *Store) importTarget(ctx context.Context, guildID, sourceID string) (str
 }
 
 func ticketFromRecord(r ticketRecord) Ticket {
-	return Ticket{LogMessageDiscordID: r.LogMessageDiscordID, LogChannelDiscordID: r.LogChannelDiscordID, TranscriptURL: r.TranscriptURL, ID: r.ID, GuildID: r.GuildID, OwnerDiscordUserID: r.OwnerDiscordUserID, ThreadDiscordChannelID: r.ThreadDiscordChannelID, Status: r.Status, ResolvedByDiscordUserID: r.ResolvedByDiscordUserID, ResolvedAt: r.ResolvedAt, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
+	return Ticket{QueueDeliveryAttemptID: r.QueueDeliveryAttemptID, LogMessageDiscordID: r.LogMessageDiscordID, LogChannelDiscordID: r.LogChannelDiscordID, TranscriptURL: r.TranscriptURL, ID: r.ID, GuildID: r.GuildID, OwnerDiscordUserID: r.OwnerDiscordUserID, ThreadDiscordChannelID: r.ThreadDiscordChannelID, Status: r.Status, ResolvedByDiscordUserID: r.ResolvedByDiscordUserID, ResolvedAt: r.ResolvedAt, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
 }
 
 // saveQueueReceipt replaces initial-send admission with the confirmed Discord receipt.
 // A saved transcript URL is the durable fence before deleting the source thread.
 func (s *Store) saveQueueReceipt(ctx context.Context, ticket *Ticket, channelID, messageID, transcriptURL string) error {
-	result := s.db.WithContext(ctx).Model(&ticketRecord{}).Where("id = ? AND guild_id = ?", ticket.ID, ticket.GuildID).Updates(map[string]any{"log_channel_discord_id": channelID, "log_message_discord_id": messageID, "transcript_url": transcriptURL})
+	query := s.db.WithContext(ctx).Model(&ticketRecord{}).Where("id = ? AND guild_id = ?", ticket.ID, ticket.GuildID)
+	if ticket.QueueDeliveryAttemptID != "" {
+		query = query.Where("queue_delivery_attempt_id = ? AND COALESCE(log_message_discord_id, '') = ''", ticket.QueueDeliveryAttemptID)
+	} else {
+		query = query.Where("COALESCE(queue_delivery_attempt_id, '') = '' AND log_channel_discord_id = ? AND log_message_discord_id = ?", ticket.LogChannelDiscordID, ticket.LogMessageDiscordID)
+	}
+	result := query.Updates(map[string]any{"log_channel_discord_id": channelID, "log_message_discord_id": messageID, "transcript_url": transcriptURL, "queue_delivery_attempt_id": ""})
 	if result.Error != nil {
 		return result.Error
 	}
 	if result.RowsAffected != 1 {
-		return ErrNotFound
+		return ErrQueueDeliveryUnknown
 	}
 	ticket.LogChannelDiscordID, ticket.LogMessageDiscordID, ticket.TranscriptURL = channelID, messageID, transcriptURL
+	ticket.QueueDeliveryAttemptID = ""
 	return nil
 }
 

@@ -73,14 +73,27 @@ func TestMySQLQueueSendAdmission(t *testing.T) {
 	if err := restarted.reserveQueueSend(ctx, &Ticket{ID: "ticket", GuildID: "guild"}, "queue"); !errors.Is(err, ErrQueueDeliveryUnknown) {
 		t.Fatal(err)
 	}
+	oldAttempt := *ticket
 	if err := store.releaseQueueSend(ctx, ticket, "queue"); err != nil {
 		t.Fatal(err)
 	}
 	if err := restarted.reserveQueueSend(ctx, ticket, "queue"); err != nil {
 		t.Fatal(err)
 	}
+	if oldAttempt.QueueDeliveryAttemptID == "" || ticket.QueueDeliveryAttemptID == oldAttempt.QueueDeliveryAttemptID {
+		t.Fatal("new send reused its predecessor's token")
+	}
+	if err := store.releaseQueueSend(ctx, &oldAttempt, "queue"); !errors.Is(err, ErrQueueDeliveryUnknown) {
+		t.Fatal("old failure released newer send", err)
+	}
+	if err := store.saveQueueReceipt(ctx, &oldAttempt, "queue", "late-message", ""); !errors.Is(err, ErrQueueDeliveryUnknown) {
+		t.Fatal("late receipt overwrote newer send", err)
+	}
 	if err := restarted.saveQueueReceipt(ctx, ticket, "queue", "message", ""); err != nil {
 		t.Fatal(err)
+	}
+	if ticket.QueueDeliveryAttemptID != "" {
+		t.Fatal("confirmed receipt retained uncertain token")
 	}
 	if err := store.releaseQueueSend(ctx, ticket, "queue"); !errors.Is(err, ErrQueueDeliveryUnknown) {
 		t.Fatal("released confirmed receipt", err)

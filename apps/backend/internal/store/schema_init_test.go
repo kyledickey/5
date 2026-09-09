@@ -44,8 +44,18 @@ func TestInitializeCurrentSchema(t *testing.T) {
 			if err := db.Migrator().DropTable("ticket_transcripts"); err != nil {
 				t.Fatal(err)
 			}
+			if !db.Migrator().HasColumn("tickets", "queue_delivery_attempt_id") {
+				t.Fatal("missing ticket delivery attempt column")
+			}
+			// Raw ALTER avoids GORM's SQLite table-name-only DropColumn panic.
+			if err := db.Exec("ALTER TABLE tickets DROP COLUMN queue_delivery_attempt_id").Error; err != nil {
+				t.Fatal(err)
+			}
 			if err := repository.InitializeSchema(); err != nil || !db.Migrator().HasTable("ticket_transcripts") {
 				t.Fatalf("partial initialization could not recover: %v", err)
+			}
+			if !db.Migrator().HasColumn("tickets", "queue_delivery_attempt_id") {
+				t.Fatal("startup did not upgrade ticket delivery attempts")
 			}
 		})
 	}

@@ -18,6 +18,7 @@ type DiscordClient interface {
 	CaptureTicketTranscript(context.Context, string) (string, error)
 	PublishTicketQueue(context.Context, *Ticket, Settings, *Transcript) (*QueueReceipt, error)
 	TicketQueueMessageExists(context.Context, string, string) (bool, error)
+	ValidateTicketQueueMessage(context.Context, *Ticket, string) (*QueueReceipt, error)
 	DeleteTicketChannel(context.Context, string) error
 	DeleteProvisionalTicketChannel(context.Context, string) error
 }

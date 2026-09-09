@@ -345,6 +345,12 @@ func (f *discordFake) TicketQueueMessageExists(context.Context, string, string) 
 	return true, nil
 }
 
+// ValidateTicketQueueMessage rejects adoption unless a recovery fixture explicitly
+// models a validated bot-authored message for the current ticket.
+func (f *discordFake) ValidateTicketQueueMessage(context.Context, *tickets.Ticket, string) (*tickets.QueueReceipt, error) {
+	return nil, tickets.ErrInvalidQueueReceipt
+}
+
 func (f *discordFake) FreezeTicketChannel(context.Context, string) error { f.frozen = true; return nil }
 
 // TestTicketDeletionWaitsForTranscriptPublication exercises a failed upload,
