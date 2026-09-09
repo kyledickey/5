@@ -1576,3 +1576,24 @@ means further work is required, not completion.
   ticket remains. This proves missing-post repair and normal closure after
   repair; failed deletion and uncertain-send recovery remain regression evidence,
   not live Discord acceptance.
+
+### Live blocked member DM
+
+- Used the existing Rehearsal rule, whose single default level has notifications
+  enabled and no punishment actions. Both cases targeted only monkey.
+- Turning off Quack's Pond Direct Messages did not block the beta DM: case #12
+  (`01M21QM81DGZQ1APH017Y2MJM9`) remained valid and notification attempt 1 was sent.
+  Native Discord showed that DM. This is not evidence of a rejection. Restored
+  Direct Messages and Message requests to their original on values before the
+  next attempt.
+- Temporarily blocked Beta Bot in native Discord. Case #13
+  (`01M21QS9EKTZP337ZJ54WV5G49`) remained valid; its private Helium moderator
+  receipt updated to "The member's DM couldn't be delivered" while the public
+  warning notice omitted notification status. SQL recorded notification failed,
+  attempt_count 1, `dm_send_permission_or_hierarchy_denied`, an empty delivery
+  message ID, NULL sent_at, and 230 bytes of retained rendered message.
+- Removed the beta-only block. Native Discord confirmed user unblocked and
+  restored the DM composer. A subsequent SQL read still showed one failed
+  attempt for #13, with no automatic resend after unblocking. Both records are
+  synthetic warning fixtures; this proves warning validity and notification
+  failure feedback, not a separate ban-with-blocked-DM enforcement rehearsal.
