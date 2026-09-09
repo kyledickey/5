@@ -7,6 +7,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"log/slog"
@@ -77,7 +78,10 @@ func (d *Dispatcher) handleCommand(session *discordgo.Session, interaction *disc
 	if d.Commands == nil {
 		return
 	}
-	data := interaction.ApplicationCommandData()
+	data, valid := interaction.Data.(discordgo.ApplicationCommandInteractionData)
+	if !valid {
+		return
+	}
 	handler, ok := d.Commands.LookupCommand(data.Name)
 	if !ok {
 		return
@@ -91,7 +95,10 @@ func (d *Dispatcher) handleComponent(session *discordgo.Session, interaction *di
 		_ = d.respond(interaction, ui.Error("That component is not available."))
 		return
 	}
-	data := interaction.MessageComponentData()
+	data, valid := interaction.Data.(discordgo.MessageComponentInteractionData)
+	if !valid {
+		return
+	}
 	handler, ok, err := d.Components.LookupComponent(data.CustomID)
 	if err != nil || !ok {
 		_ = d.respond(interaction, ui.Error("That component is not available."))
@@ -106,7 +113,10 @@ func (d *Dispatcher) handleModal(session *discordgo.Session, interaction *discor
 		_ = d.respond(interaction, ui.Error("That modal is not available."))
 		return
 	}
-	data := interaction.ModalSubmitData()
+	data, valid := interaction.Data.(discordgo.ModalSubmitInteractionData)
+	if !valid {
+		return
+	}
 	handler, ok, err := d.Components.LookupModal(data.CustomID)
 	if err != nil || !ok {
 		_ = d.respond(interaction, ui.Error("That modal is not available."))
@@ -142,7 +152,7 @@ func (d *Dispatcher) execute(session *discordgo.Session, interaction *discordgo.
 		return
 	}
 
-	go d.runTask(ctx, interaction, name, result.Task, result.Response.Type)
+	go d.runTask(ctx, interaction, name, result.Task, result.Response)
 }
 
 func (d *Dispatcher) interactionDeduper() *InteractionDeduper {
@@ -171,16 +181,17 @@ func (d *Dispatcher) safeHandle(ctx context.Context, session *discordgo.Session,
 }
 
 // runTask encapsulates the run task rule so callers share one consistent package implementation.
-func (d *Dispatcher) runTask(ctx context.Context, interaction *discordgo.InteractionCreate, name string, task ui.Task, responseType discordgo.InteractionResponseType) {
+func (d *Dispatcher) runTask(ctx context.Context, interaction *discordgo.InteractionCreate, name string, task ui.Task, response *discordgo.InteractionResponse) {
+	tracked := &taskResponder{Responder: d.responder(interaction)}
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			slog.Error("Discord interaction task panicked", "interaction", name, "request_id", quack.RequestIDFromContext(ctx), "correlation_id", quack.CorrelationIDFromContext(ctx), "panic_type", fmt.Sprintf("%T", recovered), "stack", debug.Stack())
-			d.taskError(interaction, responseType, nil)
+			d.taskError(interaction, response, tracked.published.Load(), nil)
 		}
 	}()
-	if err := task(ctx, d.responder(interaction)); err != nil {
+	if err := task(ctx, tracked); err != nil {
 		slog.Error("Discord interaction task failed", "error_type", fmt.Sprintf("%T", err), "interaction", name, "request_id", quack.RequestIDFromContext(ctx), "correlation_id", quack.CorrelationIDFromContext(ctx))
-		d.taskError(interaction, responseType, err)
+		d.taskError(interaction, response, tracked.published.Load(), err)
 	}
 }
 
@@ -200,7 +211,14 @@ func (d *Dispatcher) respond(interaction *discordgo.InteractionCreate, response 
 	if d.Client == nil {
 		return fmt.Errorf("discord interaction client is not configured")
 	}
-	return d.Client.InteractionRespond(interaction.Interaction, ui.PrepareResponse(response, interaction.AppID))
+	response = ui.PrepareResponse(response, interaction.AppID)
+	if interaction.GuildID == "" && response != nil && response.Data != nil {
+		copyResponse, data := *response, *response.Data
+		data.Flags &^= discordgo.MessageFlagsEphemeral
+		copyResponse.Data = &data
+		response = &copyResponse
+	}
+	return d.Client.InteractionRespond(interaction.Interaction, response)
 }
 
 // responder encapsulates the responder rule so callers share one consistent package implementation.
@@ -221,6 +239,9 @@ func (r responder) EditOriginal(edit ui.Edit) (*discordgo.Message, error) {
 
 // Followup encapsulates the followup rule so callers share one consistent package implementation.
 func (r responder) Followup(message ui.Message) (*discordgo.Message, error) {
+	if r.interaction.GuildID == "" {
+		message.Ephemeral = false
+	}
 	return r.client.FollowupMessageCreate(r.interaction, true, message.ForApplication(r.interaction.AppID).WebhookParams())
 }
 
@@ -310,13 +331,16 @@ func Key(namespace, action string) string {
 
 // taskError preserves a shared component message when an action fails, reporting
 // the error only to the person who clicked it. Private defers remain private.
-func (d *Dispatcher) taskError(interaction *discordgo.InteractionCreate, responseType discordgo.InteractionResponseType, err error) {
-	message := "Quack could not finish that interaction."
+func (d *Dispatcher) taskError(interaction *discordgo.InteractionCreate, response *discordgo.InteractionResponse, published bool, err error) {
+	message := "I couldn’t finish that. Try again in a moment."
 	if errors.Is(err, quack.ErrCasePermissionDenied) || errors.Is(err, quack.ErrAuthorizationDenied) {
 		message = "You do not have permission to use this control."
 	}
 	responder := d.responder(interaction)
-	if responseType == discordgo.InteractionResponseDeferredMessageUpdate {
+	if response.Type == discordgo.InteractionResponseDeferredMessageUpdate || (response.Type == discordgo.InteractionResponseDeferredChannelMessageWithSource && (response.Data == nil || response.Data.Flags&discordgo.MessageFlagsEphemeral == 0)) {
+		if response.Type == discordgo.InteractionResponseDeferredChannelMessageWithSource && !published {
+			_ = responder.DeleteOriginal()
+		}
 		_, _ = responder.Followup(ui.Signal("error", message, true))
 		return
 	}
@@ -337,4 +361,20 @@ func discordErrorAttrs(err error) []any {
 		}
 	}
 	return attrs
+}
+
+// taskResponder remembers successful response edits so a later unexpected failure
+// cannot erase a committed public result while reporting the error privately.
+type taskResponder struct {
+	ui.Responder
+	published atomic.Bool
+}
+
+// EditOriginal records a confirmed edit; the underlying transport remains unchanged.
+func (r *taskResponder) EditOriginal(edit ui.Edit) (*discordgo.Message, error) {
+	message, err := r.Responder.EditOriginal(edit)
+	if err == nil {
+		r.published.Store(true)
+	}
+	return message, err
 }

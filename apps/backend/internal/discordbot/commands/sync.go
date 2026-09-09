@@ -10,6 +10,7 @@ import (
 	"log/slog"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/internal/discordbot/ui"
 )
 
 // DiscordCommandClient defines the external operations needed by this package, keeping the concrete client at the adapter boundary.
@@ -73,6 +74,7 @@ func (s CommandSyncer) Sync(ctx context.Context, specs []CommandSpec) error {
 		return fmt.Errorf("list discord application commands: %w", err)
 	}
 
+	ui.SetCommandMentions(s.AppID, existing)
 	scope := commandScope(s.GuildID)
 	slog.Info("Syncing Discord application commands", "scope", scope, "app_id", s.AppID, "local_command_count", len(specs), "remote_command_count", len(existing), "prune_enabled", s.PruneEnabled)
 
@@ -95,7 +97,51 @@ func (s CommandSyncer) Sync(ctx context.Context, specs []CommandSpec) error {
 		}
 	}
 
-	return s.pruneRemoteOnlyCommands(ctx, scope, existing, localCommandNames)
+	remaining, err := s.retireRenamedContextCommands(ctx, existing, specs)
+	if err != nil {
+		return err
+	}
+	return s.pruneRemoteOnlyCommands(ctx, scope, remaining, localCommandNames)
+}
+
+// retireRenamedContextCommands removes only the two known legacy moderation
+// entries after every local command has synced successfully. This targeted rename
+// migration runs even when broad pruning is disabled and reuses the fetched list.
+func (s CommandSyncer) retireRenamedContextCommands(ctx context.Context, remote []*discordgo.ApplicationCommand, specs []CommandSpec) ([]*discordgo.ApplicationCommand, error) {
+	type rename struct {
+		old, replacement string
+		kind             discordgo.ApplicationCommandType
+	}
+	renames := []rename{
+		{"Create moderation case", "Add case", discordgo.MessageApplicationCommand},
+		{"Create case for member", "Add case for member", discordgo.UserApplicationCommand},
+	}
+	remaining := make([]*discordgo.ApplicationCommand, 0, len(remote))
+	for _, command := range remote {
+		retire := false
+		if command != nil {
+			for _, change := range renames {
+				if command.Name != change.old || command.Type != change.kind {
+					continue
+				}
+				for _, spec := range specs {
+					if spec.Definition != nil && spec.Definition.Name == change.replacement && spec.Definition.Type == change.kind {
+						retire = true
+						break
+					}
+				}
+			}
+		}
+		if !retire {
+			remaining = append(remaining, command)
+			continue
+		}
+		if err := s.Client.DeleteCommand(ctx, s.AppID, s.GuildID, command.ID); err != nil {
+			return nil, fmt.Errorf("retire renamed context command %s: %w", command.Name, err)
+		}
+		slog.Info("Retired renamed Discord context command", "command", command.Name, "remote_command_id", command.ID)
+	}
+	return remaining, nil
 }
 
 // syncOne encapsulates the sync one rule so callers share one consistent package implementation.
@@ -119,6 +165,7 @@ func (s CommandSyncer) syncOne(ctx context.Context, cache commandHashCache, scop
 		if err != nil {
 			return fmt.Errorf("create discord application command %s: %w", commandName, err)
 		}
+		ui.RegisterCommandMentions(s.AppID, command, commandID(created))
 		s.cacheCommand(ctx, cache, scope, commandName, commandID(created), localHash)
 		slog.Info("Registered Discord application command", "command", commandName)
 		return nil
@@ -129,10 +176,12 @@ func (s CommandSyncer) syncOne(ctx context.Context, cache commandHashCache, scop
 		return fmt.Errorf("hash remote command %s: %w", commandName, err)
 	}
 	if shouldSkipCommandSync(cached, remote.ID, localHash, remoteHash) {
+		ui.RegisterCommandMentions(s.AppID, command, remote.ID)
 		slog.Info("Discord application command is unchanged; skipping", "command", commandName, "scope", scope, "remote_command_id", remote.ID, "local_hash", localHash, "remote_hash", remoteHash, "cached_hash", cachedHash(cached))
 		return nil
 	}
 	if remoteHash == localHash {
+		ui.RegisterCommandMentions(s.AppID, command, remote.ID)
 		slog.Info("Discord application command matches remote definition; refreshing cache only", "command", commandName, "scope", scope, "remote_command_id", remote.ID, "local_hash", localHash, "remote_hash", remoteHash, "cached_command_id", cachedCommandID(cached), "cached_hash", cachedHash(cached))
 		s.cacheCommand(ctx, cache, scope, commandName, remote.ID, localHash)
 		return nil
@@ -145,6 +194,7 @@ func (s CommandSyncer) syncOne(ctx context.Context, cache commandHashCache, scop
 	if err != nil {
 		return fmt.Errorf("update discord application command %s: %w", commandName, err)
 	}
+	ui.RegisterCommandMentions(s.AppID, command, commandID(updated))
 	s.cacheCommand(ctx, cache, scope, commandName, commandID(updated), localHash)
 	slog.Info("Updated Discord application command", "command", commandName)
 	return nil
@@ -177,6 +227,7 @@ func (s CommandSyncer) pruneRemoteOnlyCommands(ctx context.Context, scope string
 		if err := s.Client.DeleteCommand(ctx, s.AppID, s.GuildID, command.ID); err != nil {
 			return fmt.Errorf("delete remote-only discord application command %s: %w", command.Name, err)
 		}
+		ui.RemoveCommandMentions(s.AppID, command.Name)
 	}
 
 	return nil

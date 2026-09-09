@@ -38,6 +38,8 @@ type Message struct {
 
 // Edit describes changes to an existing Discord interaction response.
 type Edit struct {
+	// PrivateError routes failures privately when a command deferred publicly.
+	PrivateError    bool
 	Content         *string
 	Embeds          *[]*discordgo.MessageEmbed
 	Components      *[]discordgo.MessageComponent

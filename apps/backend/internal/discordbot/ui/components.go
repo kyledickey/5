@@ -68,9 +68,8 @@ func MustCustomID(id CustomID) string {
 
 // Button constructs a routed Discord button using Quack's custom-ID format.
 func Button(customID, label string, style discordgo.ButtonStyle, disabled bool) discordgo.Button {
-	// Neutral controls keep the gold card as the sole non-error accent.
-	// Destructive actions retain their explicit confirmation flows and labels.
-	if style == discordgo.PrimaryButton || style == discordgo.SuccessButton || style == discordgo.DangerButton {
+	// Colors distinguish primary actions, confirmations, and destructive controls.
+	if style == 0 {
 		style = discordgo.SecondaryButton
 	}
 	return discordgo.Button{

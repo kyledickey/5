@@ -50,6 +50,40 @@ func Async(response *discordgo.InteractionResponse, task Task) HandlerResult {
 	return HandlerResult{Response: response, Task: task}
 }
 
+// AsyncPublic keeps successful command results on the original public response.
+// Discord fixes visibility at acknowledgement, so failures remove the pending
+// public response and send one private error instead of exposing its details.
+func AsyncPublic(task Task) HandlerResult {
+	return Async(DeferPublic(), func(ctx context.Context, responder Responder) error {
+		return task(ctx, publicCommandResponder{Responder: responder})
+	})
+}
+
+// publicCommandResponder changes only error delivery; normal results retain the
+// original interaction message and its command attribution.
+type publicCommandResponder struct{ Responder }
+
+// EditOriginal prevents an error from inheriting a public acknowledgement.
+func (r publicCommandResponder) EditOriginal(edit Edit) (*discordgo.Message, error) {
+	if !edit.PrivateError {
+		return r.Responder.EditOriginal(edit)
+	}
+	if err := r.Responder.DeleteOriginal(); err != nil {
+		return nil, err
+	}
+	message := Message{Ephemeral: true, Files: edit.Files, AllowedMentions: edit.AllowedMentions}
+	if edit.Content != nil {
+		message.Content = *edit.Content
+	}
+	if edit.Embeds != nil {
+		message.Embeds = *edit.Embeds
+	}
+	if edit.Components != nil {
+		message.Components = *edit.Components
+	}
+	return r.Responder.Followup(message)
+}
+
 // Public encapsulates the public rule so callers share one consistent package implementation.
 func Public(message Message) *discordgo.InteractionResponse {
 	message.Ephemeral = false
@@ -129,7 +163,9 @@ func Error(content string) *discordgo.InteractionResponse {
 
 // ErrorEdit encapsulates the error edit rule so callers share one consistent package implementation.
 func ErrorEdit(content string) Edit {
-	return EditMessage(Signal("error", content, false))
+	edit := EditMessage(Signal("error", content, false))
+	edit.PrivateError = true
+	return edit
 }
 
 // Publish replaces a public deferred response in place, preserving Discord's

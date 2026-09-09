@@ -37,7 +37,7 @@ func SessionApplicationID(session *discordgo.Session) string {
 // ForApplication resolves the sending bot's icons and keeps long staff records
 // complete in an attachment sent to the same authorized destination.
 func (m Message) ForApplication(applicationID string) Message {
-	m.Content = discordtext.Resolve(m.Content, applicationID)
+	m.Content = ResolveCommandMentions(discordtext.Resolve(m.Content, applicationID), applicationID)
 	if len(utf16.Encode([]rune(m.Content))) <= 2000 {
 		return m
 	}

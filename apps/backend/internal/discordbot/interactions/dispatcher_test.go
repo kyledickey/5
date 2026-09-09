@@ -101,11 +101,8 @@ func TestDispatcherConvertsAsyncErrorsToErrorEdit(t *testing.T) {
 	dispatcher.Handle(nil, commandInteraction("slow", discordgo.InteractionApplicationCommand))
 	client.wait(t)
 
-	if len(client.edits) != 1 ||
-		client.edits[0].Embeds == nil ||
-		len(*client.edits[0].Embeds) != 0 ||
-		client.edits[0].Content == nil || *client.edits[0].Content != "Quack could not finish that interaction." {
-		t.Fatalf("expected standard error edit, got %+v", client.edits)
+	if len(client.edits) != 0 || client.deleted != 1 || len(client.followups) != 1 || client.followups[0].Flags&discordgo.MessageFlagsEphemeral == 0 || client.followups[0].Content != "I couldn’t finish that. Try again in a moment." {
+		t.Fatalf("expected a private error after removing the public defer: %+v", client)
 	}
 }
 
