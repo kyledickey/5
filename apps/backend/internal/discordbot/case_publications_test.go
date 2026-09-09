@@ -86,7 +86,7 @@ func TestCasePublicationReconcilesTerminalAndVoid(t *testing.T) {
 	edits := 0
 	edit := func(_ context.Context, _ model.CasePublication, message ui.Message) error {
 		edits++
-		if strings.Contains(message.Content, "SECRET") || !strings.Contains(message.Content, "Original rule") {
+		if !strings.Contains(message.Content, "SECRET staff reason") || !strings.Contains(message.Content, "Original rule") {
 			t.Fatalf("unsafe or changed presentation: %s", message.Content)
 		}
 		if edits == 2 && !strings.Contains(strings.SplitN(message.Content, "\n", 2)[0], "**Voided**") {
@@ -252,13 +252,13 @@ func TestCasePublicationRefreshShowsConfirmedTimeoutExpiry(t *testing.T) {
 	repository.actions[0].Status = model.ActionExecutionSucceeded
 	repository.attempts = []model.CaseActionAttempt{
 		{ExecutionID: "timeout", Status: model.ActionAttemptFailed, ResponsePayloadJSON: `{"timeout_until":"2030-01-01T00:00:00Z"}`},
-		{ExecutionID: "timeout", Status: model.ActionAttemptSucceeded, ResponsePayloadJSON: `{"timeout_until":"2026-09-10T00:00:00Z","private":"SECRET"}`},
+		{ExecutionID: "timeout", Status: model.ActionAttemptSucceeded, ResponsePayloadJSON: `{"timeout_until":"2026-09-10T00:00:00Z","private":"RAW_PAYLOAD"}`},
 	}
 	if err := refreshCasePublications(context.Background(), repository, edit, now.Add(3*time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	until := time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC)
-	if !strings.Contains(content, fmt.Sprintf("<t:%d:", until.Unix())) || strings.Contains(content, "SECRET") || strings.Contains(content, "1893456000") {
+	if !strings.Contains(content, fmt.Sprintf("<t:%d:", until.Unix())) || strings.Contains(content, "RAW_PAYLOAD") || strings.Contains(content, "1893456000") {
 		t.Fatalf("wrong or unsafe confirmed expiry: %s", content)
 	}
 	if repository.receipt.RefreshRequested {

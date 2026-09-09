@@ -36,7 +36,7 @@ func appealQueuePage(ctx ui.Context, page int, update bool) ui.HandlerResult {
 	if ctx.Interaction == nil || ctx.Interaction.Interaction == nil || ctx.Interaction.GuildID == "" || ctx.Services == nil || ctx.Services.Appeals == nil {
 		return ui.Immediate(ui.Error("Use /appeals in your server."))
 	}
-	ack := ui.DeferEphemeral()
+	ack := ui.DeferPublic()
 	if update {
 		ack = ui.DeferUpdate()
 	}
@@ -58,10 +58,10 @@ func appealQueuePage(ctx ui.Context, page int, update bool) ui.HandlerResult {
 				return err
 			}
 		}
-		message := ui.Signal("appeal", "No appeals are waiting for review.", true)
+		message := ui.Signal("appeal", "No appeals are waiting for review.", false)
 		if len(list.Appeals) > 0 {
 			message = views.AppealStaffPage(&list.Appeals[0], 1, ui.SessionApplicationID(ctx.Session))
-			message.Ephemeral = true
+			message.Ephemeral = false
 			message.Content += fmt.Sprintf("\nPending appeal %d of %d", page, list.Total)
 			message.Components = append(message.Components, ui.Row(
 				ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "appeal", Action: "page", Version: "v1", Payload: strconv.Itoa(max(1, page-1))}), "Previous", discordgo.SecondaryButton, page <= 1),

@@ -26,7 +26,7 @@ func TestContextModalConfirmsSavedTextDespiteEvidenceFailure(t *testing.T) {
 			interaction.Type = discordgo.InteractionModalSubmit
 			interaction.Data = discordgo.ModalSubmitInteractionData{CustomID: ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "edit_context_submit", Version: "v1", Payload: created.ID}), Components: []discordgo.MessageComponent{ui.Row(discordgo.TextInput{CustomID: "context", Value: text})}}
 			result := handleEditContextModal(ui.Context{Context: ctx, Services: services, Interaction: interaction})
-			if result.Task == nil || result.Response.Data.Flags&discordgo.MessageFlagsEphemeral == 0 {
+			if result.Task == nil || (result.Response.Data != nil && result.Response.Data.Flags&discordgo.MessageFlagsEphemeral != 0) {
 				t.Fatal("context submission was not private")
 			}
 			responder := &fakeResponder{}

@@ -11,9 +11,9 @@ import (
 	"github.com/quackdiscord/bot/internal/testutil"
 )
 
-// TestStatementBrowsingIsPrivateAndRechecksAuthority verifies shared queue clicks
-// open privately and old private pages cannot retain revoked staff permissions.
-func TestStatementBrowsingIsPrivateAndRechecksAuthority(t *testing.T) {
+// TestStatementBrowsingIsPublicAndRechecksAuthority verifies shared queue clicks
+// open publicly and old private pages cannot retain revoked staff permissions.
+func TestStatementBrowsingIsPublicAndRechecksAuthority(t *testing.T) {
 	repository := testutil.NewSQLiteStore(t)
 	if err := repository.Migrate(); err != nil {
 		t.Fatal(err)
@@ -34,8 +34,8 @@ func TestStatementBrowsingIsPrivateAndRechecksAuthority(t *testing.T) {
 			if result.Response.Type != discordgo.InteractionResponseDeferredMessageUpdate {
 				t.Fatal("private reading position was not updated")
 			}
-		} else if result.Response.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource || result.Response.Data.Flags&discordgo.MessageFlagsEphemeral == 0 {
-			t.Fatal("shared queue browsing was not private")
+		} else if result.Response.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource || (result.Response.Data != nil && result.Response.Data.Flags&discordgo.MessageFlagsEphemeral != 0) {
+			t.Fatal("shared queue browsing was hidden")
 		}
 		responder := &appealTestResponder{}
 		if err := result.Task(context.Background(), responder); err != nil {

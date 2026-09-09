@@ -51,7 +51,7 @@ func TestCaseAddActsImmediatelyWithOptionalContext(t *testing.T) {
 			t.Fatalf("missing %q: %+v", want, responder.followup)
 		}
 	}
-	for _, hidden := range []string{"Moderator", "Matching Cases", "Visible context", "Evidence", "Repeated abusive replies"} {
+	for _, hidden := range []string{"Matching Cases", "Visible context", "Evidence", "Repeated abusive replies"} {
 		if strings.Contains(*responder.edit.Content, hidden) {
 			t.Fatalf("public result leaked %s", hidden)
 		}

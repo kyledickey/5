@@ -73,14 +73,14 @@ func refreshPrivateCaseReceipt(parent context.Context, responder ui.Responder, r
 	}
 }
 
-// handleCaseViewComponent opens a separate private detail with current Discord
+// handleCaseViewComponent opens a separate staff detail with current Discord
 // authority, including after the creation receipt's short refresh window ends.
 func handleCaseViewComponent(ctx ui.Context) ui.HandlerResult {
 	parsed, err := ui.DecodeCustomID(ctx.Interaction.MessageComponentData().CustomID)
 	if err != nil {
 		return ui.Immediate(ui.Error("That case button is invalid."))
 	}
-	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
+	return ui.Async(ui.DeferPublic(), func(taskCtx context.Context, responder ui.Responder) error {
 		guild, err := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
 		if err != nil {
 			return err

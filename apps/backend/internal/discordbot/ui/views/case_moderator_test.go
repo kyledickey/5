@@ -36,7 +36,7 @@ func TestEvidencePagesStayNative(t *testing.T) {
 	detail := &quack.CaseDetailResponse{CaseResponse: quack.CaseResponse{ID: "case-1", CaseNumber: 7}, Evidence: []quack.CaseEvidenceResponse{{Content: strings.Repeat("🦆 evidence text\n", 450), MessageURL: "https://discord.com/channels/1/2/3"}}}
 	for page := 1; ; page++ {
 		message := CaseEvidencePage(detail, page, "819019613371236432").ForApplication("819019613371236432")
-		if !message.Ephemeral || len(message.Files) != 0 || len(utf16.Encode([]rune(message.Content))) > 2000 || !strings.Contains(message.Content, "/case evidence case:7 file:") {
+		if message.Ephemeral || len(message.Files) != 0 || len(utf16.Encode([]rune(message.Content))) > 2000 || !strings.Contains(message.Content, "/case evidence case:7 file:") {
 			t.Fatalf("page %d is not a complete native evidence page: %+v", page, message)
 		}
 		row := message.Components[0].(discordgo.ActionsRow)
@@ -65,7 +65,7 @@ func TestLongCaseDetailRetainsContextAndRecovery(t *testing.T) {
 	var contents strings.Builder
 	for page := 1; ; page++ {
 		message := CaseDetailPage(detail, page, "819019613371236432").ForApplication("819019613371236432")
-		if !message.Ephemeral || len(message.Files) != 0 || len(utf16.Encode([]rune(message.Content))) > 2000 || len(message.Components) != 3 {
+		if message.Ephemeral || len(message.Files) != 0 || len(utf16.Encode([]rune(message.Content))) > 2000 || len(message.Components) != 3 {
 			t.Fatalf("page %d lost native content or controls: %+v", page, message)
 		}
 		contents.WriteString(message.Content)

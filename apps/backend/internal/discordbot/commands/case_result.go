@@ -20,9 +20,9 @@ func updatePublicCaseResult(ctx context.Context, responder ui.Responder, service
 	if services == nil || services.Cases == nil || responder == nil || created == nil || created.ID == "" || messageID == "" {
 		return nil
 	}
-	// Explicitly allowlist the initial public display. Never serialize the
-	// full case response, staff context, evidence, or template configuration.
-	publicCase := &quack.CaseResponse{ID: created.ID, CaseNumber: created.CaseNumber, CreatedAt: created.CreatedAt, TargetDiscordUserID: created.TargetDiscordUserID, Validity: created.Validity}
+	// Persist the staff receipt display for recovery without serializing unrelated
+	// template configuration or evidence attachments.
+	publicCase := &quack.CaseResponse{ModeratorDiscordUserID: created.ModeratorDiscordUserID, ContextValues: created.ContextValues, Reason: created.Reason, ID: created.ID, CaseNumber: created.CaseNumber, CreatedAt: created.CreatedAt, TargetDiscordUserID: created.TargetDiscordUserID, Validity: created.Validity}
 	var publicTemplate *quack.TemplateResponse
 	if template != nil {
 		publicTemplate = &quack.TemplateResponse{Name: template.Name, Slug: template.Slug}

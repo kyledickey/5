@@ -12,7 +12,7 @@ import (
 )
 
 // AppealStaffPage paginates a complete statement while retaining decision controls.
-// Shared queue messages use page one; browsing opens a private copy for each staff
+// Shared queue messages use page one; browsing opens a separate copy for each staff
 // member so one reader cannot change another reader's place in the statement.
 func AppealStaffPage(appeal *quack.AppealResponse, page int, applicationID string) ui.Message {
 	message := AppealStaffMessage(appeal)

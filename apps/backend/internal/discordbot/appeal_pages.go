@@ -12,7 +12,7 @@ import (
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
-// appealStatementPage opens shared review messages privately and rechecks live
+// appealStatementPage opens shared review messages in the staff channel and rechecks live
 // authority before every read. It never edits the shared queue's reading position.
 func appealStatementPage(services *quack.Services, appeals *quack.AppealService, delta int) ui.Handler {
 	return func(ctx ui.Context) ui.HandlerResult {
@@ -28,7 +28,7 @@ func appealStatementPage(services *quack.Services, appeals *quack.AppealService,
 		if err != nil || page < 1 || page > 1000000 {
 			return ui.Immediate(ui.Error("I couldn’t open that page. Run /appeals to start again."))
 		}
-		ack := ui.DeferEphemeral()
+		ack := ui.DeferPublic()
 		if ctx.Interaction.Message != nil && ctx.Interaction.Message.Flags&discordgo.MessageFlagsEphemeral != 0 {
 			ack = ui.DeferUpdate()
 		}
@@ -45,7 +45,7 @@ func appealStatementPage(services *quack.Services, appeals *quack.AppealService,
 				return err
 			}
 			message := views.AppealStaffPage(appeal, page+delta, ui.SessionApplicationID(ctx.Session))
-			message.Ephemeral = true
+			message.Ephemeral = false
 			message.Components = append(message.Components, ui.Row(ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "appeal", Action: "page", Version: "v1", Payload: "1"}), "Pending appeals", discordgo.SecondaryButton, false)))
 			_, err = responder.EditOriginal(ui.EditMessage(message))
 			return err

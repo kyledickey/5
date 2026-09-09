@@ -102,7 +102,7 @@ func TestReceiptProjectionUsesImmutablePolicyAndMinimalQueries(t *testing.T) {
 	if !receipt.Case.EvidenceIncomplete {
 		t.Fatal("existing evidence warning omitted")
 	}
-	if receipt.RuleName != "Spam" || receipt.MemberReason != "Spam" || receipt.Case.ContextValues != nil || receipt.Case.ModeratorDiscordUserID != "" {
+	if receipt.RuleName != "Spam" || receipt.MemberReason != "Spam" || receipt.Case.ModeratorDiscordUserID != created.ModeratorDiscordUserID {
 		t.Fatalf("unsafe or mutable projection %+v", receipt)
 	}
 	if err := repository.DB().Model(&model.CaseEvidenceSnapshot{}).Where("id = ?", snapshot.ID).Update("capture_warning", "").Error; err != nil {
@@ -145,7 +145,7 @@ func TestReceiptViewCaseRechecksAuthority(t *testing.T) {
 		interaction.Type = discordgo.InteractionMessageComponent
 		interaction.Data = discordgo.MessageComponentInteractionData{CustomID: ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "view", Version: "v1", Payload: item.ID})}
 		result := handleCaseViewComponent(ui.Context{Context: context.Background(), Services: services, Interaction: interaction})
-		assertRecoveryPrivate(t, result)
+		assertRecoveryPublic(t, result)
 		responder := &fakeResponder{}
 		err := result.Task(context.Background(), responder)
 		if allowed && (err != nil || responder.edit.Content == nil) {

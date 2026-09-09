@@ -92,7 +92,7 @@ func publishPrivateContextCase(ctx context.Context, responder ui.Responder, serv
 }
 
 // publishCaseResult edits the slash-command response or publishes the result of
-// a private context selector. Only the public projection leaves this boundary.
+// a private context selector. The response includes staff context; moderators choose the destination channel.
 func publishCaseResult(ctx context.Context, responder ui.Responder, services *quack.Services, created *quack.CaseResponse, template *quack.TemplateResponse, original bool) error {
 	projection := initialModeratorReceipt(created, template)
 	if services != nil && services.Cases != nil {
@@ -101,7 +101,6 @@ func publishCaseResult(ctx context.Context, responder ui.Responder, services *qu
 		}
 	}
 	publicCase := *projection.Case
-	publicCase.Reason = ""
 	rule := &quack.TemplateResponse{Name: projection.RuleName, ReasonTemplate: projection.MemberReason}
 	public := views.CaseCreatedMessage(views.CaseCreated{MemberReason: projection.MemberReason, Case: &publicCase, Template: rule})
 	var message *discordgo.Message

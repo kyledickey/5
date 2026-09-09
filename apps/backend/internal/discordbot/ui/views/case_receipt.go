@@ -10,9 +10,8 @@ import (
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
-// CaseModeratorReceipt renders compact private decision and delivery feedback.
-// Error codes use the same safe explanations as case detail; raw Discord errors
-// and staff evidence never enter this receipt. View case rechecks live authority.
+// CaseModeratorReceipt renders staff decision, context, and delivery feedback.
+// View case rechecks live authority and exposes the complete paginated record.
 func CaseModeratorReceipt(receipt *quack.CaseReceiptResponse) ui.Message {
 	item := receipt.Case
 	level := ""
@@ -20,6 +19,9 @@ func CaseModeratorReceipt(receipt *quack.CaseReceiptResponse) ui.Message {
 		level = item.SelectedLevel.Name
 	}
 	lines := []string{staffActionSummary(receipt.Actions)}
+	if context := contextSummary(item.ContextValues); context != "" {
+		lines = append(lines, context)
+	}
 	if receipt.Notification == nil {
 		lines = append(lines, "Member notification is disabled.")
 	} else {
@@ -38,7 +40,8 @@ func CaseModeratorReceipt(receipt *quack.CaseReceiptResponse) ui.Message {
 	if voided {
 		lead = fmt.Sprintf("Case #%d was voided · <@%s> · **%s**", item.CaseNumber, item.TargetDiscordUserID, ui.PlainText(receipt.RuleName))
 	}
-	message := ui.Conversation("case_add", lead, "", strings.Join(lines, "\n"), ui.PlainText(level), true)
+	message := ui.Conversation("case_add", lead, "", strings.Join(lines, "\n"), ui.PlainText(level), false)
+	message.Content = ui.TextPages(message.Content, 1750)[0]
 	message.Components = []discordgo.MessageComponent{ui.Row(casePrimaryControls(item.ID, item.TargetDiscordUserID, voided)...), ui.Row(ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "view", Version: "v1", Payload: item.ID}), "View case", discordgo.SecondaryButton, false))}
 	return message
 }

@@ -51,9 +51,9 @@ func TestCaseAttachmentOptionCreatesCaseWithVisibleCopyFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, private := range []string{"screenshot.png", "cdn.discordapp.com", files[0].Warning} {
-		if strings.Contains(string(encoded), private) {
-			t.Fatalf("public evidence result leaked %q: %s", private, encoded)
+	for _, private := range []string{"screenshot.png", "cdn.discordapp.com", "The evidence channel is unavailable"} {
+		if !strings.Contains(string(encoded), private) {
+			t.Fatalf("staff evidence result omitted %q: %s", private, encoded)
 		}
 	}
 	if responder.channelPublishes != 0 || responder.webhookFollowups != 0 || responder.editCount != 1 {

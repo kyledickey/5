@@ -7,24 +7,10 @@ import (
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
-// PublicCaseDetail shows the rule and outcome in a normal command response.
-// Staff context, evidence, and delivery diagnostics remain behind private controls.
+// PublicCaseDetail renders the complete staff case in the invoking channel.
+// Moderators choose an appropriate channel; member DMs use separate renderers.
 func PublicCaseDetail(detail *quack.CaseDetailResponse) ui.Message {
-	if detail == nil {
-		return ui.Signal("error", "I can’t find that case. Check its number.", true)
-	}
-	item := detail.CaseResponse
-	item.Actions = nil
-	for _, action := range detail.Actions {
-		item.Actions = append(item.Actions, action.CaseActionResponse)
-	}
-	var rule *quack.TemplateResponse
-	reason := ""
-	if detail.TemplateSnapshot != nil {
-		rule = &quack.TemplateResponse{Name: detail.TemplateSnapshot.Template.Name}
-		reason = detail.TemplateSnapshot.Template.ReasonTemplate
-	}
-	return CaseCreatedMessage(CaseCreated{Case: &item, Template: rule, MemberReason: reason})
+	return CaseDetailPage(detail, 1, "")
 }
 
 // caseActionSentence adds the recorded expiry to completed timeouts so Discord

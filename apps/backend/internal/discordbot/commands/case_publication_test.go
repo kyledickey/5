@@ -53,8 +53,8 @@ func TestCasePublicationFailureKeepsSuccessfulReceipt(t *testing.T) {
 			} else if responder.webhookFollowups != 0 || responder.followup.Ephemeral || !strings.Contains(responder.followup.Content, "Case #12") {
 				t.Fatal("public result lost after cleanup failure", responder)
 			}
-			if strings.Contains(responder.followup.Content, "PRIVATE") {
-				t.Fatal("private case data leaked", responder.followup.Content)
+			if failure == "cleanup" && !strings.Contains(responder.followup.Content, "PRIVATE reason") {
+				t.Fatal("staff case reason missing", responder.followup.Content)
 			}
 		})
 	}
@@ -140,16 +140,16 @@ func (r *publicationCaptureRepository) SaveCasePublication(_ context.Context, re
 	return nil
 }
 
-// TestCasePublicationPersistsOnlyPublicSnapshot checks the durable boundary does
-// not store staff identity, reasons, context, policy configuration or evidence.
-func TestCasePublicationPersistsOnlyPublicSnapshot(t *testing.T) {
+// TestCasePublicationPersistsStaffSnapshot checks the durable boundary does
+// retains staff display fields without unrelated policy configuration.
+func TestCasePublicationPersistsStaffSnapshot(t *testing.T) {
 	repository := &publicationCaptureRepository{}
 	created := &quack.CaseResponse{ID: "case", CaseNumber: 42, TargetDiscordUserID: "member", Reason: "SECRET reason", ModeratorDiscordUserID: "SECRET moderator", ContextURL: "SECRET evidence", Metadata: "SECRET metadata", SelectedLevel: &quack.CaseSelectedLevel{TemplateLevelDetails: quack.TemplateLevelDetails{Name: "Public level", TriggerCaseCount: 12345}, MatchedCaseCount: 54321}}
 	template := &quack.TemplateResponse{Name: "Public rule", Slug: "rule", Description: "SECRET description"}
 	if err := updatePublicCaseResult(context.Background(), &fakeResponder{}, &quack.Services{Cases: quack.NewCaseService(repository)}, created, "message", "channel", template); err != nil {
 		t.Fatal(err)
 	}
-	if repository.receipt.ChannelID != "channel" || repository.receipt.CaseID != "case" || strings.Contains(repository.receipt.PresentationJSON, "SECRET") || strings.Contains(repository.receipt.PresentationJSON, "12345") || strings.Contains(repository.receipt.PresentationJSON, "54321") || !strings.Contains(repository.receipt.PresentationJSON, "Public rule") {
+	if repository.receipt.ChannelID != "channel" || repository.receipt.CaseID != "case" || !strings.Contains(repository.receipt.PresentationJSON, "SECRET reason") || !strings.Contains(repository.receipt.PresentationJSON, "SECRET moderator") || strings.Contains(repository.receipt.PresentationJSON, "SECRET description") || strings.Contains(repository.receipt.PresentationJSON, "SECRET metadata") || strings.Contains(repository.receipt.PresentationJSON, "12345") || strings.Contains(repository.receipt.PresentationJSON, "54321") || !strings.Contains(repository.receipt.PresentationJSON, "Public rule") {
 		t.Fatalf("invalid public snapshot: %+v", repository.receipt)
 	}
 }

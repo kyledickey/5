@@ -7,6 +7,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
+	"github.com/quackdiscord/bot/internal/discordbot/ui/views"
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
@@ -39,14 +40,14 @@ func handleEditContextComponent(ctx ui.Context) ui.HandlerResult {
 	return ui.Immediate(ui.Modal(fmt.Sprintf("Context for case #%d", detail.CaseNumber), id, []discordgo.MessageComponent{ui.Row(discordgo.TextInput{CustomID: "context", Label: "What happened?", Placeholder: "Describe what happened or paste a Discord message link.", Style: discordgo.TextInputParagraph, MaxLength: 4000, Required: false, Value: text})}))
 }
 
-// handleEditContextModal updates context privately without re-running moderation.
+// handleEditContextModal updates staff context without re-running moderation.
 func handleEditContextModal(ctx ui.Context) ui.HandlerResult {
 	parsed, err := ui.DecodeCustomID(ctx.Interaction.ModalSubmitData().CustomID)
 	if err != nil {
 		return ui.Immediate(ui.Error("That context form is invalid."))
 	}
 	text := modalTextValue(ctx.Interaction.ModalSubmitData(), "context")
-	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
+	return ui.Async(ui.DeferPublic(), func(taskCtx context.Context, responder ui.Responder) error {
 		guild, err := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
 		if err != nil {
 			return err
@@ -59,7 +60,9 @@ func handleEditContextModal(ctx ui.Context) ui.HandlerResult {
 		if item.EvidenceIncomplete && quack.ContextContainsMessageLinks(text) {
 			message += fmt.Sprintf(" Some evidence could not be saved. Use `/case evidence case:%d` with the message link to try again.", item.CaseNumber)
 		}
-		_, err = responder.EditOriginal(ui.EditMessage(ui.Signal("edit", message, true)))
+		result := views.CaseDetailPage(item, 1, ui.SessionApplicationID(ctx.Session))
+		result.Content = message + "\n\n" + result.Content
+		_, err = responder.EditOriginal(ui.EditMessage(result))
 		return err
 	})
 }

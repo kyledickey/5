@@ -2,7 +2,10 @@ package commands
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"github.com/quackdiscord/bot/internal/quack/model"
+	"strings"
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
@@ -28,5 +31,35 @@ func TestEvidenceNavigationRechecksAuthority(t *testing.T) {
 	}
 	if responder.editCount != 0 || responder.followup.Content != "" {
 		t.Fatal("revoked moderator received evidence")
+	}
+}
+
+// TestEvidenceContextWithoutAttachmentsCanNavigate exercises the real loader and
+// button handler so a text-only case never produces an unusable snapshot zero ID.
+func TestEvidenceContextWithoutAttachmentsCanNavigate(t *testing.T) {
+	repository, services, _ := newCaseCommandHarness(t)
+	guild := caseCommandGuildContext(t, services)
+	values, _ := json.Marshal([]quack.CaseContextValueResponse{{Label: "Context", Value: strings.Repeat("Saved note. ", 300) + "FINAL NOTE"}})
+	item := model.Case{ULIDModel: model.ULIDModel{ID: "context-only"}, GuildID: guild.Guild.ID, CaseNumber: 1, ContextValuesJSON: string(values), TemplateSnapshotJSON: "{}", MetadataJSON: "{}"}
+	if err := repository.DB().Create(&item).Error; err != nil {
+		t.Fatal(err)
+	}
+	detail, err := services.Cases.GetEvidencePage(context.Background(), guild, item.ID, 1)
+	if err != nil || detail.Position != 1 {
+		t.Fatalf("invalid context-only position: %+v %v", detail, err)
+	}
+	interaction := caseAddInteraction("", "target", uint64(discordgo.PermissionModerateMembers))
+	interaction.Type = discordgo.InteractionMessageComponent
+	interaction.Data = discordgo.MessageComponentInteractionData{CustomID: ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "evidence_next", Version: "v1", Payload: "1:1|" + item.ID})}
+	result := pageEvidence(1)(ui.Context{Context: context.Background(), Services: services, Interaction: interaction})
+	responder := &fakeResponder{}
+	if result.Task == nil {
+		t.Fatal("context navigation rejected")
+	}
+	if err := result.Task(context.Background(), responder); err != nil {
+		t.Fatal(err)
+	}
+	if responder.updated.Content == nil || !strings.Contains(*responder.updated.Content, "Saved note") {
+		t.Fatal("context page missing")
 	}
 }

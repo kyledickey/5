@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// TestReceiptAudienceAndVoidedState keeps moderator-only outcomes private and
+// TestReceiptAudienceAndVoidedState shows moderator outcomes in the invoking channel and
 // ensures a concurrent void changes both the receipt wording and controls.
 func TestReceiptAudienceAndVoidedState(t *testing.T) {
 	receipt := &quack.CaseReceiptResponse{Case: &quack.CaseResponse{ID: "case", CaseNumber: 4, TargetDiscordUserID: "member", SelectedLevel: &quack.CaseSelectedLevel{TemplateLevelDetails: quack.TemplateLevelDetails{Name: "STAFF LEVEL"}}, EvidenceIncomplete: true}, RuleName: "Spam", MemberReason: "Do not spam", Appealable: true, Notification: &quack.CaseNotificationResponse{Status: model.NotificationFailed}, Actions: []quack.CaseActionDetailResponse{{CaseActionResponse: quack.CaseActionResponse{ActionType: model.ActionTimeoutUser, Status: model.ActionExecutionFailed}, LastErrorCode: "missing_permission", LastError: "PRIVATE RAW ERROR"}}}
@@ -18,7 +18,7 @@ func TestReceiptAudienceAndVoidedState(t *testing.T) {
 			t.Fatalf("missing %s: %s", want, private.Content)
 		}
 	}
-	if !private.Ephemeral || strings.Contains(private.Content, "PRIVATE RAW ERROR") {
+	if private.Ephemeral || strings.Contains(private.Content, "PRIVATE RAW ERROR") {
 		t.Fatal("private receipt unsafe")
 	}
 	public := CaseCreatedMessage(CaseCreated{Case: receipt.Case, Template: &quack.TemplateResponse{Name: "Spam"}, MemberReason: receipt.MemberReason})

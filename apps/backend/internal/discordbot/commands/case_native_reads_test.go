@@ -19,7 +19,7 @@ import (
 func TestNativeDetailReadsPreservePages(t *testing.T) {
 	repository, services, _ := newCaseCommandHarness(t)
 	guild := caseCommandGuildContext(t, services)
-	item := model.Case{ULIDModel: model.ULIDModel{ID: "native-evidence-read"}, GuildID: guild.Guild.ID, CaseNumber: 1, Validity: model.CaseValidityValid, Source: model.CaseSourceDiscord, TemplateSnapshotJSON: "{}", MetadataJSON: "{}", ContextValuesJSON: "[]"}
+	item := model.Case{ULIDModel: model.ULIDModel{ID: "native-evidence-read"}, GuildID: guild.Guild.ID, CaseNumber: 1, Validity: model.CaseValidityValid, Source: model.CaseSourceDiscord, TemplateSnapshotJSON: "{}", MetadataJSON: "{}", ContextValuesJSON: `[{"key":"context","label":"Context","value":"Moderator saved context"}]`}
 	if err := repository.DB().Create(&item).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -65,9 +65,9 @@ func TestNativeDetailReadsPreservePages(t *testing.T) {
 		want := ui.EditMessage(views.CaseDetailPage(full, page, ""))
 		if page == 1 {
 			want = ui.EditMessage(views.PublicCaseDetail(full))
-			if actual.Content != nil && strings.Contains(*actual.Content, "Original evidence") {
-				t.Fatal("public case command leaked evidence")
-			}
+		}
+		if page == 1 && (actual.Content == nil || !strings.Contains(*actual.Content, "Moderator saved context")) {
+			t.Fatal("case view omitted saved context")
 		}
 		if !reflect.DeepEqual(actual, want) {
 			t.Fatalf("page %d output changed: %+v %+v", page, actual, want)

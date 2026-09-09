@@ -39,7 +39,7 @@ func CaseCommandDefinition() *discordgo.ApplicationCommand {
 	}
 }
 
-// caseStaffCommandOptions defines privacy-safe browsing and explicit recovery controls.
+// caseStaffCommandOptions defines staff browsing and explicit recovery controls.
 func caseStaffCommandOptions() []*discordgo.ApplicationCommandOption {
 	stringOption := func(name, description string, required bool) *discordgo.ApplicationCommandOption {
 		return &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionString, Name: name, Description: description, Required: required}

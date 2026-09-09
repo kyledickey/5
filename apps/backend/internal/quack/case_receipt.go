@@ -8,7 +8,7 @@ import (
 )
 
 // CaseReceiptResponse carries the minimum committed decision and delivery state
-// for a moderator receipt. It excludes context, evidence bodies, and raw errors.
+// for a moderator receipt. It includes staff context; evidence bodies are loaded by case detail views.
 type CaseReceiptResponse struct {
 	Case         *CaseResponse
 	RuleName     string
@@ -41,7 +41,7 @@ func (s *CaseService) ReceiptForPublication(ctx context.Context, caseID string) 
 	if err != nil {
 		return nil, err
 	}
-	base := &CaseResponse{ID: item.ID, CaseNumber: item.CaseNumber, CreatedAt: item.CreatedAt, TargetDiscordUserID: item.TargetDiscordUserID, Validity: item.Validity, SelectedLevel: selectedLevelResponse(item.TemplateSnapshotJSON)}
+	base := &CaseResponse{ModeratorDiscordUserID: item.ModeratorDiscordUserID, ContextValues: parseCaseContextValues(item.ContextValuesJSON), Reason: item.Reason, ID: item.ID, CaseNumber: item.CaseNumber, CreatedAt: item.CreatedAt, TargetDiscordUserID: item.TargetDiscordUserID, Validity: item.Validity, SelectedLevel: selectedLevelResponse(item.TemplateSnapshotJSON)}
 	result := &CaseReceiptResponse{Case: base, Notification: caseNotificationResponse(notification, false)}
 	base.EvidenceIncomplete, err = s.store.CasePublicationEvidenceIncomplete(ctx, caseID)
 	if err != nil {

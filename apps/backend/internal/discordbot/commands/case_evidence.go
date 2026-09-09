@@ -10,13 +10,13 @@ import (
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
-// handleCaseEvidenceComponent keeps captured content in a private staff response.
+// handleCaseEvidenceComponent shows captured content and context in the staff channel.
 func handleCaseEvidenceComponent(ctx ui.Context) ui.HandlerResult {
 	parsed, err := ui.DecodeCustomID(ctx.Interaction.MessageComponentData().CustomID)
 	if err != nil {
 		return ui.Immediate(ui.Error("That case button is invalid."))
 	}
-	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
+	return ui.Async(ui.DeferPublic(), func(taskCtx context.Context, responder ui.Responder) error {
 		guild, err := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
 		if err != nil {
 			return err
@@ -86,7 +86,7 @@ func pageEvidence(delta int) ui.Handler {
 	}
 }
 
-// pageCaseRecord shares navigation and authorization for private case record views.
+// pageCaseRecord shares navigation and authorization for staff case record views.
 func pageCaseRecord(delta int, render func(*quack.CaseDetailResponse, int, string) ui.Message) ui.Handler {
 	return pageCaseRecordWithLoader(delta, render, (*quack.CaseService).GetNativeDetail)
 }
@@ -125,13 +125,13 @@ func pageCaseRecordWithLoader(delta int, render func(*quack.CaseDetailResponse, 
 	}
 }
 
-// handleCaseUserComponent opens member history from a case without exposing it to the channel.
+// handleCaseUserComponent opens member history from a case in the invoking channel.
 func handleCaseUserComponent(ctx ui.Context) ui.HandlerResult {
 	parsed, err := ui.DecodeCustomID(ctx.Interaction.MessageComponentData().CustomID)
 	if err != nil {
 		return ui.Immediate(ui.Error("That user button is invalid."))
 	}
-	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
+	return ui.Async(ui.DeferPublic(), func(taskCtx context.Context, responder ui.Responder) error {
 		guild, err := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
 		if err != nil {
 			return err

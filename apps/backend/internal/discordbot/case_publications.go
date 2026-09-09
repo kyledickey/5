@@ -104,6 +104,11 @@ func refreshCasePublication(ctx context.Context, repository CasePublicationRepos
 		return
 	}
 	presentation.Case.Validity = item.Validity
+	presentation.Case.ModeratorDiscordUserID = item.ModeratorDiscordUserID
+	presentation.Case.Reason = item.Reason
+	presentation.Case.ContextValues = nil
+	// Reload context so recovery never restores an outdated moderator note.
+	_ = json.Unmarshal([]byte(item.ContextValuesJSON), &presentation.Case.ContextValues)
 	presentation.Case.EvidenceIncomplete, err = repository.CasePublicationEvidenceIncomplete(ctx, receipt.CaseID)
 	if err != nil {
 		return

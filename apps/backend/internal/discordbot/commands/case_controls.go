@@ -21,8 +21,8 @@ func handleDismissComponent(ctx ui.Context) ui.HandlerResult {
 	return actionControlComponent(ctx, "dismiss")
 }
 
-// actionControlComponent keeps recovery feedback private even when invoked from
-// a public audit mirror, while existing ephemeral views refresh in place.
+// actionControlComponent publishes recovery feedback in the invoking channel,
+// while existing ephemeral views refresh in place.
 // Once mutation succeeds, read or delivery failures must
 // not replace its committed outcome with a generic operation failure.
 func actionControlComponent(ctx ui.Context, operation string) ui.HandlerResult {
@@ -31,7 +31,7 @@ func actionControlComponent(ctx ui.Context, operation string) ui.HandlerResult {
 		return ui.Immediate(ui.Error("That action control is invalid."))
 	}
 	privateSource := ctx.Interaction.Message != nil && ctx.Interaction.Message.Flags&discordgo.MessageFlagsEphemeral != 0
-	acknowledgement := ui.DeferEphemeral()
+	acknowledgement := ui.DeferPublic()
 	if privateSource {
 		acknowledgement = ui.DeferUpdate()
 	}
@@ -53,7 +53,7 @@ func actionControlComponent(ctx ui.Context, operation string) ui.HandlerResult {
 		if operation == "dismiss" {
 			message = "The action failure was dismissed."
 		}
-		receipt := ui.Conversation("retry", message, "", "Use `/case failures` to review remaining failures.", "", true)
+		receipt := ui.Conversation("retry", message, "", "Use `/case failures` to review remaining failures.", "", false)
 		result, listErr := ctx.Services.Actions.ListFailures(taskCtx, guildContext, 10, 0)
 		if listErr == nil {
 			receipt = views.FailedActionMessage(result, 1)

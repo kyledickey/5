@@ -17,8 +17,8 @@ type CaseCreated struct {
 	Template     *quack.TemplateResponse
 }
 
-// CaseCreatedMessage announces the saved decision without exposing staff identity,
-// private context, evidence, or internal action diagnostics to the public channel.
+// CaseCreatedMessage announces the saved decision and moderator context in the
+// invoking channel. Member notifications use their own member-facing renderer.
 func CaseCreatedMessage(result CaseCreated) ui.Message {
 	if result.Case == nil {
 		return ui.Signal("case_add", "Case added.", false)
@@ -42,11 +42,22 @@ func CaseCreatedMessage(result CaseCreated) ui.Message {
 		}
 	}
 	status := publicActionStatus(created.Actions)
+	if created.ModeratorDiscordUserID != "" {
+		status += "\nModerator: <@" + created.ModeratorDiscordUserID + ">"
+	}
+	if context := contextSummary(created.ContextValues); context != "" {
+		status += "\n\n" + context
+	}
 	if created.EvidenceIncomplete {
 		status += "\nSome evidence couldn’t be saved. Staff can check **View evidence**."
 	}
-	message := ui.Conversation(icon, FormatCaseCreated(result), ui.PlainText(ui.TruncateRunes(result.MemberReason, 350)), status, strings.Join(meta, " · "), false)
+	message := ui.Conversation(icon, FormatCaseCreated(result), ui.PlainText(caseReceiptReason(result)), status, strings.Join(meta, " · "), false)
 	message.Components = []discordgo.MessageComponent{ui.Row(casePrimaryControls(created.ID, created.TargetDiscordUserID, created.Validity == model.CaseValidityVoided)...)}
+	pages := ui.TextPages(message.Content, 1750)
+	if len(pages) > 1 {
+		message.Content = pages[0]
+		message.Components = append(message.Components, ui.Row(ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "view", Version: "v1", Payload: created.ID}), "View full case", discordgo.SecondaryButton, false)))
+	}
 	return message
 }
 
@@ -117,4 +128,12 @@ func CaseVoidedMessage(item *quack.CaseResponse) ui.Message {
 	}
 
 	return ui.Conversation("case_void", fmt.Sprintf("Case #%d was voided.", item.CaseNumber), "", status, "", false)
+}
+
+// caseReceiptReason retains moderator reasons, falling back to the rule for older receipts.
+func caseReceiptReason(result CaseCreated) string {
+	if result.Case != nil && result.Case.Reason != "" {
+		return result.Case.Reason
+	}
+	return result.MemberReason
 }

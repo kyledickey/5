@@ -40,8 +40,8 @@ func TestAppealsCommandFindsUndeliveredSubmissions(t *testing.T) {
 		return r
 	}
 	first := AppealsCommandSpec().Handler(context)
-	if first.Response.Data.Flags&discordgo.MessageFlagsEphemeral == 0 {
-		t.Fatal("staff appeal queue is public")
+	if first.Response.Data != nil && first.Response.Data.Flags&discordgo.MessageFlagsEphemeral != 0 {
+		t.Fatal("staff appeal queue was hidden")
 	}
 	page := show(1, false)
 	if page.edit.Content == nil || !strings.Contains(*page.edit.Content, "Statement") || !strings.Contains(*page.edit.Content, "Pending appeal 1 of 2") {

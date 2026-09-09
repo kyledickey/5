@@ -21,7 +21,7 @@ const casePageSize = 10
 // application emoji expansion contributes to Discord's message limit.
 func CaseDetailPage(detail *quack.CaseDetailResponse, page int, applicationID string) ui.Message {
 	message := CaseDetailMessage(detail)
-	message.Ephemeral = true
+	message.Ephemeral = false
 	if detail == nil {
 		return message
 	}
@@ -53,6 +53,9 @@ func CaseDetailMessage(detail *quack.CaseDetailResponse) ui.Message {
 	}
 	icon := "case"
 	parts := []string{}
+	if detail.ModeratorDiscordUserID != "" && detail.Source != model.CaseSourceV4Import {
+		parts = append(parts, "Moderator: <@"+detail.ModeratorDiscordUserID+">")
+	}
 	if detail.Validity == model.CaseValidityVoided {
 		icon = "case_void"
 		lead = "**Voided** · " + lead
@@ -199,7 +202,7 @@ func caseHistoryMessageWithLabels(list *quack.CaseListResponse, page int, target
 func CaseProfileMessage(profile *quack.CaseProfileResponse, page int, targetID string) ui.Message {
 	if profile == nil {
 		message := CaseListMessage(nil, page, targetID)
-		message.Ephemeral = true
+		message.Ephemeral = false
 		return message
 	}
 	summary := fmt.Sprintf("\n-# %d total · %d active · %d voided", profile.Summary.Total, profile.Summary.ByValidity[string(model.CaseValidityValid)], profile.Summary.ByValidity[string(model.CaseValidityVoided)])
@@ -453,6 +456,9 @@ func CaseEvidencePage(detail *quack.CaseDetailResponse, page int, applicationID 
 	if body == "" {
 		body = "No evidence has been added yet."
 	}
+	if context := contextSummary(detail.ContextValues); context != "" {
+		body = context + "\n\n" + body
+	}
 	pages := ui.TextPages(discordtext.Resolve(body, applicationID), 1600)
 	if page < 1 {
 		page = 1
@@ -461,7 +467,7 @@ func CaseEvidencePage(detail *quack.CaseDetailResponse, page int, applicationID 
 		page = len(pages)
 	}
 	body = pages[page-1] + fmt.Sprintf("\n\nAdd a screenshot with `/case evidence case:%d file:` or use its `message_link` option.", detail.CaseNumber)
-	message := ui.Conversation("evidence", fmt.Sprintf("Evidence for case #%d", detail.CaseNumber), "", body, fmt.Sprintf("Page %d/%d", page, len(pages)), true)
+	message := ui.Conversation("evidence", fmt.Sprintf("Evidence for case #%d", detail.CaseNumber), "", body, fmt.Sprintf("Page %d/%d", page, len(pages)), false)
 	if len(pages) > 1 {
 		message.Components, _ = ui.Pagination("case", "evidence", fmt.Sprintf("%d|%s", page, detail.ID), page, len(pages))
 	}

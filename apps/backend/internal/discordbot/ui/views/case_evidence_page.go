@@ -2,6 +2,7 @@ package views
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
@@ -15,6 +16,9 @@ func CaseEvidenceSnapshotPages(detail *quack.CaseEvidencePageResponse, applicati
 	body := evidenceSummary(detail.Evidence)
 	if body == "" {
 		body = "No evidence has been added yet."
+	}
+	if context := contextSummary(detail.ContextValues); context != "" {
+		body = strings.Join([]string{context, body}, "\n\n")
 	}
 	return ui.TextPages(discordtext.Resolve(body, applicationID), 1600)
 }
@@ -40,7 +44,7 @@ func CaseEvidenceSnapshotPage(detail *quack.CaseEvidencePageResponse, page int, 
 	if len(pages) > 1 {
 		footer += fmt.Sprintf(" · page %d of %d", page, len(pages))
 	}
-	message := ui.Conversation("evidence", fmt.Sprintf("Evidence for case #%d", detail.CaseNumber), "", body, footer, true)
+	message := ui.Conversation("evidence", fmt.Sprintf("Evidence for case #%d", detail.CaseNumber), "", body, footer, false)
 	previous := detail.Position > 1 || page > 1
 	next := int64(detail.Position) < detail.Total || page < len(pages)
 	if previous || next {

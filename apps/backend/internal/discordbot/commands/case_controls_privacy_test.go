@@ -41,7 +41,7 @@ func TestRecoveryControlFeedbackPreservesSource(t *testing.T) {
 						t.Fatal("private source not updated in place")
 					}
 				} else {
-					assertRecoveryPrivate(t, result)
+					assertRecoveryPublic(t, result)
 				}
 				responder := &recoveryUpdateResponder{failUpdate: source == "private_update_failed"}
 				if err := result.Task(context.Background(), responder); err != nil {
@@ -105,8 +105,8 @@ func TestRecoveryModalsKeepFailuresPrivate(t *testing.T) {
 				interaction.Type = discordgo.InteractionModalSubmit
 				interaction.Data = discordgo.ModalSubmitInteractionData{CustomID: ui.MustCustomID(ui.CustomID{Namespace: "case", Action: operation + "_submit", Version: "v1", Payload: payload}), Components: []discordgo.MessageComponent{ui.Row(discordgo.TextInput{CustomID: field, Value: value})}}
 				result := handler(ui.Context{Context: context.Background(), Services: services, Interaction: interaction})
-				if result.Task == nil {
-					assertRecoveryPrivate(t, result)
+				if result.Task == nil && (result.Response.Data == nil || result.Response.Data.Flags&discordgo.MessageFlagsEphemeral == 0) {
+					t.Fatal("validation error should be private")
 				}
 				responder := &fakeResponder{}
 				if result.Task != nil {
@@ -149,11 +149,11 @@ func TestCommittedRecoveryPublicationRetainsReceipt(t *testing.T) {
 	}
 }
 
-// assertRecoveryPrivate checks Discord's initial visibility, which edits cannot change.
-func assertRecoveryPrivate(t *testing.T, result ui.HandlerResult) {
+// assertRecoveryPublic checks Discord's initial visibility, which edits cannot change.
+func assertRecoveryPublic(t *testing.T, result ui.HandlerResult) {
 	t.Helper()
-	if result.Response == nil || result.Response.Data == nil || result.Response.Data.Flags&discordgo.MessageFlagsEphemeral == 0 {
-		t.Fatal("recovery acknowledgement is public")
+	if result.Response == nil || (result.Response.Data != nil && result.Response.Data.Flags&discordgo.MessageFlagsEphemeral != 0) {
+		t.Fatal("recovery acknowledgement was hidden")
 	}
 }
 

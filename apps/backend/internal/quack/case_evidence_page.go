@@ -44,11 +44,11 @@ func (s *CaseService) GetEvidencePage(ctx context.Context, guild *GuildStaffCont
 		position = 1
 	}
 	if int64(position) > total {
-		position = int(total)
+		position = max(1, int(total))
 	}
 	var evidence []CaseEvidenceResponse
 	if snapshot != nil {
 		evidence = caseEvidenceResponses([]model.CaseEvidenceSnapshot{*snapshot}, attachments, false)
 	}
-	return &CaseEvidencePageResponse{CaseDetailResponse: CaseDetailResponse{CaseResponse: CaseResponse{ID: item.ID, CaseNumber: item.CaseNumber}, Evidence: evidence}, Position: position, Total: total}, nil
+	return &CaseEvidencePageResponse{CaseDetailResponse: CaseDetailResponse{CaseResponse: CaseResponse{ID: item.ID, CaseNumber: item.CaseNumber, ContextValues: parseCaseContextValues(item.ContextValuesJSON)}, Evidence: evidence}, Position: position, Total: total}, nil
 }
