@@ -1,6 +1,8 @@
 package moduleintegration
 
 import (
+	"errors"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/modules/tickets"
@@ -25,8 +27,9 @@ func existingTicketMessage(ticket *tickets.Ticket) ui.Message {
 
 // ticketCloseFailureMessage describes only confirmed progress. An authorized
 // record enables retry; missing/forbidden records expose neither links nor controls.
+// Uncertain queue delivery requires inspection instead of another close attempt.
 func ticketCloseFailureMessage(ticket *tickets.Ticket, err error) ui.Message {
-	if ticket == nil {
+	if ticket == nil || errors.Is(err, tickets.ErrQueueDeliveryUnknown) {
 		return ui.Signal("error", ticketErrorMessage(err), true)
 	}
 	text := "The ticket could not finish closing. Try again; if it keeps failing, ask a server administrator to check Quack's permissions."
