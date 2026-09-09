@@ -40,21 +40,19 @@ func TestEnforcementCarriesContextAndDoesNotRetryBehindWorker(t *testing.T) {
 	}
 }
 
-func TestEvidenceDownloadRejectsUnexpectedSizeBeforeUpload(t *testing.T) {
+// TestEvidenceDownloadRejectsUnsafeURLsBeforeRequest verifies rejected sources
+// never reach either the CDN transport or Discord upload client.
+func TestEvidenceDownloadRejectsUnsafeURLsBeforeRequest(t *testing.T) {
 	calls := 0
 	client := &http.Client{Transport: requestTransport(func(request *http.Request) (*http.Response, error) {
 		calls++
-		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("too many bytes")), Request: request}, nil
+		return nil, errors.New("unexpected download request")
 	})}
 	// No Discord session is supplied: an upload attempt would panic.
 	bot := &Bot{HTTPClient: client}
-	_, err := bot.PreserveEvidenceAttachment(context.Background(), "guild", "channel", quack.DiscordAttachmentSnapshot{URL: "https://cdn.discordapp.com/attachments/1/2/file.png", SizeBytes: 3})
-	if err == nil || calls != 1 {
-		t.Fatalf("size mismatch was accepted: calls=%d err=%v", calls, err)
-	}
 	for _, raw := range []string{"http://cdn.discordapp.com/attachments/1/2/x", "https://localhost/attachments/1/2/x", "https://cdn.discordapp.com.evil.test/attachments/x", "https://user:secret@cdn.discordapp.com/attachments/x"} {
 		_, err := bot.PreserveEvidenceAttachment(context.Background(), "guild", "channel", quack.DiscordAttachmentSnapshot{URL: raw, SizeBytes: 3})
-		if err == nil || calls != 1 {
+		if err == nil || calls != 0 {
 			t.Fatalf("unsafe download: %s", raw)
 		}
 	}

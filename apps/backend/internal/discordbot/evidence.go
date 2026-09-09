@@ -94,9 +94,15 @@ func (b *Bot) PreserveEvidenceAttachment(ctx context.Context, guildID, channelID
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, actionmods.DiscordError{Code: "evidence_download_failed", Message: "attachment download failed", Retryable: response.StatusCode >= 500}
 	}
-	content, err := io.ReadAll(io.LimitReader(response.Body, item.SizeBytes+1))
-	if err != nil || int64(len(content)) != item.SizeBytes {
-		return nil, errors.New("attachment download size did not match its metadata")
+	// Discord can serve a converted image representation whose byte count differs
+	// from message metadata. Bound the actual download independently and preserve
+	// those returned bytes rather than truncating to the advertised size.
+	content, err := io.ReadAll(io.LimitReader(response.Body, quack.MaxPreservedAttachmentBytes+1))
+	if err != nil {
+		return nil, errors.New("attachment download could not be read")
+	}
+	if int64(len(content)) > quack.MaxPreservedAttachmentBytes {
+		return nil, errors.New("attachment download exceeds the managed copy size limit")
 	}
 	channel, err := b.Session.Channel(channelID, discordgo.WithContext(ctx))
 	if err != nil || channel == nil || channel.GuildID != guildID || channel.Type != discordgo.ChannelTypeGuildText {
