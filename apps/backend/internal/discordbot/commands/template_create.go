@@ -63,7 +63,7 @@ func handleTemplateCommand(ctx ui.Context) ui.HandlerResult {
 		return ui.Immediate(ui.Error("For a timeout, set minutes between 1 and 40320. Other outcomes do not use minutes."))
 	}
 	id := ui.MustCustomID(ui.CustomID{Namespace: "template", Action: "create", Version: "v1", Payload: fmt.Sprintf("%s|%d", outcome, minutes)})
-	return ui.Immediate(ui.Modal("Create moderation rule", id, []discordgo.MessageComponent{
+	return ui.Immediate(ui.Modal("Create a rule", id, []discordgo.MessageComponent{
 		ui.Row(discordgo.TextInput{CustomID: "name", Label: "Rule name", Placeholder: "NSFW chatting", Style: discordgo.TextInputShort, Required: true, MaxLength: 100}),
 		ui.Row(discordgo.TextInput{CustomID: "reason", Label: "Reason shown to the member", Placeholder: "Keep explicit content out of chat.", Style: discordgo.TextInputParagraph, Required: true, MaxLength: 1000}),
 	}))
@@ -106,7 +106,7 @@ func handleTemplateCreateSubmit(ctx ui.Context) ui.HandlerResult {
 	if name == "" || reason == "" {
 		return ui.Immediate(ui.Error("Enter a rule name and a reason."))
 	}
-	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
+	return ui.AsyncPublic(func(taskCtx context.Context, responder ui.Responder) error {
 		guild, err := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
 		if err != nil || guild == nil || !guild.Can(model.PermissionActionCaseTemplateWrite) {
 			_, err = responder.EditOriginal(ui.ErrorEdit("You need Manage Server permission to create templates."))
@@ -134,7 +134,7 @@ func handleTemplateCreateSubmit(ctx ui.Context) ui.HandlerResult {
 		if outcome == "timeout" {
 			outcome = fmt.Sprintf("%d-minute timeout", minutes)
 		}
-		message := ui.Signal("settings", fmt.Sprintf("**%s** is ready. Default outcome: **%s**. Members receive a DM and can appeal.\nUse `/case add` to apply this rule.", ui.PlainText(created.Name), outcome), true)
+		message := ui.Signal("settings", fmt.Sprintf("**%s** is ready. First case: **%s**.\nUse `/case add` when someone breaks this rule.", ui.PlainText(created.Name), outcome), true)
 		_, err = responder.EditOriginal(ui.EditMessage(message))
 		return err
 	})

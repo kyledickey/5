@@ -18,9 +18,7 @@ func runTemplateManagement(t *testing.T, services *quack.Services, id, operation
 	options := append([]*discordgo.ApplicationCommandInteractionDataOption{{Name: "template", Type: discordgo.ApplicationCommandOptionString, Value: id}}, fields...)
 	interaction.Data = discordgo.ApplicationCommandInteractionData{Name: "template", Options: []*discordgo.ApplicationCommandInteractionDataOption{{Name: operation, Type: discordgo.ApplicationCommandOptionSubCommand, Options: options}}}
 	result := handleTemplateCommand(ui.Context{Context: context.Background(), Services: services, Interaction: interaction})
-	if result.Task == nil {
-		t.Fatal("command did not acknowledge before network lookups")
-	}
+	assertPublicCommandAcknowledgement(t, result)
 	responder := &fakeResponder{}
 	if err := result.Task(context.Background(), responder); err != nil {
 		t.Fatal(err)
@@ -65,7 +63,8 @@ func TestTemplateManagementLifecycle(t *testing.T) {
 		}
 	}
 	view := runTemplateManagement(t, services, id, "view")
-	if view.edit.Content == nil || !strings.Contains(*view.edit.Content, "From case **3**") || !strings.Contains(*view.edit.Content, "DM off") || !strings.Contains(*view.edit.Content, "Keep chat readable.") {
+	commandFeedback(t, view, true)
+	if view.edit.Content == nil || !strings.Contains(*view.edit.Content, "**3+ times:** Ban") || !strings.Contains(*view.edit.Content, "DM off") || !strings.Contains(*view.edit.Content, "Keep chat readable.") {
 		t.Fatalf("incomplete policy view: %+v", view.edit.Content)
 	}
 	runTemplateManagement(t, services, id, "remove-level", &discordgo.ApplicationCommandInteractionDataOption{Name: "case", Type: discordgo.ApplicationCommandOptionInteger, Value: float64(1)})
@@ -105,7 +104,7 @@ func TestTemplateManagementRejectsRevokedManager(t *testing.T) {
 	_, services, id := newCaseCommandHarnessWithLivePermissions(t, 0)
 	for _, operation := range []string{"view", "edit", "remove-level", "archive", "restore"} {
 		responder := runTemplateManagement(t, services, id, operation)
-		if responder.edit.Content == nil || !strings.Contains(*responder.edit.Content, "Manage Server") {
+		if !strings.Contains(commandFeedback(t, responder, false), "Manage Server") {
 			t.Fatalf("%s allowed revoked manager", operation)
 		}
 	}
@@ -147,9 +146,9 @@ func TestNativeTemplateDecayCanBeEnabledAndDisabled(t *testing.T) {
 			t.Fatalf("decay=%+v err=%v", template, err)
 		}
 		view := runTemplateManagement(t, services, id, "view")
-		expected := "All-time counting"
+		expected := "Counting all cases for this rule."
 		if days != 0 {
-			expected = "Older cases stay in history"
+			expected = "Counting cases from the last **30 days**."
 		}
 		if view.edit.Content == nil || !strings.Contains(*view.edit.Content, expected) {
 			t.Fatalf("missing decay explanation: %+v", view.edit.Content)

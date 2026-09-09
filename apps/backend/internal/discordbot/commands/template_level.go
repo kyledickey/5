@@ -15,10 +15,10 @@ import (
 // templateLevelOption expresses thresholds as the case being created, matching
 // the engine count that includes this case.
 func templateLevelOption() *discordgo.ApplicationCommandOption {
-	return &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "level", Description: "Set an outcome from a chosen case number onward", Options: []*discordgo.ApplicationCommandOption{
+	return &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "level", Description: "Choose the punishment after repeated rule breaks", Options: []*discordgo.ApplicationCommandOption{
 		{Type: discordgo.ApplicationCommandOptionString, Name: "template", Description: "Rule to edit", Required: true, Autocomplete: true},
-		{Type: discordgo.ApplicationCommandOptionInteger, Name: "case", Description: "Start on this case: 1 for default, 3 for the third case", Required: true, MinValue: floatPointer(1), MaxValue: 1000000},
-		{Type: discordgo.ApplicationCommandOptionString, Name: "outcome", Description: "Outcome at this level", Required: true, Choices: []*discordgo.ApplicationCommandOptionChoice{{Name: "Warning", Value: "warning"}, {Name: "Timeout", Value: "timeout"}, {Name: "Kick", Value: "kick"}, {Name: "Ban", Value: "ban"}}},
+		{Type: discordgo.ApplicationCommandOptionInteger, Name: "case", Description: "How many times? 1 is the first case, 3 is the third", Required: true, MinValue: floatPointer(1), MaxValue: 1000000},
+		{Type: discordgo.ApplicationCommandOptionString, Name: "outcome", Description: "What should happen?", Required: true, Choices: []*discordgo.ApplicationCommandOptionChoice{{Name: "Warning", Value: "warning"}, {Name: "Timeout", Value: "timeout"}, {Name: "Kick", Value: "kick"}, {Name: "Ban", Value: "ban"}}},
 		{Type: discordgo.ApplicationCommandOptionInteger, Name: "minutes", Description: "Timeout length in minutes", MinValue: floatPointer(1), MaxValue: 40320},
 		{Type: discordgo.ApplicationCommandOptionBoolean, Name: "notify", Description: "Send the member a DM at this level; defaults to on for new levels"},
 	}}
@@ -76,7 +76,7 @@ func handleTemplateLevel(ctx ui.Context, option *discordgo.ApplicationCommandInt
 	if count < 1 || count > 1000000 || !validTemplateOutcome(outcome, minutes) {
 		return ui.Immediate(ui.Error("Check the case number and timeout minutes."))
 	}
-	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
+	return ui.AsyncPublic(func(taskCtx context.Context, responder ui.Responder) error {
 		fail := func(text string) error { _, err := responder.EditOriginal(ui.ErrorEdit(text)); return err }
 		guild, err := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
 		if err != nil || guild == nil || !guild.Can(model.PermissionActionCaseTemplateWrite) {
@@ -135,7 +135,7 @@ func handleTemplateLevel(ctx ui.Context, option *discordgo.ApplicationCommandInt
 		if err != nil {
 			return fail("Could not save that level. Check the outcome and try again.")
 		}
-		text := fmt.Sprintf("**%s** now uses **%s** from case **%d** onward, until a higher level applies. Existing cases are unchanged.", ui.PlainText(template.Name), outcome, count)
+		text := fmt.Sprintf("**%s:** **%s** after **%d** cases.", ui.PlainText(template.Name), outcome, count)
 		if outcome == "timeout" {
 			minuteLabel := "minutes"
 			if minutes == 1 {
@@ -145,9 +145,9 @@ func handleTemplateLevel(ctx ui.Context, option *discordgo.ApplicationCommandInt
 		}
 		if value := option.GetOption("notify"); value != nil {
 			if value.BoolValue() {
-				text += " Member DMs are on at this level."
+				text += " I’ll DM the member."
 			} else {
-				text += " Member DMs are off at this level."
+				text += " No member DM for this step."
 			}
 		}
 		_, err = responder.EditOriginal(ui.EditMessage(ui.Signal("settings", text, true)))

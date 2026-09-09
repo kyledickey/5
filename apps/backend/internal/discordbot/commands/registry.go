@@ -113,6 +113,9 @@ func Register(session *discordgo.Session, services *quack.Services, infrastructu
 	}
 
 	registry := NewRegistry()
+	if err := registry.Register(HelpCommandSpec()); err != nil {
+		return err
+	}
 	if err := registry.Register(TemplateCommandSpec()); err != nil {
 		return err
 	}

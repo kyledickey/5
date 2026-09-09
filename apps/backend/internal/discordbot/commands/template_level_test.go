@@ -19,13 +19,12 @@ func TestTemplateLevelUsesHumanCaseNumberAndPreservesOtherLevels(t *testing.T) {
 			{Name: "template", Type: discordgo.ApplicationCommandOptionString, Value: templateID}, {Name: "case", Type: discordgo.ApplicationCommandOptionInteger, Value: float64(3)}, {Name: "outcome", Type: discordgo.ApplicationCommandOptionString, Value: outcome},
 		}}}}
 		result := handleTemplateCommand(ui.Context{Context: context.Background(), Services: services, Interaction: interaction})
-		if result.Task == nil {
-			t.Fatal("edit did not defer")
-		}
+		assertPublicCommandAcknowledgement(t, result)
 		responder := &fakeResponder{}
 		if err := result.Task(context.Background(), responder); err != nil {
 			t.Fatal(err)
 		}
+		commandFeedback(t, responder, true)
 		template, err := services.Templates.Get(context.Background(), caseCommandGuildContext(t, services), templateID)
 		if err != nil {
 			t.Fatal(err)

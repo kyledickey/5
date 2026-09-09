@@ -18,8 +18,8 @@ import (
 func templateManagementOptions() []*discordgo.ApplicationCommandOption {
 	specs := []struct{ name, description string }{
 		{"view", "Show a rule and its escalation outcomes"},
-		{"edit", "Change a rule's name, member reason, appeals or case decay"},
-		{"remove-level", "Remove an escalation and use the preceding outcome"},
+		{"edit", "Edit a rule"},
+		{"remove-level", "Remove a punishment step from a rule"},
 		{"archive", "Stop using a rule for new cases; keep its history"},
 		{"restore", "Make an archived rule available again"},
 	}
@@ -34,10 +34,10 @@ func templateManagementOptions() []*discordgo.ApplicationCommandOption {
 				&discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionString, Name: "name", Description: "Rule name", MaxLength: 100},
 				&discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionString, Name: "reason", Description: "Reason shown to the member", MaxLength: 1000},
 				&discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionBoolean, Name: "appeals", Description: "Allow members to appeal new cases under this rule"},
-				&discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionInteger, Name: "decay-days", Description: "Count cases from the last N days; 0 keeps all-time counting", MinValue: floatPointer(0), MaxValue: quack.MaxCaseDecayDays},
+				&discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionInteger, Name: "decay-days", Description: "Forget older cases when choosing punishments; 0 counts all cases", MinValue: floatPointer(0), MaxValue: quack.MaxCaseDecayDays},
 			)
 		case "remove-level":
-			option.Options = append(option.Options, &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionInteger, Name: "case", Description: "Starting case number of the escalation to remove", Required: true, MinValue: floatPointer(2), MaxValue: 1000000})
+			option.Options = append(option.Options, &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionInteger, Name: "case", Description: "Which step? Use its case count from /template view, e.g. 3", Required: true, MinValue: floatPointer(2), MaxValue: 1000000})
 		}
 		result = append(result, option)
 	}
@@ -49,9 +49,9 @@ func templateManagementOptions() []*discordgo.ApplicationCommandOption {
 func handleTemplateManage(ctx ui.Context, option *discordgo.ApplicationCommandInteractionDataOption) ui.HandlerResult {
 	ref := option.GetOption("template")
 	if ref == nil {
-		return ui.Immediate(ui.Error("Choose a template."))
+		return ui.Immediate(ui.Error("Choose a rule first."))
 	}
-	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
+	return ui.AsyncPublic(func(taskCtx context.Context, responder ui.Responder) error {
 		fail := func(text string) error { _, err := responder.EditOriginal(ui.ErrorEdit(text)); return err }
 		guild, err := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
 		if err != nil || guild == nil || !guild.Can(model.PermissionActionCaseTemplateWrite) {
@@ -59,7 +59,7 @@ func handleTemplateManage(ctx ui.Context, option *discordgo.ApplicationCommandIn
 		}
 		templates, err := ctx.Services.Templates.List(taskCtx, guild)
 		if err != nil {
-			return fail("Could not load templates. Try again.")
+			return fail("I couldn’t load the rules. Try again in a moment.")
 		}
 		var selected *quack.TemplateResponse
 		for _, template := range templates {
@@ -69,7 +69,7 @@ func handleTemplateManage(ctx ui.Context, option *discordgo.ApplicationCommandIn
 			}
 		}
 		if selected == nil {
-			return fail("That template is unavailable.")
+			return fail("I can’t find that rule. Choose it from the command’s suggestions.")
 		}
 		input := selected.EditInput()
 		message := ""
@@ -114,7 +114,7 @@ func handleTemplateManage(ctx ui.Context, option *discordgo.ApplicationCommandIn
 		case "remove-level":
 			value := option.GetOption("case")
 			if value == nil || value.IntValue() < 2 || value.IntValue() > 1000000 {
-				return fail("Choose an escalation starting at case 2 or later. The default outcome must stay.")
+				return fail("Choose a step from case 2 onward. To change the first step, use `/template level`.")
 			}
 			found := false
 			for index, level := range input.Levels {
@@ -125,10 +125,10 @@ func handleTemplateManage(ctx ui.Context, option *discordgo.ApplicationCommandIn
 				}
 			}
 			if !found {
-				return fail("There is no escalation starting at that case number. Use `/template view` to see the rule.")
+				return fail("There is no step at that count. Check `/template view` for this rule’s steps.")
 			}
 			_, err = ctx.Services.Templates.Update(taskCtx, guild, selected.ID, input)
-			message = fmt.Sprintf("Removed the escalation starting at case **%d**. The preceding outcome now continues until the next level. Existing cases are unchanged.", value.IntValue())
+			message = fmt.Sprintf("Removed the **%d-case** step. Check `/template view` for the updated rule.", value.IntValue())
 		default:
 			return fail("Choose a template operation.")
 		}
@@ -136,7 +136,7 @@ func handleTemplateManage(ctx ui.Context, option *discordgo.ApplicationCommandIn
 			return fail("Someone changed this template while you were editing. Run the command again to use the latest settings.")
 		}
 		if err != nil {
-			return fail("Could not update the template. Check your settings and try again.")
+			return fail("I couldn’t save that change. Check the options and try again.")
 		}
 		_, err = responder.EditOriginal(ui.EditMessage(ui.Signal("settings", message, true)))
 		return err
@@ -154,7 +154,7 @@ func templatePolicyMessage(template quack.TemplateResponse) ui.Message {
 	if template.Appealable {
 		appeals = "On"
 	}
-	lines := []string{fmt.Sprintf("**%s** · %s", ui.PlainText(template.Name), status), ui.PlainText(template.ReasonTemplate), "", "**Outcomes**"}
+	lines := []string{fmt.Sprintf("**%s** · %s", ui.PlainText(template.Name), status), ui.PlainText(template.ReasonTemplate), "", "**When someone breaks this rule**"}
 	levels := append([]quack.TemplateLevelResponse(nil), template.Levels...)
 	sort.SliceStable(levels, func(i, j int) bool {
 		if levels[i].IsDefault != levels[j].IsDefault {
@@ -183,12 +183,12 @@ func templatePolicyMessage(template quack.TemplateResponse) ui.Message {
 		if level.NotifyUser {
 			dm = "DM on"
 		}
-		lines = append(lines, fmt.Sprintf("From case **%d**: %s · %s", count, outcome, dm))
+		lines = append(lines, fmt.Sprintf("**%d+ times:** %s · %s", count, outcome, dm))
 	}
-	window := "All-time counting (decay off)."
+	window := "-# Counting all cases for this rule."
 	if template.CaseDecayDays > 0 {
-		window = fmt.Sprintf("Count cases from the last **%d days**. Older cases stay in history.", template.CaseDecayDays)
+		window = fmt.Sprintf("-# Counting cases from the last **%d days**.", template.CaseDecayDays)
 	}
-	lines = append(lines, "", window, "Appeals: **"+appeals+"**", "Each outcome lasts until the next level. Counts include this case and earlier, non-voided cases for this rule. Imported v4 history does not count.", "Use `/template edit` for rule text, appeals and decay, `/template level` for outcomes and DMs, or `/template remove-level` to remove an escalation.")
+	lines = append(lines, "", window, "-# Appeals: **"+appeals+"**", "Need a hand? `/help topic:rules`")
 	return ui.Signal("settings", strings.Join(lines, "\n"), true)
 }

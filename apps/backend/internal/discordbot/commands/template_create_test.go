@@ -41,12 +41,12 @@ func TestTemplateCreateModalActivatesSelectedPolicy(t *testing.T) {
 				ui.Row(discordgo.TextInput{CustomID: "name", Value: "New rule"}), ui.Row(discordgo.TextInput{CustomID: "reason", Value: "Keep chat appropriate."}),
 			}}
 			result = handleTemplateCreateSubmit(ui.Context{Context: context.Background(), Services: services, Interaction: interaction})
-			if result.Task == nil || result.Response.Data.Flags&discordgo.MessageFlagsEphemeral == 0 {
-				t.Fatal("submission not deferred privately")
-			}
-			if err := result.Task(context.Background(), &fakeResponder{}); err != nil {
+			assertPublicCommandAcknowledgement(t, result)
+			responder := &fakeResponder{}
+			if err := result.Task(context.Background(), responder); err != nil {
 				t.Fatal(err)
 			}
+			commandFeedback(t, responder, scenario.allowed)
 			templates, err := services.Templates.ListActive(context.Background(), caseCommandGuildContext(t, services))
 			if err != nil {
 				t.Fatal(err)
