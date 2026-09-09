@@ -1,11 +1,37 @@
 package commands
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 )
+
+// TestSetupAppealsExposesReasonRequirement verifies the optional boolean keeps
+// the existing setup flow while making moderator reasons configurable.
+func TestSetupAppealsExposesReasonRequirement(t *testing.T) {
+	spec := SetupCommandSpec()
+	var appeals *discordgo.ApplicationCommandOption
+	for _, option := range spec.Definition.Options {
+		if option.Name == "appeals" {
+			appeals = option
+			break
+		}
+	}
+	if appeals == nil {
+		t.Fatal("appeal setup subcommand missing")
+	}
+	for _, option := range appeals.Options {
+		if option.Name == "require-reason" {
+			if option.Type != discordgo.ApplicationCommandOptionBoolean || option.Required || !strings.Contains(option.Description, "member receives") {
+				t.Fatalf("invalid require-reason option: %+v", option)
+			}
+			return
+		}
+	}
+	t.Fatal("appeal reason requirement option missing")
+}
 
 // TestSetupRoutesTicketsToModule checks that the registered slash command reaches
 // the integration handler rather than falling through to appeal configuration.

@@ -19,6 +19,7 @@ func SetupCommandSpec(moduleSetup ...SetupHandlers) CommandSpec {
 	dm := false
 	spec := CommandSpec{Definition: &discordgo.ApplicationCommand{Name: "setup", Description: "Configure Quack for this server", DefaultMemberPermissions: &permissions, DMPermission: &dm, Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "appeals", Description: "Set up appeal reviews", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionChannel, Name: "channel", Description: "Use an existing channel; otherwise Quack creates one", ChannelTypes: []discordgo.ChannelType{discordgo.ChannelTypeGuildText}}}}}}, Handler: handleSetup}
 	spec.Definition.Options[0].Options = append(spec.Definition.Options[0].Options, &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionString, Name: "rejoin", Description: "Discord invite for accepted appeals; use none to remove it", MaxLength: 256})
+	spec.Definition.Options[0].Options = append(spec.Definition.Options[0].Options, &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionBoolean, Name: "require-reason", Description: "Require moderators to write a decision reason; the member receives it"})
 	spec.Definition.Options = append(spec.Definition.Options, &discordgo.ApplicationCommandOption{
 		Type: discordgo.ApplicationCommandOptionSubCommand, Name: "tickets", Description: "Set up private support tickets",
 		Options: []*discordgo.ApplicationCommandOption{
@@ -107,12 +108,22 @@ func handleSetup(ctx ui.Context) ui.HandlerResult {
 			}
 			input.AppealRejoinURL = &value
 		}
-		_, err = ctx.Services.Settings.Update(taskCtx, guild, input)
+		if option := options[0].GetOption("require-reason"); option != nil {
+			value := option.BoolValue()
+			input.AppealReviewReasonRequired = &value
+		}
+		saved, err := ctx.Services.Settings.Update(taskCtx, guild, input)
 		if err != nil {
 			_, err = responder.EditOriginal(ui.ErrorEdit("Could not save appeal settings. Check Manage Server permission, Quack's queue channel permissions, and the HTTPS Discord invite (or none)."))
 			return err
 		}
-		_, err = ui.Publish(responder, ui.Signal("settings", fmt.Sprintf("Appeal reviews will go to <#%s>. Members can appeal from their case DM; moderators can accept or reject in this channel.", channelID), true))
+		confirmation := fmt.Sprintf("Appeal reviews will go to <#%s>. Members can appeal from their case DM; moderators can accept or reject in this channel.", channelID)
+		if saved.AppealReviewReasonRequired {
+			confirmation += " Moderators must write a decision reason; the member receives it."
+		} else {
+			confirmation += " Decision reasons are optional."
+		}
+		_, err = ui.Publish(responder, ui.Signal("settings", confirmation, true))
 		return err
 	})
 }

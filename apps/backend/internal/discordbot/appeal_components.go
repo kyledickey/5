@@ -27,6 +27,9 @@ func RegisterAppealComponents(registry *interactions.ComponentRegistry, services
 		if err := registry.RegisterComponent("appeal", action, appealDecisionHandler(services, appeals, action)); err != nil {
 			return err
 		}
+		if err := registry.RegisterModal("appeal", action+"_reason", appealDecisionModal(services, appeals, action)); err != nil {
+			return err
+		}
 	}
 	for action, delta := range map[string]int{"statement_prev": -1, "statement_next": 1} {
 		if err := registry.RegisterComponent("appeal", action, appealStatementPage(services, appeals, delta)); err != nil {

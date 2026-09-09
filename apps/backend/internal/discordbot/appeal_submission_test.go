@@ -185,3 +185,92 @@ func TestAppealQueueDecisionChecksLivePermissions(t *testing.T) {
 		t.Fatalf("member reviewer privacy: %+v %v", member, err)
 	}
 }
+
+// TestAppealQueueDecisionRequiresReason exercises the required-reason form with
+// whitespace validation, fresh submission authority, and a stale competing form.
+func TestAppealQueueDecisionRequiresReason(t *testing.T) {
+	ctx := context.Background()
+	repository := testutil.NewSQLiteStore(t)
+	if err := repository.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	bootstrap, err := repository.BootstrapGuild(ctx, model.BootstrapGuildParams{DiscordGuildID: "reason-guild", Name: "Pond", OwnerDiscordUserID: "owner"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	guild := &bootstrap.Guild
+	settings, err := repository.GetGuildSettings(ctx, guild.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings.AppealReviewReasonRequired = true
+	if _, err := repository.UpdateGuildSettings(ctx, model.UpdateGuildSettingsParams{Settings: *settings}); err != nil {
+		t.Fatal(err)
+	}
+	created, err := repository.CreateCase(ctx, model.CreateCaseParams{Case: model.Case{GuildID: guild.ID, TemplateVersion: 1, TemplateSnapshotJSON: `{"template":{"appealable":true}}`, TargetDiscordUserID: "target", ModeratorDiscordUserID: "mod", Reason: "Rule", Validity: model.CaseValidityValid, Source: model.CaseSourceDiscord, MetadataJSON: `{}`, ContextValuesJSON: `[]`}, Event: model.CaseEvent{EventType: model.CaseEventCreated, ActorType: "staff", Body: "Case created", MetadataJSON: `{}`}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	appeals := quack.NewAppealService(repository)
+	appeal, err := appeals.Submit(ctx, created.Case.ID, "target", quack.AppealSubmissionInput{Answers: []model.AppealAnswer{{QuestionID: "reason", Value: "Please reconsider."}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth := &appealReviewAuthorization{}
+	services := &quack.Services{Guilds: quack.NewGuildService(repository, auth)}
+
+	open := func(action string) *discordgo.InteractionResponse {
+		t.Helper()
+		customID := ui.MustCustomID(ui.CustomID{Namespace: "appeal", Action: action, Version: "v1", Payload: appeal.ID})
+		result := appealDecisionHandler(services, appeals, action)(ui.Context{Context: ctx, Interaction: &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{Type: discordgo.InteractionMessageComponent, GuildID: "reason-guild", Member: &discordgo.Member{User: &discordgo.User{ID: "mod"}}, Data: discordgo.MessageComponentInteractionData{CustomID: customID}}}})
+		if result.Task != nil || result.Response == nil || result.Response.Type != discordgo.InteractionResponseModal {
+			t.Fatalf("%s did not open a reason modal: %+v", action, result)
+		}
+		row, ok := result.Response.Data.Components[0].(discordgo.ActionsRow)
+		if !ok || len(row.Components) != 1 {
+			t.Fatalf("%s reason modal has invalid components: %+v", action, result.Response.Data.Components)
+		}
+		input, ok := row.Components[0].(discordgo.TextInput)
+		if !ok || !input.Required || input.MaxLength != 2000 || !strings.Contains(input.Label, "member") {
+			t.Fatalf("%s reason input is invalid: %+v", action, row.Components[0])
+		}
+		return result.Response
+	}
+	acceptForm := open("accept")
+	rejectForm := open("reject")
+
+	submit := func(action, customID, reason string) ui.HandlerResult {
+		t.Helper()
+		interaction := &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{Type: discordgo.InteractionModalSubmit, GuildID: "reason-guild", Member: &discordgo.Member{User: &discordgo.User{ID: "mod"}}, Data: discordgo.ModalSubmitInteractionData{CustomID: customID, Components: []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{discordgo.TextInput{CustomID: "reason", Value: reason}}}}}}}
+		return appealDecisionModal(services, appeals, action)(ui.Context{Context: ctx, Interaction: interaction})
+	}
+	if result := submit("accept", acceptForm.Data.CustomID, "   "); result.Task != nil || result.Response == nil || !strings.Contains(result.Response.Data.Content, "Write a reason") {
+		t.Fatalf("whitespace reason was not rejected immediately: %+v", result)
+	}
+
+	denied := submit("accept", acceptForm.Data.CustomID, "The evidence supports voiding this case.")
+	if denied.Task == nil || denied.Response.Type != discordgo.InteractionResponseDeferredMessageUpdate {
+		t.Fatalf("valid reason did not defer message update: %+v", denied)
+	}
+	deniedResponder := &appealTestResponder{}
+	if err := denied.Task(ctx, deniedResponder); err != nil || !strings.Contains(deniedResponder.content, "Moderate Members") {
+		t.Fatalf("submission did not refresh denied authority: %q %v", deniedResponder.content, err)
+	}
+
+	auth.permissions = uint64(discordgo.PermissionModerateMembers)
+	accepted := submit("accept", acceptForm.Data.CustomID, "  The evidence supports voiding this case.  ")
+	acceptedResponder := &appealTestResponder{}
+	if err := accepted.Task(ctx, acceptedResponder); err != nil || !strings.Contains(acceptedResponder.content, "accepted") {
+		t.Fatalf("reasoned acceptance failed: %q %v", acceptedResponder.content, err)
+	}
+	stored, err := repository.GetAppealByID(ctx, appeal.ID)
+	if err != nil || stored.DecisionReason != "The evidence supports voiding this case." {
+		t.Fatalf("moderator reason was not stored: %+v %v", stored, err)
+	}
+
+	competing := submit("reject", rejectForm.Data.CustomID, "This was opened before acceptance.")
+	competingResponder := &appealTestResponder{}
+	if err := competing.Task(ctx, competingResponder); err != nil || !strings.Contains(competingResponder.content, "already been decided") {
+		t.Fatalf("stale competing form changed the decision: %q %v", competingResponder.content, err)
+	}
+}

@@ -56,6 +56,7 @@ func (s *GuildSettingsService) WithStaffChannelValidator(channels StaffChannelVa
 type GuildSettingsInput struct {
 	AppealRejoinURL                 *string `json:"appeal_rejoin_url"`
 	AppealQueueChannelDiscordID     *string `json:"appeal_queue_channel_discord_id"`
+	AppealReviewReasonRequired      *bool   `json:"appeal_review_reason_required"`
 	AuditMirrorChannelDiscordID     *string `json:"audit_mirror_channel_discord_id"`
 	ManagedEvidenceChannelDiscordID *string `json:"managed_evidence_channel_discord_id"`
 	NotificationIntroduction        *string `json:"notification_introduction"`
@@ -69,6 +70,7 @@ type GuildSettingsInput struct {
 type GuildSettingsResponse struct {
 	AppealRejoinURL                   string     `json:"appeal_rejoin_url,omitempty"`
 	AppealQueueChannelDiscordID       string     `json:"appeal_queue_channel_discord_id,omitempty"`
+	AppealReviewReasonRequired        bool       `json:"appeal_review_reason_required"`
 	ID                                string     `json:"id"`
 	GuildID                           string     `json:"guild_id"`
 	AuditMirrorChannelDiscordID       string     `json:"audit_mirror_channel_discord_id,omitempty"`
@@ -267,6 +269,9 @@ func applyGuildSettingsInput(settings *model.GuildSettings, input GuildSettingsI
 		}
 		settings.AppealQueueChannelDiscordID = value
 	}
+	if input.AppealReviewReasonRequired != nil {
+		settings.AppealReviewReasonRequired = *input.AppealReviewReasonRequired
+	}
 	if input.AuditMirrorChannelDiscordID != nil {
 		value, err := normalizeDiscordChannelReference(*input.AuditMirrorChannelDiscordID)
 		if err != nil {
@@ -340,6 +345,7 @@ func guildSettingsResponse(settings model.GuildSettings) GuildSettingsResponse {
 		ID: settings.ID, GuildID: settings.GuildID,
 		AppealQueueChannelDiscordID:     settings.AppealQueueChannelDiscordID,
 		AppealRejoinURL:                 settings.AppealRejoinURL,
+		AppealReviewReasonRequired:      settings.AppealReviewReasonRequired,
 		AuditMirrorChannelDiscordID:     settings.AuditMirrorChannelDiscordID,
 		ManagedEvidenceChannelDiscordID: settings.ManagedEvidenceChannelDiscordID,
 		NotificationIntroduction:        settings.NotificationIntroduction, NotificationFooter: settings.NotificationFooter,

@@ -155,7 +155,7 @@ func TestMigration0002QuarantinedPolicyCannotCrossLiveReadBoundary(t *testing.T)
 	}
 
 	migrations := registeredMigrations()
-	if err := runMigrations(db, migrations[:len(migrations)-1]); err != nil {
+	if err := runMigrations(db, migrations[:10]); err != nil {
 		t.Fatalf("apply template compatibility migration: %v", err)
 	}
 

@@ -196,6 +196,7 @@ type GuildSettings struct {
 	GuildID                           string
 	AppealQueueChannelDiscordID       string
 	AppealRejoinURL                   string
+	AppealReviewReasonRequired        bool
 	AuditMirrorChannelDiscordID       string
 	ManagedEvidenceChannelDiscordID   string
 	NotificationIntroduction          string

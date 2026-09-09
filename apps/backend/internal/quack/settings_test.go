@@ -172,6 +172,37 @@ func TestAppealRejoinSettingValidatesAndPersists(t *testing.T) {
 	}
 }
 
+// TestAppealReviewReasonSettingDefaultsAndPreservesOmission verifies that the
+// Discord setup toggle is durable while unrelated partial updates retain it.
+func TestAppealReviewReasonSettingDefaultsAndPreservesOmission(t *testing.T) {
+	ctx := context.Background()
+	repository := newMigratedStore(t)
+	bootstrap, err := repository.BootstrapGuild(ctx, model.BootstrapGuildParams{DiscordGuildID: "reason-settings", Name: "Pond", OwnerDiscordUserID: "owner"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := templateGuildContext(t, repository, "reason-settings", "manager", uint64(discordgo.PermissionManageGuild))
+	service := quack.NewGuildSettingsService(repository)
+	loaded, err := repository.GetGuildSettings(ctx, bootstrap.Guild.ID)
+	if err != nil || loaded.AppealReviewReasonRequired {
+		t.Fatalf("reason requirement did not default off: %+v %v", loaded, err)
+	}
+	required := true
+	saved, err := service.Update(ctx, manager, quack.GuildSettingsInput{AppealReviewReasonRequired: &required})
+	if err != nil || !saved.AppealReviewReasonRequired {
+		t.Fatalf("reason requirement not enabled: %+v %v", saved, err)
+	}
+	saved, err = service.Update(ctx, manager, quack.GuildSettingsInput{})
+	if err != nil || !saved.AppealReviewReasonRequired {
+		t.Fatalf("omitted reason requirement was reset: %+v %v", saved, err)
+	}
+	required = false
+	saved, err = service.Update(ctx, manager, quack.GuildSettingsInput{AppealReviewReasonRequired: &required})
+	if err != nil || saved.AppealReviewReasonRequired {
+		t.Fatalf("reason requirement not disabled: %+v %v", saved, err)
+	}
+}
+
 // settingsModuleValidator substitutes only the external module validation step.
 // Canonical persistence and transactional configuration comparison remain real.
 type settingsModuleValidator struct{}

@@ -25,6 +25,7 @@ var (
 
 // AppealRepository is the package-owned persistence boundary exposed by the store adapter.
 type AppealRepository interface {
+	GetGuildByDiscordID(context.Context, string) (*model.Guild, error)
 	GetGuildSettings(context.Context, string) (*model.GuildSettings, error)
 	CreateAppeal(context.Context, model.CreateAppealParams) (*model.Appeal, error)
 	GetAppealByID(context.Context, string) (*model.Appeal, error)
@@ -91,6 +92,27 @@ func (s *AppealService) Submit(ctx context.Context, caseID, memberDiscordUserID 
 func (s *AppealService) CanSubmit(ctx context.Context, caseID, memberDiscordUserID string) error {
 	_, err := s.eligibleCase(ctx, caseID, memberDiscordUserID)
 	return err
+}
+
+// ReviewReasonRequired reports whether the guild requires a moderator-entered
+// decision reason. The review queue reads it before choosing a one-click or form
+// response because Discord only opens a form as the initial interaction response.
+func (s *AppealService) ReviewReasonRequired(ctx context.Context, discordGuildID string) (bool, error) {
+	if s == nil || s.store == nil {
+		return false, errors.New("appeal service is not configured")
+	}
+	guild, err := s.store.GetGuildByDiscordID(ctx, strings.TrimSpace(discordGuildID))
+	if err != nil {
+		return false, err
+	}
+	if guild == nil {
+		return false, nil
+	}
+	settings, err := s.store.GetGuildSettings(ctx, guild.ID)
+	if err != nil {
+		return false, err
+	}
+	return settings != nil && settings.AppealReviewReasonRequired, nil
 }
 
 // eligibleCase keeps form openings and submissions on the same ownership boundary.

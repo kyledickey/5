@@ -195,6 +195,11 @@ func (r *appealRouteRepository) BeginAppealNotificationDelivery(context.Context,
 	return nil
 }
 
+// GetGuildByDiscordID resolves the route fixture's single guild.
+func (r *appealRouteRepository) GetGuildByDiscordID(context.Context, string) (*model.Guild, error) {
+	return &model.Guild{ULIDModel: model.ULIDModel{ID: "guild-1"}, DiscordGuildID: "guild-1"}, nil
+}
+
 // GetGuildSettings models a guild without an optional appeal rejoin invite.
 func (r *appealRouteRepository) GetGuildSettings(context.Context, string) (*model.GuildSettings, error) {
 	return nil, nil

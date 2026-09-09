@@ -28,4 +28,10 @@ func TestRegisterAppealComponentsExposesReversalHandler(t *testing.T) {
 	if _, found, err := registry.LookupComponent(customID); err != nil || !found {
 		t.Fatalf("appeal reversal handler was not exposed: found=%v err=%v", found, err)
 	}
+	for _, action := range []string{"accept_reason", "reject_reason"} {
+		customID := ui.MustCustomID(ui.CustomID{Namespace: "appeal", Action: action, Version: "v1", Payload: "appeal"})
+		if _, found, err := registry.LookupModal(customID); err != nil || !found {
+			t.Fatalf("appeal decision modal %s was not exposed: found=%v err=%v", action, found, err)
+		}
+	}
 }

@@ -50,6 +50,7 @@ func (s *Store) UpdateGuildSettings(ctx context.Context, params model.UpdateGuil
 		}
 		record.AppealRejoinURL = params.Settings.AppealRejoinURL
 		record.AppealQueueChannelDiscordID = params.Settings.AppealQueueChannelDiscordID
+		record.AppealReviewReasonRequired = params.Settings.AppealReviewReasonRequired
 		record.AuditMirrorChannelDiscordID = params.Settings.AuditMirrorChannelDiscordID
 		record.ManagedEvidenceChannelDiscordID = params.Settings.ManagedEvidenceChannelDiscordID
 		record.NotificationIntroduction = params.Settings.NotificationIntroduction
@@ -399,6 +400,7 @@ func guildSettingsModelFromRecord(record GuildSettingsRecord) model.GuildSetting
 		ULIDModel:                   model.ULIDModel{ID: record.ID, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt},
 		AppealQueueChannelDiscordID: record.AppealQueueChannelDiscordID,
 		AppealRejoinURL:             record.AppealRejoinURL,
+		AppealReviewReasonRequired:  record.AppealReviewReasonRequired,
 		GuildID:                     record.GuildID, AuditMirrorChannelDiscordID: record.AuditMirrorChannelDiscordID,
 		ManagedEvidenceChannelDiscordID: record.ManagedEvidenceChannelDiscordID,
 		NotificationIntroduction:        record.NotificationIntroduction, NotificationFooter: record.NotificationFooter,

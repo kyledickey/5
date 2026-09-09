@@ -42,6 +42,11 @@ var migration0007Source string
 //go:embed migration_0008_honeypot_triggers.go
 var migration0008Source string
 
+// migration0012Source binds the additive appeal review setting to the central ledger checksum.
+//
+//go:embed migration_0012_appeal_review_reasons.go
+var migration0012Source string
+
 // registeredMigrations returns the immutable ordered production migration registry.
 func registeredMigrations() []migration {
 	return []migration{
@@ -56,5 +61,6 @@ func registeredMigrations() []migration {
 		migration0200Appeals(9),
 		migration0400V4HistoricalImport(10),
 		migration0410FinalStorageConstraints(11),
+		migration0012AppealReviewReasons(),
 	}
 }
