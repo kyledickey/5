@@ -148,4 +148,12 @@ The [implementation ledger](v5-bot-implementation.md), specifically “September
 
 Known limits are kept separate from new feature scope: Discord public-send/receipt-storage and evidence-upload/storage are not atomic; a crash can leave an untracked public receipt or orphan copy. Concurrent context submissions lack a durable evidence reservation. The ticket journal retains received messages admitted before final capture; delayed deleted events first delivered afterward and buffered writes lost during a database outage plus hard crash are outside its guarantee. These are documented recovery boundaries, not claims of exactly-once Discord effects.
 
+Ticket queue recovery now supports validated adoption or explicit administrator
+nondelivery confirmation, with durable attempt IDs protecting newer sends from
+stale decisions and late transport results. Live synthetic lost-receipt adoption,
+stale-confirmation rejection, restart, and owner closure retained one transcript
+on the original queue post. This used controlled local fixture injection; actual
+interrupted-send timing and successful nondelivery replacement remain unverified
+live. See the implementation ledger's receipt-adoption rehearsal.
+
 Remaining release gates are live journeys, restricted-role/privacy and failure/restart checks, an authorized real-backup import rehearsal, and realistic load assessment. Dashboard review findings 3–4 remain deferred; module resetup is allowed rather than a missing mandatory migration subsystem.

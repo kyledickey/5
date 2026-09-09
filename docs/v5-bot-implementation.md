@@ -1657,3 +1657,31 @@ means further work is required, not completion.
   identity rejection, unavailable verification, current authority, stale controls,
   concurrent decisions, rollback, and delayed results. Live uncertain-send
   recovery remains pending; these tests do not claim a Discord crash rehearsal.
+
+### Live receipt adoption and stale-control rehearsal
+
+- `683c430` and `8f902c7` passed the full MySQL-enabled backend suite. Beta pane
+  `%1` loaded the clean `8f902c7` binary and passed every readiness check.
+- Monkey opened synthetic ticket `01M21SR5MX0V1QZK1ANX2GBWXJ` in thread
+  `1547044033443139654`; its staff queue receipt was `1547044041462644819`.
+  After recording that receipt, the rehearsal cleared only this ticket's saved
+  message ID in the disposable local database. The Discord post remained intact.
+  This is deliberate lost-receipt fixture injection, not a real crash at send time.
+- Helium dickey used Join thread, Recover queue post, and Use existing post.
+  The private form accepted the original message link and restored exactly the
+  recorded receipt. A stale Post was not sent confirmation then returned explicit
+  changed-state guidance; it did not clear the adopted receipt or send again.
+- Parallel review found that transcript PATCHes appended files when editing an
+  existing post. `b286ed2` explicitly replaces attachments with the new canonical
+  upload. Its multipart regression covers three repeated updates and excludes
+  prior attachment IDs. Full backend/MySQL tests passed; the clean build loaded in
+  `%1` and passed readiness before owner closure.
+- Monkey closed the recovered ticket. Helium displayed the retained synthetic
+  text in the original queue post's transcript. SQL recorded resolved status,
+  empty delivery attempt, and released member reservation. Read-only Discord
+  inspection returned `10003` for the deleted thread and found exactly one
+  matching transcript attachment in the latest 100 queue posts, authored by beta.
+- Live coverage now includes adoption, stale-confirmation rejection, restart,
+  and ordinary closure after recovery. A true interrupted send, successful
+  nondelivery-confirmation replacement, and repeated transcript replacement
+  remain separate from this rehearsal's evidence.
