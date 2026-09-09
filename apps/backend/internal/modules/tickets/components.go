@@ -42,10 +42,9 @@ func EntryComponents() []discordgo.MessageComponent {
 	)}
 }
 
-// TicketComponents keeps ticket navigation and closure beside the native thread conversation.
+// TicketComponents keeps closure beside the native thread conversation.
 func TicketComponents(ticketID string) []discordgo.MessageComponent {
 	return []discordgo.MessageComponent{ui.Row(
-		ui.Button(ui.MustCustomID(ui.CustomID{Namespace: componentNamespace, Action: "view", Version: "v1", Payload: ticketID}), "View", discordgo.SecondaryButton, false),
 		ui.Button(ui.MustCustomID(ui.CustomID{Namespace: componentNamespace, Action: "close", Version: "v1", Payload: ticketID}), "Close", discordgo.DangerButton, false),
 	)}
 }

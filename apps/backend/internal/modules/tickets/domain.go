@@ -72,6 +72,8 @@ type Actor struct {
 
 // Ticket is the module-owned ticket state; it does not reference cases or appeals.
 type Ticket struct {
+	// CloseNoticeDelivered reports a durably confirmed member DM.
+	CloseNoticeDelivered    bool       `json:"-"`
 	QueueDeliveryAttemptID  string     `json:"queue_delivery_attempt_id,omitempty"`
 	LogMessageDiscordID     string     `json:"log_message_discord_id,omitempty"`
 	LogChannelDiscordID     string     `json:"log_channel_discord_id,omitempty"`

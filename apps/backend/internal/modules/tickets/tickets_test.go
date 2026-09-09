@@ -538,3 +538,8 @@ func TestFailedTicketClosureKeepsMemberReservation(t *testing.T) {
 		t.Fatalf("old close released newer ticket: %v", err)
 	}
 }
+
+// DeliverTicketCloseNotice models a confirmed member receipt.
+func (f *discordFake) DeliverTicketCloseNotice(context.Context, *tickets.Ticket, *tickets.Transcript, bool) (string, error) {
+	return "notice", nil
+}

@@ -80,6 +80,8 @@ func TestTicketTranscriptRecreatesDeletedQueueMessage(t *testing.T) {
 			body = `{"id":"guild","roles":[{"id":"bot-role","permissions":"8"}]}`
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/members/bot"):
 			body = `{"user":{"id":"bot"},"roles":["bot-role"]}`
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/users/@me/channels"):
+			status, body = http.StatusForbidden, `{"code":50007,"message":"Cannot send messages to this user"}`
 		case r.Method == http.MethodPatch || r.Method == http.MethodPost:
 			writes++
 			if err := r.ParseMultipartForm(1 << 20); err != nil {
@@ -97,7 +99,7 @@ func TestTicketTranscriptRecreatesDeletedQueueMessage(t *testing.T) {
 			if err := json.Unmarshal([]byte(r.FormValue("payload_json")), &payload); err != nil {
 				t.Fatal(err)
 			}
-			if len(payload.Components) != 1 || len(payload.Components[0].Components) != 1 || payload.Components[0].Components[0].Label != "View ticket" || !strings.Contains(payload.Components[0].Components[0].CustomID, "view") {
+			if len(payload.Components) != 1 || len(payload.Components[0].Components) != 1 || payload.Components[0].Components[0].Label != "Recovery" || !strings.Contains(payload.Components[0].Components[0].CustomID, "view") {
 				t.Fatalf("transcript lost recovery control: %+v", payload)
 			}
 			files := r.MultipartForm.File["files[0]"]

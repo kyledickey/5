@@ -315,8 +315,13 @@ func (s *Store) importTarget(ctx context.Context, guildID, sourceID string) (str
 	return record.TargetID, result.RowsAffected > 0, nil
 }
 
+// ticketFromRecord exposes lifecycle state and confirmed DM delivery without leaking internal metadata.
 func ticketFromRecord(r ticketRecord) Ticket {
-	return Ticket{QueueDeliveryAttemptID: r.QueueDeliveryAttemptID, LogMessageDiscordID: r.LogMessageDiscordID, LogChannelDiscordID: r.LogChannelDiscordID, TranscriptURL: r.TranscriptURL, ID: r.ID, GuildID: r.GuildID, OwnerDiscordUserID: r.OwnerDiscordUserID, ThreadDiscordChannelID: r.ThreadDiscordChannelID, Status: r.Status, ResolvedByDiscordUserID: r.ResolvedByDiscordUserID, ResolvedAt: r.ResolvedAt, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
+	var metadata struct {
+		CloseNotice closeNoticeState `json:"close_notice"`
+	}
+	_ = json.Unmarshal([]byte(r.MetadataJSON), &metadata)
+	return Ticket{CloseNoticeDelivered: metadata.CloseNotice.State == "sent", QueueDeliveryAttemptID: r.QueueDeliveryAttemptID, LogMessageDiscordID: r.LogMessageDiscordID, LogChannelDiscordID: r.LogChannelDiscordID, TranscriptURL: r.TranscriptURL, ID: r.ID, GuildID: r.GuildID, OwnerDiscordUserID: r.OwnerDiscordUserID, ThreadDiscordChannelID: r.ThreadDiscordChannelID, Status: r.Status, ResolvedByDiscordUserID: r.ResolvedByDiscordUserID, ResolvedAt: r.ResolvedAt, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
 }
 
 // saveQueueReceipt replaces initial-send admission with the confirmed Discord receipt.

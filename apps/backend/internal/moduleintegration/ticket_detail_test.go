@@ -13,7 +13,7 @@ import (
 
 // TestTicketDetailLifecycle prevents stale thread links and impossible closed controls.
 func TestTicketDetailLifecycle(t *testing.T) {
-	ticket := &tickets.Ticket{ID: "ticket", OwnerDiscordUserID: "owner", ThreadDiscordChannelID: "deleted-thread", Status: tickets.StatusResolved, TranscriptURL: "https://discord.com/channels/guild/staff/message"}
+	ticket := &tickets.Ticket{CloseNoticeDelivered: true, ID: "ticket", OwnerDiscordUserID: "owner", ThreadDiscordChannelID: "deleted-thread", Status: tickets.StatusResolved, TranscriptURL: "https://discord.com/channels/guild/staff/message"}
 	transcript := &tickets.Transcript{Content: "private retained content"}
 	for _, pending := range []bool{false, true} {
 		message := ticketDetailMessage(ticket, nil, tickets.Actor{DiscordUserID: "owner", CanManage: true}, pending, transcript, 0)
@@ -44,7 +44,7 @@ func TestTicketDetailLifecycle(t *testing.T) {
 	}
 	ticket.Status = tickets.StatusOpen
 	open := ticketDetailMessage(ticket, nil, tickets.Actor{CanManage: true}, false, nil, 0)
-	if !strings.Contains(open.Content, "<#deleted-thread>") || len(open.Components[0].(discordgo.ActionsRow).Components) != 3 {
+	if !strings.Contains(open.Content, "<#deleted-thread>") || len(open.Components[0].(discordgo.ActionsRow).Components) != 2 {
 		t.Fatal("open lifecycle controls missing")
 	}
 	ticket.Status = tickets.StatusCancelled
@@ -103,5 +103,15 @@ func TestTicketHistoryUpdatesOnlyPrivateViews(t *testing.T) {
 		if result.Response.Type != scenario.response {
 			t.Fatalf("payload %s flags %d: got %d", scenario.payload, scenario.flags, result.Response.Type)
 		}
+	}
+}
+
+// TestTicketMemberDMRecoveryIsManagerOnly keeps delivery repair off ordinary member views.
+func TestTicketMemberDMRecoveryIsManagerOnly(t *testing.T) {
+	ticket := &tickets.Ticket{ID: "ticket", Status: tickets.StatusResolved}
+	owner := ticketDetailMessage(ticket, nil, tickets.Actor{}, false, nil, 0)
+	admin := ticketDetailMessage(ticket, nil, tickets.Actor{CanManage: true}, false, nil, 0)
+	if len(owner.Components) != 0 || len(admin.Components) != 1 || admin.Components[0].(discordgo.ActionsRow).Components[0].(discordgo.Button).Label != "Retry member DM" {
+		t.Fatal("incorrect DM recovery visibility")
 	}
 }

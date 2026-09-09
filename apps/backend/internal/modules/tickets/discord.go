@@ -13,6 +13,7 @@ type DiscordClient interface {
 	EnsureTicketPermissions(context.Context, string, string, string) error
 	SendTicketReply(context.Context, string, string) error
 	SendTicketWelcome(context.Context, *Ticket) error
+	DeliverTicketCloseNotice(context.Context, *Ticket, *Transcript, bool) (string, error)
 	JoinTicketThread(context.Context, string, string) error
 	FreezeTicketChannel(context.Context, string) error
 	CaptureTicketTranscript(context.Context, string) (string, error)
@@ -167,6 +168,9 @@ func (a *DiscordAdapter) CloseWithProgress(ctx context.Context, actor Actor, tic
 		if _, err := a.publishQueue(ctx, resolved, settings, transcript); err != nil {
 			return resolved, err
 		}
+	}
+	if err := a.deliverCloseNotice(ctx, actor, resolved); err != nil {
+		return resolved, err
 	}
 	if beforeDelete != nil {
 		if err := beforeDelete(resolved); err != nil {

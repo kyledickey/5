@@ -54,6 +54,11 @@ func ticketDetailMessage(ticket *tickets.Ticket, events []tickets.Event, actor t
 		id := ui.MustCustomID(ui.CustomID{Namespace: "ticket", Action: "close", Version: "v1", Payload: ticket.ID})
 		components = append(components, ui.Row(ui.Button(id, "Finish closing", discordgo.SecondaryButton, false)))
 	}
+	if ticket.Status == tickets.StatusResolved && !pending && actor.CanManage && !ticket.CloseNoticeDelivered {
+		text += "\nThe member’s DM isn’t confirmed. You can check delivery and retry if Discord rejected it."
+		components = append(components, ui.Row(queueRecoveryButton("close", ticket.ID, "Retry member DM", discordgo.SecondaryButton)))
+	}
+
 	if ticket.Status != tickets.StatusOpen {
 		if transcript != nil {
 			text += "\nThe retained transcript is attached."

@@ -2,8 +2,8 @@ package moduleintegration
 
 import (
 	"context"
+	"strings"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/modules/tickets"
 )
@@ -16,13 +16,13 @@ type ticketProgressCloser interface {
 
 // closeTicketWithFeedback acknowledges saved progress while the source thread
 // exists. Successful deletion invalidates interactions originating in that thread;
-// entry/queue interactions remain usable for the final authorized detail button.
+// entry/queue interactions remain usable for the final delivery result.
 func closeTicketWithFeedback(ctx context.Context, responder ui.Responder, closer ticketProgressCloser, actor tickets.Actor, ticketID, originChannelID string) error {
 	ticket, err := closer.CloseWithProgress(ctx, actor, ticketID, func(ticket *tickets.Ticket) error {
 		if ticket.ThreadDiscordChannelID != originChannelID {
 			return nil
 		}
-		_, err := responder.EditOriginal(ui.EditMessage(ui.Signal("lock", "The transcript is saved. This ticket is closing and the private thread will now be removed.", true)))
+		_, err := responder.EditOriginal(ui.EditMessage(ui.Signal("lock", ticketClosedCopy(ticket), true)))
 		return err
 	})
 	if err != nil {
@@ -32,9 +32,15 @@ func closeTicketWithFeedback(ctx context.Context, responder ui.Responder, closer
 	if ticket.ThreadDiscordChannelID == originChannelID {
 		return nil
 	}
-	message := ui.Signal("lock", "Ticket closed. The transcript has been saved and the private thread deleted.", true)
-	id := ui.MustCustomID(ui.CustomID{Namespace: "ticket", Action: "view", Version: "v1", Payload: ticketID})
-	message.Components = []discordgo.MessageComponent{ui.Row(ui.Button(id, "View closed ticket", discordgo.SecondaryButton, false))}
+	message := ui.Signal("lock", strings.Replace(ticketClosedCopy(ticket), "This ticket is closing.", "Ticket closed.", 1), true)
 	_, err = responder.EditOriginal(ui.EditMessage(message))
 	return err
+}
+
+// ticketClosedCopy reports the member delivery result without exposing private content.
+func ticketClosedCopy(ticket *tickets.Ticket) string {
+	if ticket.CloseNoticeDelivered {
+		return "The transcript is saved, and a copy has been DMed to the member. This ticket is closing."
+	}
+	return "The transcript is saved in the staff queue. I couldn’t confirm a DM to the member. This ticket is closing."
 }

@@ -20,7 +20,7 @@ func (c ticketDiscordClient) publishTicketEntry(ctx context.Context, settings ti
 			return nil, err
 		}
 	}
-	message := ui.Signal("ticket", "Need to talk to a moderator? Open a private ticket below.", false)
+	message := ui.Message{Content: "# Need a hand?\nTalk privately with the mod team. Open a ticket and tell us what’s going on."}
 	message.Components = []discordgo.MessageComponent{ui.Row(ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "ticket", Action: "open", Version: "v1"}), "Open ticket", discordgo.PrimaryButton, false))}
 	payload := message.SendParams(ui.SessionApplicationID(c.session))
 	var sent *discordgo.Message

@@ -58,7 +58,9 @@ func (r *Runtime) openTicketComponent(ctx ui.Context) ui.HandlerResult {
 		if setupIncomplete {
 			message = ui.Signal("ticket", "Your ticket is saved: <#"+ticket.ThreadDiscordChannelID+">, but setup did not finish. If access or the staff queue post is missing, ask a server administrator to use Repair ticket on this ticket. Opening again will return this same ticket.", true)
 		}
-		message.Components = ticketControls(ticket.ID, actor.CanManage)
+		if setupIncomplete {
+			message.Components = []discordgo.MessageComponent{ui.Row(queueRecoveryButton("view", ticket.ID, "Recovery", discordgo.SecondaryButton))}
+		}
 		_, err = responder.EditOriginal(ui.EditMessage(message))
 		return err
 	})
@@ -84,7 +86,7 @@ func (r *Runtime) ticketQueueComponent(ctx ui.Context) ui.HandlerResult {
 	})
 }
 
-// viewTicketComponent returns authorized lifecycle state and a bounded history page.
+// viewTicketComponent keeps recovery and retained transcripts reachable from staff controls.
 func (r *Runtime) viewTicketComponent(ctx ui.Context) ui.HandlerResult {
 	payload, err := ticketComponentID(ctx)
 	if err != nil {
@@ -94,13 +96,12 @@ func (r *Runtime) viewTicketComponent(ctx ui.Context) ui.HandlerResult {
 	// Refresh private entry receipts in place, replacing stale thread mentions
 	// after closure. Public queue and thread controls always get a private reply.
 	privateView := ctx.Interaction.Message != nil && ctx.Interaction.Message.Flags&discordgo.MessageFlagsEphemeral != 0
-	pagination := strings.Contains(payload, "~") && privateView
 	acknowledgement := ui.DeferEphemeral()
 	if privateView {
 		acknowledgement = ui.DeferUpdate()
 	}
 	return r.ticketTaskWithResponse(ctx, acknowledgement, func(taskCtx context.Context, responder ui.Responder, actor tickets.Actor) error {
-		ticket, events, err := r.Tickets.Detail(taskCtx, actor, ticketID)
+		ticket, _, err := r.Tickets.Detail(taskCtx, actor, ticketID)
 		if err != nil {
 			_, _ = responder.EditOriginal(ui.ErrorEdit(ticketErrorMessage(err)))
 			return nil
@@ -110,12 +111,6 @@ func (r *Runtime) viewTicketComponent(ctx ui.Context) ui.HandlerResult {
 			_, _ = responder.EditOriginal(ui.ErrorEdit(ticketErrorMessage(err)))
 			return nil
 		}
-		if ticket.Status == tickets.StatusOpen && actor.CanModerate && !pagination {
-			if err := r.TicketDiscord.Join(taskCtx, actor, ticket.ID); err != nil {
-				_, _ = responder.EditOriginal(ui.ErrorEdit("Quack could not add you to the ticket thread. Check the bot's thread permissions and try again."))
-				return nil
-			}
-		}
 		var transcript *tickets.Transcript
 		if ticket.Status != tickets.StatusOpen {
 			transcript, err = r.Tickets.Transcript(taskCtx, actor, ticketID)
@@ -124,7 +119,7 @@ func (r *Runtime) viewTicketComponent(ctx ui.Context) ui.HandlerResult {
 				return nil
 			}
 		}
-		edit := ui.EditMessage(ticketDetailMessage(ticket, events, actor, pending, transcript, page))
+		edit := ui.EditMessage(ticketDetailMessage(ticket, nil, actor, pending, transcript, page))
 		if privateView {
 			_, err = responder.UpdateMessage(edit)
 		} else {
@@ -253,7 +248,7 @@ func ticketErrorMessage(err error) string {
 	case errors.Is(err, tickets.ErrInvalidQueueReceipt):
 		return "That message is not a Quack queue post for this ticket in its recorded staff queue. Check the message link and try again."
 	case errors.Is(err, tickets.ErrQueueDeliveryUnknown):
-		return "The staff queue post could not be confirmed. Another post was not sent because it could create a duplicate. Ask an administrator to open View ticket and use Recover queue post."
+		return "The staff queue post could not be confirmed. Another post was not sent because it could create a duplicate. Ask an administrator to open Recovery and check the queue post."
 	case errors.Is(err, tickets.ErrJournalIncomplete):
 		return "This ticket cannot close because some received messages could not be retained. Ask a server administrator to check transcript storage."
 	case errors.Is(err, tickets.ErrDisabled):
@@ -267,6 +262,6 @@ func ticketErrorMessage(err error) string {
 	case errors.Is(err, tickets.ErrNotFound):
 		return "That ticket was not found."
 	default:
-		return "Quack could not complete that ticket operation."
+		return "Something went wrong with this ticket. Try again in a moment."
 	}
 }

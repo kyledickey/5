@@ -26,12 +26,12 @@ func (c ticketDiscordClient) PublishTicketQueue(ctx context.Context, ticket *tic
 	content := fmt.Sprintf("<@%s> opened a ticket: <#%s>.", ticket.OwnerDiscordUserID, ticket.ThreadDiscordChannelID)
 	message := ui.Signal("ticket", content, false)
 	message.Components = []discordgo.MessageComponent{ui.Row(
-		ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "ticket", Action: "view", Version: "v1", Payload: ticket.ID}), "Join thread", discordgo.PrimaryButton, false),
+		ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "ticket", Action: "view", Version: "v1", Payload: ticket.ID}), "Recovery", discordgo.SecondaryButton, false),
 		ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "ticket", Action: "close", Version: "v1", Payload: ticket.ID}), "Close", discordgo.DangerButton, false),
 	)}
 	if transcript != nil {
 		message.Content = fmt.Sprintf("{{quack:ticket}} The ticket for <@%s> was closed. The transcript is attached.", ticket.OwnerDiscordUserID)
-		message.Components = []discordgo.MessageComponent{ui.Row(ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "ticket", Action: "view", Version: "v1", Payload: ticket.ID}), "View ticket", discordgo.SecondaryButton, false))}
+		message.Components = []discordgo.MessageComponent{ui.Row(ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "ticket", Action: "view", Version: "v1", Payload: ticket.ID}), "Recovery", discordgo.SecondaryButton, false))}
 		message.Files = []*discordgo.File{{Name: "ticket-" + ticket.ID + ".txt", ContentType: "text/plain; charset=utf-8", Reader: strings.NewReader(transcript.Content)}}
 	}
 	payload := message.SendParams(ui.SessionApplicationID(c.session))

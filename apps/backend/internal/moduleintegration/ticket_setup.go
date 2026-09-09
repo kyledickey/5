@@ -7,7 +7,8 @@ import (
 	"github.com/bwmarrin/discordgo"
 	discordadapter "github.com/quackdiscord/bot/internal/discordbot"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
-	"github.com/quackdiscord/bot/internal/modules/tickets"
+	"github.com/quackdiscord/bot/internal/quack"
+	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 // SetupTickets configures both destinations and publishes the member entry panel.
@@ -27,7 +28,15 @@ func (r *Runtime) SetupTickets(ctx ui.Context) ui.HandlerResult {
 	if option := options[0].GetOption("queue"); option != nil {
 		queueID, _ = option.Value.(string)
 	}
-	return r.ticketTask(ctx, func(taskCtx context.Context, responder ui.Responder, actor tickets.Actor) error {
+	return ui.AsyncPublic(func(taskCtx context.Context, responder ui.Responder) error {
+		taskCtx = quack.ContextWithAuditSource(taskCtx, model.AuditSourceDiscord)
+		current := ctx
+		current.Context = taskCtx
+		actor, err := r.ticketActor(current)
+		if err != nil {
+			_, err = responder.EditOriginal(ui.ErrorEdit("I couldn’t check your ticket permissions. Try again."))
+			return err
+		}
 		if !actor.CanManage {
 			_, err := responder.EditOriginal(ui.ErrorEdit("You need Manage Server permission to set up tickets."))
 			return err
@@ -84,7 +93,7 @@ func (r *Runtime) SetupTickets(ctx ui.Context) ui.HandlerResult {
 			_, err = responder.EditOriginal(ui.ErrorEdit("The opening button was posted, but Quack could not save its message reference. Check the existing panel before running setup again."))
 			return err
 		}
-		_, err = responder.EditOriginal(ui.EditMessage(ui.Signal("ticket", fmt.Sprintf("Tickets are ready in <#%s>. Staff notifications and transcripts will go to <#%s>.", entryID, queueID), true)))
+		_, err = responder.EditOriginal(ui.EditMessage(ui.Signal("ticket", fmt.Sprintf("Tickets are ready in <#%s>. Staff notifications and transcripts will go to <#%s>.", entryID, queueID), false)))
 		return err
 	})
 }

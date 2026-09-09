@@ -34,7 +34,7 @@ func ticketCloseFailureMessage(ticket *tickets.Ticket, err error) ui.Message {
 	}
 	if errors.Is(err, tickets.ErrQueueDeliveryUnknown) {
 		message := ui.Signal("error", ticketErrorMessage(err), true)
-		message.Components = []discordgo.MessageComponent{ui.Row(queueRecoveryButton("view", ticket.ID, "View ticket", discordgo.SecondaryButton))}
+		message.Components = []discordgo.MessageComponent{ui.Row(queueRecoveryButton("view", ticket.ID, "Recovery", discordgo.SecondaryButton))}
 		return message
 	}
 	text := "The ticket could not finish closing. Try again; if it keeps failing, ask a server administrator to check Quack's permissions."
