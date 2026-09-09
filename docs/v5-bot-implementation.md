@@ -1636,3 +1636,24 @@ means further work is required, not completion.
   without claiming definite nondelivery or offering a blind Retry close. Focused
   tests and the full suite above passed. This copy fix does not resolve the
   missing reconciliation operation.
+
+### Administrator recovery of uncertain ticket posts
+
+- The missing operation above is implemented. Private View ticket offers Recover
+  queue post only for an unresolved delivery on an open ticket or pending close.
+  Existing ticket-content authority still applies; recording a recovery decision
+  additionally requires current manager permission.
+- Use existing post accepts a Discord message link and verifies the actual guild,
+  recorded channel, current bot author, and matching ticket controls through fresh
+  reads. It adopts the receipt without sending another message. Post was not sent
+  requires a separate explicit confirmation before ordinary Repair ticket or
+  Finish closing may publish a replacement.
+- Every send has a durable attempt ID. Recovery decisions, late transport
+  receipts, and nondelivery results cannot clear or overwrite a newer attempt.
+  Older destination-only fences acquire a stable ID during recovery inspection.
+  The decision and ticket event commit together; reconciliation retains the owner
+  reservation and leaves transcript publication and deletion to normal closure.
+- Focused transport, UI, ticket lifecycle, and SQLite/MySQL upgrade tests cover
+  identity rejection, unavailable verification, current authority, stale controls,
+  concurrent decisions, rollback, and delayed results. Live uncertain-send
+  recovery remains pending; these tests do not claim a Discord crash rehearsal.

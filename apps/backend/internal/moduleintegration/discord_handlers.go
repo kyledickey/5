@@ -25,7 +25,7 @@ func (r *Runtime) RegisterComponents(registry *interactions.ComponentRegistry) e
 	if err := registry.RegisterComponent("ticket", "repair", r.repairTicketComponent); err != nil {
 		return err
 	}
-	return nil
+	return r.registerTicketQueueRecovery(registry)
 }
 
 // RegisterGatewayHandlers subscribes optional modules to gateway events without

@@ -250,8 +250,10 @@ func modalText(components []discordgo.MessageComponent, customID string) string 
 // ticketErrorMessage maps internal classifications to safe Discord copy.
 func ticketErrorMessage(err error) string {
 	switch {
+	case errors.Is(err, tickets.ErrInvalidQueueReceipt):
+		return "That message is not a Quack queue post for this ticket in its recorded staff queue. Check the message link and try again."
 	case errors.Is(err, tickets.ErrQueueDeliveryUnknown):
-		return "The staff queue post could not be confirmed. Another post was not sent because it could create a duplicate. Ask an administrator to check the staff queue."
+		return "The staff queue post could not be confirmed. Another post was not sent because it could create a duplicate. Ask an administrator to open View ticket and use Recover queue post."
 	case errors.Is(err, tickets.ErrJournalIncomplete):
 		return "This ticket cannot close because some received messages could not be retained. Ask a server administrator to check transcript storage."
 	case errors.Is(err, tickets.ErrDisabled):

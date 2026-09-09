@@ -64,6 +64,10 @@ func ticketDetailMessage(ticket *tickets.Ticket, events []tickets.Event, actor t
 			text += "\n[View transcript in the staff queue](" + ticket.TranscriptURL + ")."
 		}
 	}
+	if actor.CanManage && (ticket.Status == tickets.StatusOpen || pending) && ticket.LogChannelDiscordID != "" && ticket.LogMessageDiscordID == "" {
+		text += "\nThe staff queue post is unconfirmed. Check its delivery before retrying."
+		components = append(components, ui.Row(queueRecoveryButton("queuefix", ticket.ID, "Recover queue post", discordgo.SecondaryButton)))
+	}
 	pages := ticketHistoryPages(events)
 	if len(pages) > 0 {
 		page = max(0, min(page, len(pages)-1))

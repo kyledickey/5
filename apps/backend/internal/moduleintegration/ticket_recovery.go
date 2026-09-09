@@ -29,8 +29,13 @@ func existingTicketMessage(ticket *tickets.Ticket) ui.Message {
 // record enables retry; missing/forbidden records expose neither links nor controls.
 // Uncertain queue delivery requires inspection instead of another close attempt.
 func ticketCloseFailureMessage(ticket *tickets.Ticket, err error) ui.Message {
-	if ticket == nil || errors.Is(err, tickets.ErrQueueDeliveryUnknown) {
+	if ticket == nil {
 		return ui.Signal("error", ticketErrorMessage(err), true)
+	}
+	if errors.Is(err, tickets.ErrQueueDeliveryUnknown) {
+		message := ui.Signal("error", ticketErrorMessage(err), true)
+		message.Components = []discordgo.MessageComponent{ui.Row(queueRecoveryButton("view", ticket.ID, "View ticket", discordgo.SecondaryButton))}
+		return message
 	}
 	text := "The ticket could not finish closing. Try again; if it keeps failing, ask a server administrator to check Quack's permissions."
 	if ticket.Status == tickets.StatusResolved {
