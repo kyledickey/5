@@ -1707,3 +1707,17 @@ means further work is required, not completion.
   attribution in configured channel `1546795992249147474`. The user was composing
   in Helium, so final log inspection used read-only beta REST instead of changing
   that active draft. This does not add attachment/bulk-deletion evidence.
+
+### Evidence outcome wording
+
+- `022dbd1` replaces raw attachment status values with Saved copy, No confirmed
+  copy, or a neutral unknown-status label. Recognized copy failures explain the
+  problem in ordinary language; unknown historical warnings stay visible.
+- Snapshot warnings repeated under the affected file are shown once. Separate
+  truncation warnings, other file failures, captured text, and source/saved links
+  remain intact. The durable evidence data and core capture behavior are unchanged.
+- Focused views tests and the full MySQL-enabled backend suite passed. Clean
+  binary `/tmp/quack-v5-evidence-copy-review`, revision `022dbd1`, is loaded in
+  beta pane `%1`; readiness passed all checks. These presentation changes were
+  verified by rendering tests; the preceding restricted-file rehearsal used the
+  previous build's wording.
