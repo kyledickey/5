@@ -1721,3 +1721,21 @@ means further work is required, not completion.
   beta pane `%1`; readiness passed all checks. These presentation changes were
   verified by rendering tests; the preceding restricted-file rehearsal used the
   previous build's wording.
+
+### Live attachment-edit and bulk-delete logging
+
+- Two beta-authored synthetic messages were created in private testing channel
+  `1005778939068813442`: `1547049524596449320` with `first-original.txt`, and
+  `1547049525494157393` with `second-original.txt`. Their IDs were recorded before
+  later mutations; cleanup validated beta authorship and the synthetic prefix.
+- Replacing only the first attachment with `first-revised.txt` emitted log
+  `1547049711020810360`. It retained the unchanged message text, beta author,
+  source ID, and distinct Files before / Files after links.
+- A single bulk-delete call removed exactly these two fixtures. Log
+  `1547049872320897175` retained each source ID and text with its corresponding
+  latest file: second-original for the second message, first-revised for the
+  first. Read-only Discord lookup returned `10008` for both deleted sources.
+- Both logs were authored by beta in configured general-log channel
+  `1546795992249147474`. This verifies available attachment metadata/links and
+  per-message bulk attribution; it does not claim permanent file preservation
+  for general logs. The separate evidence system owns retained copies.

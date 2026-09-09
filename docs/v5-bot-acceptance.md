@@ -4,51 +4,55 @@ This matrix maps all 76 answers in [the product interview](v5-product-interview.
 
 **P means production wiring and relevant regression evidence were located. P does not mean live Discord acceptance.** U means acceptance remains unverified, I means an implementation mismatch or unfinished work, and D means a scope decision or deferred dashboard work. Tests named below are evidence pointers; this document does not claim every test has just been rerun. No real moderation or migration outcome is inferred from a test name or an older tracker.
 
-## Work in progress and acceptance gates
+## Current acceptance status
 
-- With explicit September 8 approval, the beta is running
-  `/tmp/quack-v5-evidence-copy-review` at `ec41e48`; the dashboard remains
-  stopped. The temporary appealable `Ban evidence rehearsal` template was
-  created separately from the unchanged honeypot policy. Case #10 preserved a
-  directly uploaded synthetic PNG before its first successful ban attempt.
-  The tester received the native DM while banned, submitted an appeal, and
-  administrator acceptance produced a successful first-attempt unban linked to
-  the original execution. The accepted DM's Rejoin Server button opened the
-  native invite; accepting as monkey returned the tester to the guild with a
-  visible message composer. See the latest [implementation ledger](v5-bot-implementation.md)
-  entry for IDs and SQL timestamps. Source-message deletion and restricted-role
-  saved-copy access remain unverified.
-- Native evidence navigation fetches one snapshot at a time. Audit polling uses
-  indexed due receipts; the unchanged 85,000-event local assessment improved
-  median idle polling from 342 ms to 3.04 ms. Its earlier live startup preserved
-  all 50 audit events and 50 completed receipts and set the queue readiness
-  marker. Evidence repair preserves concurrent settings and retries on later
-  uploads; general logs retain available attachment URLs without treating
-  signed-URL rotation as a message edit.
-- `ec41e48` clarifies evidence headings and the case-view command description;
-  the full backend/MySQL suite passed before this rehearsal. Before that copy
-  change, the new native evidence page displayed case #2's saved file and
-  `Evidence 1 of 1` privately. Its durable message link reopened the original
-  synthetic text after intervening restarts. Audit history remained at 50 events
-  and 50 completed receipts after those reads. This verifies administrator access
-  to that existing copy, not restricted-role access or long-term retention.
+The authorized beta runs `/tmp/quack-v5-evidence-copy-review` at `022dbd1`;
+readiness and the full MySQL-enabled backend suite passed. The dashboard remains
+stopped and its UI remains deferred. The latest evidence wording has rendering
+test coverage; earlier live journeys used the builds recorded in the
+[implementation ledger](v5-bot-implementation.md).
 
-- Live ticket acceptance passed for member open, duplicate-open protection, staff join/reply, member close, new ticket after closure, and admin queue close. Both closed tickets retained queue transcripts and released the member slot. See the [implementation ledger](v5-bot-implementation.md). Original-message journaling is committed in `c6e21ed`; deleted-message/restart live acceptance passed: the published queue transcript retained the tester text deleted before a clean beta restart.
-- Native history totals/import labels and bounded Unicode pages are committed in `b8be3c8`; command/view regression packages pass. Live profile acceptance remains open.
-- Honeypot interrupted primary-incident recovery and legacy bot exemptions are committed in `bad4bb3`; race and MySQL-enabled backend tests pass. Live default setup, editable timeout policy, administrator exemption, member timeout, triggering-message deletion and counter increment passed. Case #3 persisted captured evidence, one successful timeout attempt and a sent notification. Burst/recovery acceptance remains open.
-- Canonical module enablement is committed in `02d6616`, including live configuration validation and atomic updates. Full backend tests pass; live acceptance remains open.
-- Explicit application URL configuration is committed in `4827cae`; focused tests pass. Live configuration validation remains open. See the configuration contract below.
-- Core appeal/audit delivery and case/appeal registration are independent of optional modules in `f1e1eb7`; worker lifecycle and route regressions pass.
-- Bot-message caching, cached author identity and per-message bulk-delete attribution are restored in `d90a771`. Live default setup and member message edit/delete logging passed, including author, channel, message ID and before/after or deleted text. The honeypot warning update also showed correct bot attribution and both versions. Attachments and bulk deletion remain unverified live.
-- Case #3's notification opened the tester appeal form; submission appeared in the private native staff queue. Administrator rejection updated that receipt, sent the tester a decline DM and prevented another appeal from the original button. Earlier case #1 acceptance/voiding also passed live; case #10 now verifies accepted-appeal ban reversal and rejoin.
-- Actual v4 SQL export and all six historical types are supported in `8e3a64b`; deterministic bounded pages are supported in `11ad055`. Disposable MySQL extraction/import passed; an authorized real-backup rehearsal remains open.
-- Administrator direct upload/copy/view passed live with a synthetic text attachment and warning-only case #2. Case #10 additionally verifies synthetic PNG preservation before a ban. Restricted-role access, original-message deletion, and long-term access remain open. The ledger records the notification as sent.
-- `/tmp/quack-v5-retention-review` was loaded into the authorized beta pane with the existing database; live readiness passed. Startup readiness does not close feature-level gates.
-- Earlier beta `/tmp/quack-v5-receipt-review` was loaded at `9933511`. Full MySQL-enabled backend tests and readiness pass. Case #2's original public receipt updated to voided after a restart and hours beyond its interaction token lifetime; SQL confirmed its new revision reconciled and became idle. Member evidence access remained denied, now with clear private permission copy.
-- Case #4's active timeout was removed by reasoned void about four seconds before its recorded expiry. Default `/setup audit` created `moderation-log` and delivered a semantic settings-change entry. The grouped rehearsal audit table contains semantic lifecycle/settings events without reads or worker bookkeeping. Reversal ownership protection and clearer mirror footers are being integrated separately.
-- Earlier beta `/tmp/quack-v5-ownership-review` was loaded at `ac4b5f7`, including the case notification adapter boundary and guarded reversals. Full MySQL-enabled tests and readiness passed. Case #5 delivered the native DM and semantic case/action mirror; void after expiry produced a verified already-absent outcome and explicit no-op mirror. Changed-punishment/ban ownership and failure/retry remain live gates.
+- **Cases, evidence, and privacy:** direct PNG upload was preserved before case
+  #10's ban. Case #14 exposed a converted-image copy failure; after its fix,
+  recapture preserved text and an image opened after source deletion. A limited
+  moderator opened that saved image with an explicit channel read grant; removing
+  the temporary grants restored denial. Member access and revoked-role controls
+  were denied privately. Native history totals matched SQL.
+- **Actions, appeals, and receipts:** ban DM, appeal submission, administrator
+  acceptance, unban, and native invite rejoin passed; rejection and one-appeal
+  enforcement also passed. A blocked DM left warning #13 valid, recorded failed
+  delivery, and updated private feedback without exposing it publicly. Timeout
+  reversal, newer-timeout protection, and retry after cleanup passed. An old
+  public receipt refreshed after restart beyond its interaction-token lifetime.
+- **Tickets:** open, duplicate-open protection, staff participation, member/admin
+  close, transcript retention, and member-slot release passed. Deleted text
+  survived restart in the transcript. Missing queue-post repair and old private
+  receipt refresh passed. Injected lost-receipt adoption, stale-confirmation
+  rejection, restart, and owner closure retained one transcript on the original
+  queue post; this was a controlled fixture, not an actual interrupted send.
+- **Honeypot and logs:** default setup, editable policy, staff exemption,
+  enforcement, evidence-before-cleanup, counter, warning deletion repair, and a
+  two-message/one-case burst passed. General logs retained member edit/delete
+  text and attribution, including bot warning edits. A live attachment-only edit
+  recorded old/new filenames; bulk deletion retained both synthetic messages'
+  individual IDs, text, and corresponding files.
 
-Before release, record live results for template creation → case creation → evidence inspection, denied/failed action → audit retry, void/reversal, appeal acceptance/rejection, ticket open/close/transcript, honeypot and logging. Also rehearse an actual v4 export/import and assess realistic guild/member load. Passing unit tests does not close these gates.
+Remaining representative **bot acceptance** is native rule-authoring and
+context-entry usability, module disable/enable behavior, and Quack-ban suppression
+checks. These are targeted checks of
+requested workflows, not proof that their implementations are missing. The user
+walkthrough still determines whether the bot feels ready.
+
+**Before replacing v4**, rehearse an authorized real backup and assess realistic
+mixed guild/member load. Disposable historical import and the 85,000-event idle
+poll improvement from 342 ms to 3.04 ms are useful evidence, not production
+migration or capacity acceptance. Dashboard work and configured website
+destinations remain separate from native bot readiness.
+
+Additional failure combinations—such as blocked-DM bans, interrupted honeypot
+execution, actual uncertain-send timing, and longer-term attachment access—remain
+unverified where noted below. Prioritize these by risk; they do not each imply a
+missing feature or require exhaustive live permutations to finish the bot.
 
 ## Production and test evidence map
 
@@ -81,7 +85,7 @@ All paths below are backend paths; the production runtime registers native comma
 | 13–15 | Easy native authoring, example escalations, edits immediately active | P/U: create/edit/level/remove/archive/restore implemented, T. Ease of use not proven by unit tests. |
 | 16 | Policy for departed members/historical no-action cases | D/U: answer leaves product policy unresolved; existing authorization behavior is not a new agreed requirement. |
 | 17 | Discord-derived authority; Moderate Members baseline | P: live permission refresh and actor/action checks, A. |
-| 21 | Result includes selected outcome, errors, notification/appeal information | P/U: private moderator receipt includes selected level, actions/errors, DM state and appeal eligibility; bounded refresh follows action and DM completion independently. Live warning receipts updated to DM sent. Public notices exclude these staff fields; tester visibility passed. Failed/long-delayed DM and restart-limited private refresh remain separate checks. |
+| 21 | Result includes selected outcome, errors, notification/appeal information | P/U: private moderator receipt includes selected level, actions/errors, DM state and appeal eligibility; bounded refresh follows action and DM completion independently. Live warning receipts updated to DM sent. Public notices exclude these staff fields; tester visibility passed. Blocked-DM warning feedback also passed; long-delayed delivery and restart-limited private refresh remain separate checks. |
 | 22 | Evidence, user history and reasoned void controls | P/U: evidence/void are covered; native profile totals and imported labels are implemented, C/E/A. |
 | 23 | Context/evidence updates without new punishment; audit actor | P: E/U; context link capture and visible failure tests added. |
 | 24 | Recover forms only if simple; blank reopening acceptable | D/P: no durable draft system required. Immediate creation plus independent context form removes old mandatory draft dependency. |
@@ -98,7 +102,7 @@ All paths below are backend paths; the production runtime registers native comma
 | 48–52 | Actionable appeal queue; terminal accept/reject; void/reversal; hidden identity and optional rejoin link | P/U: P/A. Native acceptance and rejection, member DMs, one-appeal enforcement and acceptance voiding passed live. Case #10 additionally passed first-attempt ban reversal, accepted DM Rejoin Server navigation, and native invite acceptance back into the guild. |
 | 53–59 | Private thread, natural chat, only open/close, owner/staff close, transcript before deletion, one open ticket | P/U: K. Member/staff close and retained transcript passed live. Original received text now survives edits/deletions through a persisted journal merged with final history; deleted-message/restart live acceptance passed: the published queue transcript retained the tester text deleted before a clean beta restart. See the bounded retention guarantee below. |
 | 60–63 | Trap setup/warning/counter; editable template; staff exemption; one incident and cleanup/recovery | P/U: H. Live default setup, editable timeout, staff exemption, enforcement/evidence/counter passed. Durable warning refresh and startup reconciliation are implemented; deleting the beta's configured warning recreated it with the same four-incident count and no new case. A live two-message burst created only case #11, incremented the counter once, and completed both cleanups after saving the incident; interrupted enforcement recovery remains open. |
-| 64–65 | Single general-log channel, near-v4 detail, omit Quack's own bans | P/U: L. Bot-message caching and per-message author/text/file attribution are restored; live member edit/delete and bot counter-edit attribution passed; bulk/attachment events remain open. |
+| 64–65 | Single general-log channel, near-v4 detail, omit Quack's own bans | P/U: L. Live member edit/delete, bot counter edits, attachment-only replacement, and bulk deletion passed. The bulk log retained individual IDs, text, and each message's files. Quack-ban suppression remains unverified live. |
 | 66–69 | Meaningful audit only; separate case/action entries; actor/member/rule/level/time | P: U. Storage allowlist and separate delivery state; selected outcome comes from immutable snapshot. |
 | 70 | Statistics derived from real moderation activity | P/U: native history showed five tester cases, one valid and four voided, matching live SQL counts. Imported-history labels and broader statistics remain source/test evidence; Q70 does not require a separate statistics subsystem. |
 | 71 | Disposable prerelease schema; import actual v4 history; translate settings where practical | P/U/D: M. Read-only SQL export, all six v4 types, bounded paging and historical-only import passed disposable MySQL rehearsal. Real-backup rehearsal remains open. Native module resetup is the documented cutover path, allowed by Q71; automatic settings translation is not a release requirement. |
@@ -118,11 +122,11 @@ All paths below are backend paths; the production runtime registers native comma
 | 5 Missing native appeals | P/U: native submission, private queue, accept/reject, member DM and repeat-appeal rejection passed live. |
 | 6 CORS-derived application URL | P/U: explicit backend configuration committed in `4827cae`; native DM modal already avoids depending on a website URL. |
 | 7 Unpublished ticket buttons | P: native setup and persistent entry receipt now publish them. |
-| 8 Ticket lifecycle/control mismatch | P/U: shared close adapter, owner authority and removed reopen route; member/staff closure and transcript retrieval passed live; deleted-message/restart transcript acceptance passed live. Deleting an open ticket's queue post, repairing from the surviving thread control twice, and owner closure passed live with one replacement transcript and released member slot. Failed-deletion and uncertain-send recovery remain regression evidence. |
+| 8 Ticket lifecycle/control mismatch | P/U: shared close adapter, owner authority and removed reopen route; member/staff closure, transcript retrieval, deleted-message/restart retention, and missing-post repair passed live. Injected lost-receipt adoption, stale-confirmation rejection, restart, and owner closure retained one transcript on the original queue post. Actual interrupted-send timing and failed-deletion recovery remain separate checks. |
 | 9 Competing conversation/transcript models | P/U: native chat is canonical; committed original-message journaling supplements final history and blocks deletion on failed capture. Deleted text/restart passed live; attachment longevity remains open. |
 | 10 Honeypot restart requirement | P/U: live setup and template edits took effect without restart; the tester message triggered the configured timeout and evidence capture. |
 | 11 Honeypot opacity/recovery | P/U: interrupted primary recovery and legacy bot/staff exemptions are committed. Setup/counter/template editing are implemented; live default setup, editable timeout, administrator exemption, member enforcement, evidence, cleanup, counter and two-message burst passed; interrupted recovery remains open. |
-| 12 No direct evidence uploads | P/U: slash attachment options and add-evidence use case; administrator synthetic-file upload/copy/view, saved image access after source deletion, and restricted-moderator evidence metadata access passed live. Restricted-moderator file opening remains unverified. |
+| 12 No direct evidence uploads | P/U: slash attachment options and add-evidence use case; administrator synthetic-file upload/copy/view and saved image access after source deletion passed live. A limited moderator opened the saved image with an explicit channel read grant; removing temporary grants restored denial. |
 | 13 Missing evidence feedback/inspection | P: captured text, warnings, file results and private pages. |
 | 14 Evidence lifecycle rough edges | P/U: stable message links and admin-preserving ACL lifecycle. Precommit upload failures can leave orphan copies; long-term live access unverified. |
 | 15 Different case entry flows | P: immediate common creation, paginated picker, no required context/JSON input. |
@@ -138,9 +142,9 @@ All paths below are backend paths; the production runtime registers native comma
 
 ## Live acceptance record
 
-The [implementation ledger](v5-bot-implementation.md), specifically “September 8 parallel integration and live ticket acceptance” and “Ticket journal integration and direct evidence upload”, records the live outcomes summarized above. The later deletion/restart rehearsal verified the new journal through the actual queue transcript. The administrator direct-upload result remains narrower than full evidence acceptance. Do not replace U with P solely because a tracker or unit suite is green.
+The [implementation ledger](v5-bot-implementation.md) records the builds, account actions, SQL checks, and limitations behind the current summary and matrix. Later entries include source-deletion survival, restricted-moderator file opening, blocked-DM feedback, and ticket receipt adoption. Read historical pending statements in their dated context. Do not replace U with P solely because a tracker or unit suite is green.
 
-## Remaining concrete implementation gaps and boundaries
+## Configuration checks and implementation boundaries
 
 1. **Q44 configured-link acceptance:** native case/history/evidence web buttons are committed and tested; live configuration/link inspection remains open.
 2. **Q73 / review 20 boundaries:** `quack.Services.Store` still exposes the combined repository. Case publication commands use narrow receipt-registration and action-status use cases (`3dcf02b`); case and appeal notification rendering belongs to the Discord adapter. New appeal decisions persist versioned facts including the decision-time reason and rejoin URL; legacy rows retain their saved-body fallback. Staff statistics are composed in the core service set and require only derived reads; honeypot compatibility checks use the template service rather than integration-owned repository rules. Native command startup now receives interaction deduplication and a narrow command-hash capability explicitly from process composition; it no longer reaches through `Services.Store` for these dependencies. Native evidence pages now fetch one snapshot and its attachments (`e658418`), with long-text subpages and fresh authorization; SQL count/offset work remains. Broader HTTP infrastructure access is not itself evidence of an authorization bypass.
@@ -156,4 +160,4 @@ on the original queue post. This used controlled local fixture injection; actual
 interrupted-send timing and successful nondelivery replacement remain unverified
 live. See the implementation ledger's receipt-adoption rehearsal.
 
-Remaining release gates are live journeys, restricted-role/privacy and failure/restart checks, an authorized real-backup import rehearsal, and realistic load assessment. Dashboard review findings 3–4 remain deferred; module resetup is allowed rather than a missing mandatory migration subsystem.
+Remaining representative native acceptance and future v4 rollout gates are separated in the current status above. Dashboard review findings 3–4 remain deferred; module resetup is allowed rather than a missing mandatory migration subsystem. Unverified failure combinations and documented recovery limits do not independently establish unfinished implementation.
