@@ -1597,3 +1597,42 @@ means further work is required, not completion.
   attempt for #13, with no automatic resend after unblocking. Both records are
   synthetic warning fixtures; this proves warning validity and notification
   failure feedback, not a separate ban-with-blocked-DM enforcement rehearsal.
+
+### Captured image conversion and source deletion
+
+- Monkey posted synthetic text and the checkerboard image in commands, message
+  `1547036695801765940`. Helium dickey used its message context action and chose
+  Rehearsal rule, creating valid warning #14 (`01M21R4BX11KP1N190NHM3SKST`).
+  The initial capture retained text but marked the image metadata-only; the
+  private receipt correctly warned that some evidence could not be saved.
+- Read-only diagnosis found Discord metadata reported 550 bytes/image-webp while
+  the attachment URL returned HTTP 200 with 726 bytes/image-png. Exact metadata
+  size validation incorrectly rejected this converted representation.
+- `0ce2511` bounds downloads by the existing absolute 25 MiB limit plus one byte
+  instead. Returned bytes are preserved unchanged; read failures, oversized
+  content and unsafe CDN URLs still fail. Original snapshot metadata stays as
+  reported by Discord. Focused tests and the full backend/MySQL suite passed.
+- Loaded clean build `/tmp/quack-v5-evidence-conversion-review` from `0ce2511` in
+  the authorized beta pane; readiness passed. `/case evidence case:14` with the
+  same source link created successful capture `01M21RH8CKYGM27YZ069FD04YE`, saved
+  in evidence message `1547038685508149380`. The earlier failed capture remains
+  recorded rather than being silently rewritten.
+- Dickey deleted only the synthetic source. REST then returned `10008` for that
+  source and confirmed the separate beta-authored saved PNG still existed with
+  726 bytes. Helium opened the saved checkerboard in Discord's image viewer; SQL
+  retained the captured source text. This verifies administrator file access
+  after source deletion; restricted-moderator file access remains separate.
+
+### Remaining uncertain ticket delivery recovery
+
+- Review confirmed an operability gap: an uncertain send has a durable fence but
+  no staff operation to record the result of inspecting the queue. Repair/Close
+  cannot finish that state merely by restarting or retrying. A future bounded
+  repair needs validated adoption of an existing beta-authored ticket post, or
+  explicit administrator confirmation before admitting a replacement; it must
+  preserve transcript-before-delete and reservation ownership.
+- `8efd4b1` fixes the immediate misleading close error: wrapped unknown-delivery
+  results retain private inspection guidance even when a ticket was returned,
+  without claiming definite nondelivery or offering a blind Retry close. Focused
+  tests and the full suite above passed. This copy fix does not resolve the
+  missing reconciliation operation.
