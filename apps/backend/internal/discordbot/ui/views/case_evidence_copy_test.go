@@ -21,7 +21,7 @@ func TestEvidenceSummaryCaptureLabels(t *testing.T) {
 			if !strings.HasPrefix(text, label+"\n") {
 				t.Fatalf("wrong capture heading: %s", text)
 			}
-			for _, retained := range []string{"Captured text", "Capture warning", "[proof.png](https://example.com/proof.png) · preserved", "Attachment warning"} {
+			for _, retained := range []string{"Captured text", "Capture warning", "[proof.png](https://example.com/proof.png) · Saved copy", "Attachment warning"} {
 				if !strings.Contains(text, retained) {
 					t.Fatalf("lost evidence detail %q: %s", retained, text)
 				}
