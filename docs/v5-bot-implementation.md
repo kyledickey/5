@@ -1766,3 +1766,27 @@ means further work is required, not completion.
   #15 is a valid warning and #16 is voided. This verifies native authoring,
   threshold selection, context/slash entry parity, and representative own-ban
   suppression; elapsed decay timing remains regression evidence.
+
+### Native module switches and retained ticket setup
+
+- `ee8de61` adds optional `enabled` to `/setup tickets`, `/setup honeypot`, and
+  `/setup logging`. It must be used alone. Omitting it preserves create-by-default
+  setup and supplied-channel behavior. Fresh Manage Server checks precede the
+  canonical settings update; enabling validates retained resources, and disabling
+  keeps configuration. Focused setup tests and the full MySQL-enabled backend
+  suite passed (`/tmp/quack-native-module-toggle-final.log`).
+- The beta was switched to `/tmp/quack-v5-native-toggles`; readiness passed.
+  Dickey disabled tickets through Helium. Monkey's existing Open ticket button
+  returned a private disabled response and created no ticket (count stayed six).
+  The configuration hash remained `81cc5415305eb780b6b486595bef0e86`.
+- Dickey re-enabled tickets without another restart. The same configuration,
+  entry panel, and queue were retained. Monkey opened ticket
+  `01M21XGY0N4NAW6WS6NTEQQ8GY` from that panel and sent a synthetic marker.
+  Owner closure resolved it, removed thread `1547060630970835044` (Discord
+  `10003`), and retained exactly one matching transcript on original queue
+  message `1547060641196417185`. Reading the saved transcript confirmed the
+  complete marker survived closure. Tickets remain enabled.
+- This closes the remaining representative native toggle check. The acceptance
+  matrix separates implemented/tested bot behavior from the user's feel/wording
+  walkthrough and the real-backup/load gates before replacing v4. It does not
+  claim production cutover, exhaustive fault coverage, or completed dashboard UI.

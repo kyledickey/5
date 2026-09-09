@@ -6,12 +6,18 @@ This matrix maps all 76 answers in [the product interview](v5-product-interview.
 
 ## Current acceptance status
 
-The authorized beta runs `/tmp/quack-v5-evidence-copy-review` at `022dbd1`;
+The authorized beta runs `/tmp/quack-v5-native-toggles` at `ee8de61`;
 readiness and the full MySQL-enabled backend suite passed. The dashboard remains
 stopped and its UI remains deferred. The latest evidence wording has rendering
 test coverage; earlier live journeys used the builds recorded in the
 [implementation ledger](v5-bot-implementation.md).
 
+- **Native authoring and entry points:** the administrator created a rule, added
+  a second-case ban, configured seven-day decay, and verified the native policy
+  view. Member-context creation produced warning #15; slash creation selected
+  the next threshold and banned in case #16. Voiding reversed that ban, the
+  tester rejoined, and the synthetic rule was archived (`28d80d0` evidence).
+  Elapsed decay timing remains regression evidence.
 - **Cases, evidence, and privacy:** direct PNG upload was preserved before case
   #10's ban. Case #14 exposed a converted-image copy failure; after its fix,
   recapture preserved text and an image opened after source deletion. A limited
@@ -35,13 +41,21 @@ test coverage; earlier live journeys used the builds recorded in the
   two-message/one-case burst passed. General logs retained member edit/delete
   text and attribution, including bot warning edits. A live attachment-only edit
   recorded old/new filenames; bulk deletion retained both synthetic messages'
-  individual IDs, text, and corresponding files.
+  individual IDs, text, and corresponding files (`adaa072` evidence). Case #16
+  produced the expected member-leave and public-result edit logs with no separate
+  Discord ban log; semantic moderation audit remained present (`28d80d0`).
+  General-log file links are not permanent archived copies.
 
-Remaining representative **bot acceptance** is native rule-authoring and
-context-entry usability, module disable/enable behavior, and Quack-ban suppression
-checks. These are targeted checks of
-requested workflows, not proof that their implementations are missing. The user
-walkthrough still determines whether the bot feels ready.
+- **Native module toggles:** disabling tickets blocked the existing entry panel
+  privately without changing configuration or creating a ticket. Re-enabling
+  restored that same panel without restart; owner closure retained one transcript
+  and deleted the thread. The detailed evidence appears below.
+
+The tracked representative **bot workflows now have live acceptance evidence**;
+no further concrete representative workflow blocker is identified here. This
+includes native authoring, context/slash entry, module toggles, and representative
+attachment/bulk/own-ban logging. The user walkthrough still determines whether
+the bot feels ready; the rollout gates and additional coverage below remain.
 
 **Before replacing v4**, rehearse an authorized real backup and assess realistic
 mixed guild/member load. Disposable historical import and the 85,000-event idle
@@ -78,11 +92,11 @@ All paths below are backend paths; the production runtime registers native comma
 | --- | --- | --- |
 | 1, 4, 8 | Bot first; cases/evidence, appeals, tickets, honeypot, logging, mirror | P/U: all native surfaces are composed; complete live acceptance outstanding. Dashboard UI is D. C/E/P/K/H/L/U. |
 | 2 | Public bot at roughly 850 guilds, including large communities | U: bounded workers and concurrency tests do not establish acceptable production scale. |
-| 3, 18–20 | Slash/message/user entry points; immediate execution; no required staff channel | P/U: common immediate creation and paginated picker, C. Live interaction timing/visibility still needs acceptance. |
+| 3, 18–20 | Slash/message/user entry points; immediate execution; no required staff channel | P/U: common immediate creation and paginated picker, C. Native member-context creation produced warning #15 and slash creation selected the next threshold in #16; message-context capture also passed in #14. Representative entry flows have live evidence; subjective usability remains for the user walkthrough. |
 | 5–7 | Light personality; distinct staff/member details; plain-text style | P/U: shared conversation/icon views and redacted member projection, C/N. Subjective polish needs user walkthrough. |
 | 9–11 | Template chooses punishment; same-rule escalation; opt-in decay; future-only changes | P: C/T/A, including void and imported-history exclusions and immutable snapshots. |
 | 12 | Seed easily editable defaults | P: central starter policy and idempotent lifecycle bootstrap, T. |
-| 13–15 | Easy native authoring, example escalations, edits immediately active | P/U: create/edit/level/remove/archive/restore implemented, T. Ease of use not proven by unit tests. |
+| 13–15 | Easy native authoring, example escalations, edits immediately active | P/U: create/edit/level/remove/archive/restore implemented, T. Live native creation, second-case ban level, seven-day decay configuration, policy inspection, threshold execution, and archival passed. Elapsed decay timing remains regression evidence; final usability judgment belongs to the user. |
 | 16 | Policy for departed members/historical no-action cases | D/U: answer leaves product policy unresolved; existing authorization behavior is not a new agreed requirement. |
 | 17 | Discord-derived authority; Moderate Members baseline | P: live permission refresh and actor/action checks, A. |
 | 21 | Result includes selected outcome, errors, notification/appeal information | P/U: private moderator receipt includes selected level, actions/errors, DM state and appeal eligibility; bounded refresh follows action and DM completion independently. Live warning receipts updated to DM sent. Public notices exclude these staff fields; tester visibility passed. Blocked-DM warning feedback also passed; long-delayed delivery and restart-limited private refresh remain separate checks. |
@@ -102,7 +116,7 @@ All paths below are backend paths; the production runtime registers native comma
 | 48–52 | Actionable appeal queue; terminal accept/reject; void/reversal; hidden identity and optional rejoin link | P/U: P/A. Native acceptance and rejection, member DMs, one-appeal enforcement and acceptance voiding passed live. Case #10 additionally passed first-attempt ban reversal, accepted DM Rejoin Server navigation, and native invite acceptance back into the guild. |
 | 53–59 | Private thread, natural chat, only open/close, owner/staff close, transcript before deletion, one open ticket | P/U: K. Member/staff close and retained transcript passed live. Original received text now survives edits/deletions through a persisted journal merged with final history; deleted-message/restart live acceptance passed: the published queue transcript retained the tester text deleted before a clean beta restart. See the bounded retention guarantee below. |
 | 60–63 | Trap setup/warning/counter; editable template; staff exemption; one incident and cleanup/recovery | P/U: H. Live default setup, editable timeout, staff exemption, enforcement/evidence/counter passed. Durable warning refresh and startup reconciliation are implemented; deleting the beta's configured warning recreated it with the same four-incident count and no new case. A live two-message burst created only case #11, incremented the counter once, and completed both cleanups after saving the incident; interrupted enforcement recovery remains open. |
-| 64–65 | Single general-log channel, near-v4 detail, omit Quack's own bans | P/U: L. Live member edit/delete, bot counter edits, attachment-only replacement, and bulk deletion passed. The bulk log retained individual IDs, text, and each message's files. Quack-ban suppression remains unverified live. |
+| 64–65 | Single general-log channel, near-v4 detail, omit Quack's own bans | P/U: L. Live member edit/delete, bot counter edits, attachment-only replacement, and bulk deletion passed. The bulk log retained individual IDs, text, and each message's files. Case #16 produced member-leave and public-result edit logs without a separate Discord ban log, while semantic moderation audit remained present. |
 | 66–69 | Meaningful audit only; separate case/action entries; actor/member/rule/level/time | P: U. Storage allowlist and separate delivery state; selected outcome comes from immutable snapshot. |
 | 70 | Statistics derived from real moderation activity | P/U: native history showed five tester cases, one valid and four voided, matching live SQL counts. Imported-history labels and broader statistics remain source/test evidence; Q70 does not require a separate statistics subsystem. |
 | 71 | Disposable prerelease schema; import actual v4 history; translate settings where practical | P/U/D: M. Read-only SQL export, all six v4 types, bounded paging and historical-only import passed disposable MySQL rehearsal. Real-backup rehearsal remains open. Native module resetup is the documented cutover path, allowed by Q71; automatic settings translation is not a release requirement. |
@@ -116,7 +130,7 @@ All paths below are backend paths; the production runtime registers native comma
 | Finding | Current disposition |
 | --- | --- |
 | 1 Audit noise | P: storage allowlist rejects service events; mirror delivery state is separate, U evidence. |
-| 2 Disconnected module switches | P/U: `02d6616` uses canonical registry reads and atomic explicit toggles, preserving configuration and rejecting invalid enablement before core/audit writes. Native/API parity and conflict tests pass; live toggle acceptance remains open. |
+| 2 Disconnected module switches | P/U: `02d6616` uses canonical registry reads and atomic explicit toggles, preserving configuration and rejecting invalid enablement before core/audit writes. Native/API parity and conflict tests pass. On `ee8de61`, native ticket disable/enable preserved configuration, denied the existing panel while disabled, and restored opening without restart; owner closure retained one transcript. |
 | 3 Dashboard always submits forbidden evidence field | D: existing dashboard form remains broken; do not claim it functional. Native evidence journey is separate. |
 | 4 Missing new web appeal form | D: web UI deferred; native DM form is implemented. |
 | 5 Missing native appeals | P/U: native submission, private queue, accept/reject, member DM and repeat-appeal rejection passed live. |
@@ -143,6 +157,28 @@ All paths below are backend paths; the production runtime registers native comma
 ## Live acceptance record
 
 The [implementation ledger](v5-bot-implementation.md) records the builds, account actions, SQL checks, and limitations behind the current summary and matrix. Later entries include source-deletion survival, restricted-moderator file opening, blocked-DM feedback, and ticket receipt adoption. Read historical pending statements in their dated context. Do not replace U with P solely because a tracker or unit suite is green.
+
+### Native ticket disable/enable rehearsal
+
+- Clean beta `ee8de61` at `/tmp/quack-v5-native-toggles` passed all readiness
+  checks; the full MySQL-enabled suite passed in
+  `/tmp/quack-native-module-toggle-final.log`.
+- Administrator `/setup tickets enabled:false` returned private success. Monkey's
+  existing Open ticket control returned the private Tickets are not enabled
+  response. SQL retained six tickets and configuration MD5
+  `81cc5415305eb780b6b486595bef0e86`, with enabled set to 0.
+- `/setup tickets enabled:true` returned success with the same configuration
+  hash and enabled set to 1. Without a restart, monkey used the same entry panel
+  to open ticket `01M21XGY0N4NAW6WS6NTEQQ8GY`, thread
+  `1547060630970835044`, and queue post `1547060641196417185`.
+- Monkey sent the synthetic text “Synthetic module toggle rehearsal: the existing
+  support panel works again after tickets are re-enabled.” Owner closure resolved
+  the ticket in SQL at 19:47:29.251. Read-only Discord inspection returned `10003`
+  for the deleted thread and found one ticket-ID `.txt` transcript on the original
+  beta-authored queue post. Fetching that synthetic transcript confirmed the
+  marker text was preserved; the latest 100 queue posts contained one matching
+  file. This verifies the representative native toggle and restored ticket
+  lifecycle without resetting module configuration.
 
 ## Configuration checks and implementation boundaries
 
