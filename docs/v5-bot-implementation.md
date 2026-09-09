@@ -1739,3 +1739,30 @@ means further work is required, not completion.
   `1546795992249147474`. This verifies available attachment metadata/links and
   per-message bulk attribution; it does not claim permanent file preservation
   for general logs. The separate evidence system owns retained copies.
+
+### Native rule authoring, escalation, and own-ban logging
+
+- Helium dickey created `Rehearsal escalation rule`
+  (`01M21VAZQ7PXXHSHK218JQCHWF`) using `/template create`, added Ban from case 2
+  with `/template level`, and set seven-day decay through `/template edit`.
+  `/template view` showed Warning from case 1, Ban from case 2, DMs and appeals
+  on, and the seven-day counting window. SQL retained decay 7 and version 3.
+- The member context menu Apps → Beta Bot → Create case for member selected
+  monkey and the new rule without a slash-command fallback. Case #15
+  (`01M21VS234GMYQS1Z7KHYPFMZ2`) recorded a warning with no action row and a sent
+  DM. A separate `/case add` using monkey's exact ID created case #16
+  (`01M21VYH9ZQPWBTTTSHD88FSZ9`), selected Case 2 onward, and banned in one attempt.
+- General-log inspection began after recorded receipt `1547049872320897175`.
+  The two new messages were member leave `1547053717897871420` and a normal edit
+  log for the public case result `1547053719458160713`; no separate Discord ban
+  log appeared. Semantic audit separately recorded case.create and
+  case_action.succeeded. The user explicitly chose to retain every message edit,
+  including Quack's own case/status changes, while suppressing its ban event.
+- Dickey voided #16 with the synthetic cleanup reason. SQL retained the successful
+  ban plus one successful linked unban, and public case feedback confirmed the
+  member was no longer banned. Monkey used the existing native invite card to
+  rejoin; REST confirmed membership with no roles and the original evidence ACL.
+- The synthetic rule was archived after the rehearsal. Its case history remains:
+  #15 is a valid warning and #16 is voided. This verifies native authoring,
+  threshold selection, context/slash entry parity, and representative own-ban
+  suppression; elapsed decay timing remains regression evidence.

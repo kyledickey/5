@@ -278,6 +278,10 @@ These questions follow the [implementation review](v5-product-review.md). They a
 
 > mod log probably. probably only log other bans if they happen not by quack
 
+> September 8 live-test clarification: Keep logging every message edit, including
+> Quack editing its own public case/status messages. Suppress the separate ban
+> event when Quack performed the ban.
+
 ## Audit and operations
 
 66. Beyond case created/voided and user timeout/kick/ban/unban, which changes belong in audit: template edits, module/settings changes, appeal decisions, ticket open/close, evidence added, failed punishment, DM failure?
