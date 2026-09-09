@@ -29,7 +29,7 @@ func (r *Runtime) SetupHoneypot(ctx ui.Context) ui.HandlerResult {
 			warning, _ = option.Value.(string)
 		}
 	}
-	return ui.Async(ui.DeferEphemeral(), func(taskCtx context.Context, responder ui.Responder) error {
+	return ui.AsyncPublic(func(taskCtx context.Context, responder ui.Responder) error {
 		fail := func(message string) error { _, err := responder.EditOriginal(ui.ErrorEdit(message)); return err }
 		taskCtx = quack.ContextWithAuditSource(taskCtx, model.AuditSourceDiscord)
 		guild, err := r.services.Guilds.ResolveDiscordStaffContext(taskCtx, quack.DiscordStaffContextInput{DiscordGuildID: ctx.Interaction.GuildID, DiscordUserID: interactionUserID(ctx.Interaction)})
@@ -79,10 +79,11 @@ func (r *Runtime) SetupHoneypot(ctx ui.Context) ui.HandlerResult {
 		if strings.TrimSpace(warning) != "" {
 			settings.WarningText = strings.ReplaceAll(warning, `\n`, "\n")
 		}
-		if settings.WarningText == "" {
-			settings.WarningText = defaultHoneypotWarning
+		warningText, err := resolveHoneypotWarning(taskCtx, r.services.Templates, actor.GuildID, settings)
+		if err != nil {
+			return fail("I couldn't read the honeypot punishment. Check its template and try setup again.")
 		}
-		content := honeypotWarningContent(settings.WarningText, status.Statistics.Created)
+		content := honeypotWarningContent(warningText, status.Statistics.Created)
 		var sent *discordgo.Message
 		if settings.WarningMessageID != "" {
 			sent, err = r.session.ChannelMessageEditComplex(&discordgo.MessageEdit{ID: settings.WarningMessageID, Channel: channel.ID, Content: &content, AllowedMentions: &discordgo.MessageAllowedMentions{}}, discordgo.WithContext(taskCtx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
@@ -104,7 +105,7 @@ func (r *Runtime) SetupHoneypot(ctx ui.Context) ui.HandlerResult {
 		if _, _, err = r.Honeypot.UpdateSettings(taskCtx, actor, true, settings); err != nil {
 			return fail("The warning is posted, but the honeypot could not be enabled. Check the channel and template, then run setup again.")
 		}
-		_, err = responder.EditOriginal(ui.EditMessage(ui.Signal("settings", fmt.Sprintf("Honeypot ready in <#%s>. You can rename the channel and edit the selected template's punishment. Moderators, administrators, and Quack are exempt.", channel.ID), true)))
+		_, err = responder.EditOriginal(ui.EditMessage(ui.Signal("settings", fmt.Sprintf("Honeypot ready in <#%s>. Staff and Quack can post safely.", channel.ID), false)))
 		return err
 	})
 }

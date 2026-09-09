@@ -118,7 +118,7 @@ func New(ctx context.Context, repositories *store.Store, session *discordgo.Sess
 		bulk:              make(chan bulkDeleteEvent, loggingQueueCapacity),
 		closeDone:         make(chan struct{}),
 	}
-	runtime.honeypotCounter = &honeypotCounter{session: session, service: honeypotService, resolver: resolver, sharedLocks: &runtime.honeypotWarningLocks}
+	runtime.honeypotCounter = &honeypotCounter{templates: services.Templates, session: session, service: honeypotService, resolver: resolver, sharedLocks: &runtime.honeypotWarningLocks}
 	runtime.HoneypotRuntime = honeypot.NewRuntime(workerCtx, honeypotDiscord, honeypotQueueCapacity, honeypotQueueWorkers, runtime.honeypotCounter)
 	for range loggingQueueWorkers {
 		runtime.bulkWG.Add(1)
