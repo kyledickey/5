@@ -58,7 +58,7 @@ func TestAppealStaffMessageOffersOnlyExplicitReversalControls(t *testing.T) {
 	}
 	row := message.Components[0].(discordgo.ActionsRow)
 	button := row.Components[0].(discordgo.Button)
-	if button.Style != discordgo.SecondaryButton || !strings.HasPrefix(button.Label, "Confirm ") || !strings.Contains(button.CustomID, "appeal:reverse:v1") {
+	if button.Style != discordgo.DangerButton || !strings.HasPrefix(button.Label, "Confirm ") || !strings.Contains(button.CustomID, "appeal:reverse:v1") {
 		t.Fatalf("reversal was not an explicit confirmation control: %+v", button)
 	}
 }
@@ -76,5 +76,30 @@ func TestAppealQueueContainsStatementAndDecisionControls(t *testing.T) {
 	appeal.Status = model.AppealStatusAccepted
 	if decided := AppealStaffMessage(appeal); len(decided.Components) != 0 {
 		t.Fatal("decided appeal still offers decision buttons")
+	}
+}
+
+// TestAppealDecisionPresentation retains reviewer context while removing voting controls.
+func TestAppealDecisionPresentation(t *testing.T) {
+	appeal := &quack.AppealResponse{ID: "appeal", CaseNumber: 12, TargetDiscordUserID: "member", Status: model.AppealStatusPending}
+	pending := AppealStaffMessage(appeal)
+	if !strings.Contains(pending.Content, "Received an appeal from <@member>") {
+		t.Fatal(pending.Content)
+	}
+	row := pending.Components[0].(discordgo.ActionsRow)
+	if row.Components[0].(discordgo.Button).Style != discordgo.SuccessButton || row.Components[1].(discordgo.Button).Style != discordgo.DangerButton {
+		t.Fatal("decision colors lost")
+	}
+	for _, status := range []model.AppealStatus{model.AppealStatusAccepted, model.AppealStatusRejected} {
+		appeal.Status, appeal.ReviewedByDiscordUserID, appeal.DecisionReason = status, "reviewer", "Thanks for explaining."
+		decided := AppealStaffMessage(appeal)
+		for _, want := range []string{"Appeal " + string(status), "Reviewed by <@reviewer>", appeal.DecisionReason} {
+			if !strings.Contains(decided.Content, want) {
+				t.Fatalf("missing %q: %s", want, decided.Content)
+			}
+		}
+		if len(decided.Components) != 0 {
+			t.Fatal("decided appeal retains buttons")
+		}
 	}
 }

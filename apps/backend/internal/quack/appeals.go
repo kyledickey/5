@@ -202,6 +202,8 @@ func (s *AppealService) Close(ctx context.Context, guildContext *GuildStaffConte
 	return s.Reject(ctx, guildContext, appealID, reason)
 }
 
+// transition freezes member context with the durable decision and commits through
+// the store transaction so competing reviewers cannot both decide an appeal.
 func (s *AppealService) transition(ctx context.Context, guildContext *GuildStaffContext, appealID, reason string, from []model.AppealStatus, to model.AppealStatus, eventType model.AppealEventType, voidCase bool) (*AppealResponse, error) {
 	if err := requireAppealReview(guildContext); err != nil {
 		return nil, err
@@ -217,7 +219,17 @@ func (s *AppealService) transition(ctx context.Context, guildContext *GuildStaff
 	if item == nil || item.GuildID != guildContext.Guild.ID {
 		return nil, ErrAppealNotFound
 	}
-	intent := model.AppealDecisionIntent{Version: 1, Status: to, Reason: reason}
+	intent := model.AppealDecisionIntent{Version: 1, Status: to, Reason: reason, GuildName: guildContext.Guild.Name}
+	if item.CaseID != nil {
+		caseItem, err := s.store.GetCaseByID(ctx, *item.CaseID)
+		if err != nil {
+			return nil, err
+		}
+		if caseItem == nil || caseItem.GuildID != item.GuildID {
+			return nil, ErrAppealNotFound
+		}
+		intent.CaseNumber, intent.CaseID = caseItem.CaseNumber, caseItem.ID
+	}
 	if to == model.AppealStatusAccepted {
 		settings, err := s.store.GetGuildSettings(ctx, item.GuildID)
 		if err != nil {

@@ -22,7 +22,7 @@ func TestAppealDecisionCopyPreservesSnapshots(t *testing.T) {
 		icon, lead, next string
 	}{
 		{model.AppealStatusAccepted, "accept", "Your appeal was accepted.", "Your case was voided. Quack will try to remove any ban or timeout from it."},
-		{model.AppealStatusRejected, "decline", "Your appeal was declined.", ""},
+		{model.AppealStatusRejected, "decline", "Your appeal was rejected.", ""},
 		{model.AppealStatusNeedsInformation, "reply", "Staff need a little more information to review your appeal.", "You can reply from your Quack dashboard."},
 	} {
 		intent := &model.AppealDecisionIntent{Version: 1, Status: item.status, Reason: "**Reason** @everyone"}
@@ -84,12 +84,16 @@ func TestAppealRejoinButtonDelivery(t *testing.T) {
 				if strings.HasSuffix(request.URL.Path, "/messages") {
 					sends++
 					var payload struct {
+						Flags           discordgo.MessageFlags
 						Content         string
 						Components      []json.RawMessage
 						AllowedMentions *discordgo.MessageAllowedMentions `json:"allowed_mentions"`
 					}
 					if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
 						t.Fatal(err)
+					}
+					if payload.Flags&discordgo.MessageFlagsEphemeral != 0 {
+						t.Fatalf("DM carried interaction flags: %v", payload.Flags)
 					}
 					if payload.Content != message.ForApplication("").Content || len(payload.Components) != len(message.Components) || payload.AllowedMentions == nil || len(payload.AllowedMentions.Parse) != 0 {
 						t.Fatalf("REST presentation changed %+v", payload)
@@ -108,5 +112,25 @@ func TestAppealRejoinButtonDelivery(t *testing.T) {
 				t.Fatal("expected one DM", sends)
 			}
 		})
+	}
+}
+
+// TestAppealMemberDecisionContext identifies the case and server without exposing staff.
+func TestAppealMemberDecisionContext(t *testing.T) {
+	for _, status := range []model.AppealStatus{model.AppealStatusAccepted, model.AppealStatusRejected} {
+		notice := quack.AppealMemberNotification{Intent: &model.AppealDecisionIntent{Version: 1, Status: status, Reason: "Thanks for explaining.", CaseNumber: 42, CaseID: "case-id", GuildName: "Duck Pond"}}
+		message := appealMemberNotificationMessage(notice)
+		for _, want := range []string{"Your appeal was " + string(status), "Case #42", "Duck Pond", "Thanks for explaining."} {
+			if !strings.Contains(message.Content, want) {
+				t.Fatalf("missing %q: %s", want, message.Content)
+			}
+		}
+		if message.Ephemeral {
+			t.Fatal("member DM is ephemeral")
+		}
+		notice.Intent.CaseNumber = 0
+		if !strings.Contains(appealMemberNotificationBody(notice), "case-id") {
+			t.Fatal("case ID fallback missing")
+		}
 	}
 }

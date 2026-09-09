@@ -36,22 +36,24 @@ func RegisterAppealComponents(registry *interactions.ComponentRegistry, services
 	return registry.RegisterComponent("appeal", "reverse", appealReversalHandler(services, appeals))
 }
 
+// appealReversalHandler checks current review authority before queuing a ban or
+// timeout removal linked to the accepted appeal.
 func appealReversalHandler(services *quack.Services, appeals *quack.AppealService) ui.Handler {
 	return func(ctx ui.Context) ui.HandlerResult {
 		if ctx.Interaction == nil || ctx.Interaction.Interaction == nil || ctx.Interaction.GuildID == "" || ctx.Interaction.Member == nil || ctx.Interaction.Member.User == nil {
-			return ui.Immediate(ui.Error("This reversal control is unavailable."))
+			return ui.Immediate(ui.Error("Open this appeal in the server’s review queue to remove the punishment."))
 		}
 		parsed, err := ui.DecodeCustomID(ctx.Interaction.MessageComponentData().CustomID)
 		if err != nil {
-			return ui.Immediate(ui.Error("This reversal control is invalid."))
+			return ui.Immediate(ui.Error("That punishment button is broken. Open the case to try again."))
 		}
 		parts := strings.Split(parsed.Payload, ",")
 		if len(parts) != 3 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
-			return ui.Immediate(ui.Error("This reversal control is invalid."))
+			return ui.Immediate(ui.Error("That punishment button is broken. Open the case to try again."))
 		}
 		actionType := model.ActionType(parts[2])
 		if actionType != model.ActionRemoveTimeout && actionType != model.ActionUnbanUser {
-			return ui.Immediate(ui.Error("This reversal type is invalid."))
+			return ui.Immediate(ui.Error("Only bans and timeouts can be removed here."))
 		}
 		appealID, executionID := parts[0], parts[1]
 		guildID := ctx.Interaction.GuildID
@@ -63,20 +65,20 @@ func appealReversalHandler(services *quack.Services, appeals *quack.AppealServic
 		return ui.Async(ui.DeferPublic(), func(taskCtx context.Context, responder ui.Responder) error {
 			guildContext, err := services.Guilds.ResolveDiscordStaffContext(taskCtx, quack.DiscordStaffContextInput{DiscordGuildID: guildID, DiscordUserID: actor.ID, DisplayName: displayName, LastActiveAt: time.Now().UTC()})
 			if err != nil {
-				_, _ = responder.EditOriginal(ui.ErrorEdit("Live Discord authorization failed."))
+				_, _ = responder.EditOriginal(ui.ErrorEdit("I couldn’t check your Discord permissions. Try again in a moment."))
 				return nil
 			}
 			appeal, err := appeals.GetStaff(taskCtx, guildContext, appealID)
 			if err != nil || appeal.Status != model.AppealStatusAccepted {
-				_, _ = responder.EditOriginal(ui.ErrorEdit("This appeal is not eligible for reversal."))
+				_, _ = responder.EditOriginal(ui.ErrorEdit("Accept the appeal before removing its punishment."))
 				return nil
 			}
 			linkedAppealID := appeal.ID
 			if _, err := services.Actions.ReverseForAppeal(taskCtx, guildContext, appeal.CaseID, executionID, actionType, &linkedAppealID); err != nil {
-				_, _ = responder.EditOriginal(ui.ErrorEdit("The reversal could not be authorized or queued."))
+				_, _ = responder.EditOriginal(ui.ErrorEdit("I couldn’t queue the punishment removal. Check your moderation permissions and try again."))
 				return nil
 			}
-			message := ui.Signal("retry", "The reversal is queued. You can follow its progress in the case history.", false)
+			message := ui.Signal("retry", "Punishment removal queued. Check the case for the result.", false)
 			_, err = ui.Publish(responder, message)
 			return err
 		})

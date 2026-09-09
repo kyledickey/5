@@ -24,7 +24,7 @@ func RegisterAppealQueueComponents(registry *interactions.ComponentRegistry) err
 		parsed, err := ui.DecodeCustomID(ctx.Interaction.MessageComponentData().CustomID)
 		page, parseErr := strconv.Atoi(parsed.Payload)
 		if err != nil || parseErr != nil || page < 1 || page > 1000000 {
-			return ui.Immediate(ui.Error("That appeal page is invalid."))
+			return ui.Immediate(ui.Error("I couldn’t open that page. Run /appeals to start again."))
 		}
 		return appealQueuePage(ctx, page, true)
 	})
@@ -43,7 +43,7 @@ func appealQueuePage(ctx ui.Context, page int, update bool) ui.HandlerResult {
 	return ui.Async(ack, func(taskCtx context.Context, responder ui.Responder) error {
 		guild, err := resolveInteractionGuildContext(taskCtx, ctx.Services, ctx.Interaction)
 		if err != nil {
-			_, err = responder.EditOriginal(ui.ErrorEdit("Could not verify your moderation permissions."))
+			_, err = responder.EditOriginal(ui.ErrorEdit("I couldn’t check your Discord permissions. Try again in a moment."))
 			return err
 		}
 		list, err := ctx.Services.Appeals.ListStaff(taskCtx, guild, model.AppealStatusPending, 1, page-1)

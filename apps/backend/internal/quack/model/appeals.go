@@ -101,8 +101,11 @@ type AppealNotification struct {
 // Version identifies the durable payload contract; no current settings are needed
 // to render a queued notice after restart or a later appeal transition.
 type AppealDecisionIntent struct {
-	Version   int          `json:"version"`
-	Status    AppealStatus `json:"status"`
-	Reason    string       `json:"reason"`
-	RejoinURL string       `json:"rejoin_url,omitempty"`
+	CaseNumber uint64       `json:"case_number,omitempty"`
+	CaseID     string       `json:"case_id,omitempty"`
+	GuildName  string       `json:"guild_name,omitempty"`
+	Version    int          `json:"version"`
+	Status     AppealStatus `json:"status"`
+	Reason     string       `json:"reason"`
+	RejoinURL  string       `json:"rejoin_url,omitempty"`
 }

@@ -21,9 +21,9 @@ func TestAppealIntentValidationPreservesLegacyOnlyWhenAbsent(t *testing.T) {
 			t.Fatal("invalid payload fell back", payload, err)
 		}
 	}
-	payload, _ := json.Marshal(model.AppealDecisionIntent{Version: 1, Status: model.AppealStatusAccepted, Reason: "saved reason", RejoinURL: "https://discord.gg/pond"})
+	payload, _ := json.Marshal(model.AppealDecisionIntent{Version: 1, Status: model.AppealStatusAccepted, Reason: "saved reason", CaseNumber: 42, CaseID: "case", GuildName: "Pond", RejoinURL: "https://discord.gg/pond"})
 	notice, err = appealMemberNotification(model.AppealNotification{Body: legacy, DecisionIntentJSON: string(payload)})
-	if err != nil || notice.LegacyBody != "" || notice.Intent == nil || notice.Intent.Reason != "saved reason" {
+	if err != nil || notice.LegacyBody != "" || notice.Intent == nil || notice.Intent.Reason != "saved reason" || notice.Intent.CaseNumber != 42 || notice.Intent.CaseID != "case" || notice.Intent.GuildName != "Pond" {
 		t.Fatal(notice, err)
 	}
 }

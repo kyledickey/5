@@ -269,7 +269,7 @@ func TestAppealServiceOwnershipSnapshotTimelineAndAtomicAcceptance(t *testing.T)
 			continue
 		}
 		var intent model.AppealDecisionIntent
-		if err := json.Unmarshal([]byte(notification.DecisionIntentJSON), &intent); err != nil || intent.Version != 1 || intent.Status != model.AppealStatusAccepted || intent.RejoinURL != "https://discord.gg/pond" || intent.Reason == "" || notification.Body != "" {
+		if err := json.Unmarshal([]byte(notification.DecisionIntentJSON), &intent); err != nil || intent.Version != 1 || intent.Status != model.AppealStatusAccepted || intent.RejoinURL != "https://discord.gg/pond" || intent.Reason == "" || intent.CaseNumber != caseModel.CaseNumber || intent.CaseID != caseModel.ID || intent.GuildName != guild.Name || notification.Body != "" {
 			t.Fatalf("accepted notice lost decision snapshot: %+v %v", notification, err)
 		}
 		if strings.Contains(notification.DecisionIntentJSON, "moderator") {

@@ -16,64 +16,47 @@ import (
 func appealDecisionHandler(services *quack.Services, appeals *quack.AppealService, action string) ui.Handler {
 	return func(ctx ui.Context) ui.HandlerResult {
 		if ctx.Interaction == nil || ctx.Interaction.Interaction == nil || ctx.Interaction.GuildID == "" || ctx.Interaction.Member == nil || ctx.Interaction.Member.User == nil {
-			return ui.Immediate(ui.Error("Use this control in the server's appeal queue."))
+			return ui.Immediate(ui.Error("Open this appeal in the server’s review queue to decide it."))
 		}
 		id, err := ui.DecodeCustomID(ctx.Interaction.MessageComponentData().CustomID)
 		if err != nil {
-			return ui.Immediate(ui.Error("That appeal control is invalid."))
+			return ui.Immediate(ui.Error("That appeal button is broken. Open /appeals to try again."))
 		}
 		actor := ctx.Interaction.Member.User
 		privateQueue := ctx.Interaction.Message != nil && ctx.Interaction.Message.Flags&discordgo.MessageFlagsEphemeral != 0
-		ack := ui.DeferEphemeral()
-		if privateQueue {
-			ack = ui.DeferUpdate()
-		}
-		return ui.Async(ack, func(taskCtx context.Context, responder ui.Responder) error {
+		return ui.Async(ui.DeferUpdate(), func(taskCtx context.Context, responder ui.Responder) error {
 			guild, err := services.Guilds.ResolveDiscordStaffContext(taskCtx, quack.DiscordStaffContextInput{DiscordGuildID: ctx.Interaction.GuildID, DiscordUserID: actor.ID, DisplayName: actor.GlobalName, LastActiveAt: time.Now().UTC()})
 			if err != nil {
-				_, err = responder.EditOriginal(ui.ErrorEdit("Could not verify your current moderation permissions."))
+				_, err = responder.Followup(ui.Signal("error", "I couldn’t check your Discord permissions. Try again in a moment.", true))
 				return err
 			}
 			var decided *quack.AppealResponse
 			switch action {
 			case "accept":
-				decided, err = appeals.Accept(taskCtx, guild, id.Payload, "The case was reconsidered.")
+				decided, err = appeals.Accept(taskCtx, guild, id.Payload, "This case no longer counts against you.")
 			case "reject":
-				decided, err = appeals.Reject(taskCtx, guild, id.Payload, "The original decision still stands.")
+				decided, err = appeals.Reject(taskCtx, guild, id.Payload, "This case will stay on your record.")
 			default:
 				err = quack.ErrAppealValidation
 			}
 			if err != nil {
-				text := "This appeal could not be updated. Please try again."
+				text := "I couldn’t save your decision. Please try again."
 				switch {
 				case errors.Is(err, quack.ErrAppealConflict):
 					text = "This appeal has already been decided or its case was voided."
 				case errors.Is(err, quack.ErrAppealPermissionDenied):
 					text = "You need Moderate Members permission to review appeals."
 				case errors.Is(err, quack.ErrAppealNotFound):
-					text = "That appeal is not available in this server."
+					text = "I couldn’t find that appeal in this server. Open /appeals to see pending appeals."
 				}
-				_, editErr := responder.EditOriginal(ui.ErrorEdit(text))
+				_, editErr := responder.Followup(ui.Signal("error", text, true))
 				return editErr
 			}
-			text := "Appeal rejected. The case and punishment remain unchanged."
-			if action == "accept" {
-				text = "Appeal accepted. The case was voided and any ban or timeout removal is queued."
-			}
+			message := views.AppealStaffPage(decided, 1, ui.SessionApplicationID(ctx.Session))
 			if privateQueue {
-				message := views.AppealStaffPage(decided, 1, ui.SessionApplicationID(ctx.Session))
 				message.Components = append(message.Components, ui.Row(ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "appeal", Action: "page", Version: "v1", Payload: "1"}), "Next pending appeal", discordgo.SecondaryButton, false)))
-				_, err = ui.Publish(responder, message)
-				return err
 			}
-			if ctx.Session != nil && ctx.Interaction.Message != nil {
-				message := views.AppealStaffPage(decided, 1, ui.SessionApplicationID(ctx.Session)).ForApplication(ui.SessionApplicationID(ctx.Session))
-				emptyEmbeds := []*discordgo.MessageEmbed{}
-				if _, editErr := ctx.Session.ChannelMessageEditComplex(&discordgo.MessageEdit{ID: ctx.Interaction.Message.ID, Channel: ctx.Interaction.ChannelID, Content: &message.Content, Components: &message.Components, Embeds: &emptyEmbeds, Files: message.Files, AllowedMentions: &discordgo.MessageAllowedMentions{}}, discordgo.WithContext(taskCtx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false)); editErr != nil {
-					text += " The queue message could not be refreshed; the decision is saved."
-				}
-			}
-			_, err = ui.Publish(responder, ui.Signal("appeal", text, true))
+			_, err = ui.Publish(responder, message)
 			return err
 		})
 	}

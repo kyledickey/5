@@ -35,17 +35,24 @@ func AppealStaffMessage(appeal *quack.AppealResponse) ui.Message {
 	if appeal == nil {
 		return ui.Signal("error", "That appeal couldn’t be found.", true)
 	}
-	status := map[model.AppealStatus]string{model.AppealStatusPending: "is waiting for review", model.AppealStatusNeedsInformation: "needs more information", model.AppealStatusAccepted: "was accepted", model.AppealStatusRejected: "was declined", model.AppealStatusClosed: "was closed"}[appeal.Status]
-	if status == "" {
-		status = "is available for review"
+	lead := fmt.Sprintf("Received an appeal from <@%s>.", appeal.TargetDiscordUserID)
+	switch appeal.Status {
+	case model.AppealStatusAccepted, model.AppealStatusRejected:
+		lead = fmt.Sprintf("Appeal %s · <@%s>", appeal.Status, appeal.TargetDiscordUserID)
+		if appeal.ReviewedByDiscordUserID != "" {
+			lead += fmt.Sprintf("\nReviewed by <@%s>.", appeal.ReviewedByDiscordUserID)
+		}
+	case model.AppealStatusNeedsInformation:
+		lead = fmt.Sprintf("Waiting for more information from <@%s>.", appeal.TargetDiscordUserID)
+	case model.AppealStatusClosed:
+		lead = fmt.Sprintf("Appeal closed · <@%s>", appeal.TargetDiscordUserID)
 	}
-	lead := fmt.Sprintf("The appeal from <@%s> %s.", appeal.TargetDiscordUserID, status)
 	body := []string{}
+	if appeal.DecisionReason != "" {
+		body = append(body, ui.PlainText(appeal.DecisionReason))
+	}
 	for _, answer := range appeal.Answers {
 		body = append(body, ui.Quote(ui.PlainText(fmt.Sprint(answer.Value))))
-	}
-	if appeal.DecisionReason != "" {
-		body = append(body, "Decision: "+ui.PlainText(appeal.DecisionReason))
 	}
 	meta := fmt.Sprintf("Case #%d · %s", appeal.CaseNumber, ui.PlainText(appeal.TemplateName))
 	message := ui.Conversation("appeal", lead, "", strings.Join(body, "\n\n"), meta, false)

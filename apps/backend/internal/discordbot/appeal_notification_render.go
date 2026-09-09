@@ -1,6 +1,7 @@
 package discordbot
 
 import (
+	"fmt"
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/discordtext"
@@ -22,9 +23,21 @@ func appealMemberNotificationBody(notice quack.AppealMemberNotification) string 
 	case model.AppealStatusAccepted:
 		icon, lead, next = "accept", "Your appeal was accepted.", "Your case was voided. Quack will try to remove any ban or timeout from it."
 	case model.AppealStatusRejected:
-		icon, lead = "decline", "Your appeal was declined."
+		icon, lead = "decline", "Your appeal was rejected."
 	}
-	body := discordtext.Conversation(icon, lead, discordtext.Plain(reason), next, "")
+	meta := ""
+	if notice.Intent.CaseNumber > 0 {
+		meta = fmt.Sprintf("Case #%d", notice.Intent.CaseNumber)
+	} else if notice.Intent.CaseID != "" {
+		meta = "Case " + discordtext.Plain(notice.Intent.CaseID)
+	}
+	if notice.Intent.GuildName != "" {
+		if meta != "" {
+			meta += " · "
+		}
+		meta += discordtext.Plain(notice.Intent.GuildName)
+	}
+	body := discordtext.Conversation(icon, lead, discordtext.Plain(reason), next, meta)
 	if notice.Intent.RejoinURL != "" {
 		body += "\n\nIf you left or were banned, you can rejoin once any ban has been removed: " + notice.Intent.RejoinURL
 	}

@@ -14,11 +14,11 @@ func appealSubmissionHandler(appeals *quack.AppealService) ui.Handler {
 	return func(ctx ui.Context) ui.HandlerResult {
 		memberID := appealInteractionMember(ctx.Interaction)
 		if memberID == "" {
-			return ui.Immediate(ui.Error("This appeal button is unavailable."))
+			return ui.Immediate(ui.Error("I couldn’t identify your Discord account. Try opening the appeal again."))
 		}
 		id, err := ui.DecodeCustomID(ctx.Interaction.MessageComponentData().CustomID)
 		if err != nil {
-			return ui.Immediate(ui.Error("This appeal button is invalid."))
+			return ui.Immediate(ui.Error("That appeal button is broken. Ask a moderator for help."))
 		}
 		if err := appeals.CanSubmit(ctx.Context, id.Payload, memberID); err != nil {
 			return ui.Immediate(ui.Error(appealSubmissionError(err)))
@@ -33,12 +33,12 @@ func appealSubmissionModal(appeals *quack.AppealService) ui.Handler {
 	return func(ctx ui.Context) ui.HandlerResult {
 		memberID := appealInteractionMember(ctx.Interaction)
 		if memberID == "" {
-			return ui.Immediate(ui.Error("This appeal form is unavailable."))
+			return ui.Immediate(ui.Error("I couldn’t identify your Discord account. Open the appeal form again."))
 		}
 		data := ctx.Interaction.ModalSubmitData()
 		id, err := ui.DecodeCustomID(data.CustomID)
 		if err != nil {
-			return ui.Immediate(ui.Error("This appeal form is invalid."))
+			return ui.Immediate(ui.Error("I couldn’t read this appeal form. Open it again and try once more."))
 		}
 		var statement string
 		for _, component := range data.Components {
@@ -97,7 +97,7 @@ func appealSubmissionError(err error) string {
 	case errors.Is(err, model.ErrAppealCaseIneligible):
 		return "This case cannot be appealed."
 	case errors.Is(err, quack.ErrAppealNotFound):
-		return "This appeal is not available to you."
+		return "This appeal is not available to you. Open the appeal button in your own case DM."
 	case errors.Is(err, quack.ErrAppealValidation):
 		return "Write your appeal in 1–4,000 characters."
 	default:

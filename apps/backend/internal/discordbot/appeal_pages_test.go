@@ -2,7 +2,7 @@ package discordbot
 
 import (
 	"context"
-	"errors"
+	"strings"
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
@@ -21,7 +21,7 @@ func TestStatementBrowsingIsPrivateAndRechecksAuthority(t *testing.T) {
 	services := &quack.Services{Guilds: quack.NewGuildService(repository, &appealReviewAuthorization{})}
 	appeals := quack.NewAppealService(repository)
 	for _, private := range []bool{false, true} {
-		message := &discordgo.Message{}
+		message := &discordgo.Message{ID: "queue", Content: "PRIVATE STATEMENT"}
 		if private {
 			message.Flags = discordgo.MessageFlagsEphemeral
 		}
@@ -38,11 +38,17 @@ func TestStatementBrowsingIsPrivateAndRechecksAuthority(t *testing.T) {
 			t.Fatal("shared queue browsing was not private")
 		}
 		responder := &appealTestResponder{}
-		if err := result.Task(context.Background(), responder); !errors.Is(err, quack.ErrAppealPermissionDenied) {
-			t.Fatalf("stale permissions were trusted: %v", err)
+		if err := result.Task(context.Background(), responder); err != nil {
+			t.Fatalf("permission error was not rendered: %v", err)
 		}
-		if responder.content != "" {
-			t.Fatal("revoked moderator received statement content")
+		if !responder.lastEdit.PrivateError || responder.edits != 1 || !strings.Contains(responder.content, "Moderate Members") {
+			t.Fatalf("missing private permission feedback: %+v", responder)
+		}
+		if strings.Contains(responder.content, "PRIVATE STATEMENT") || strings.Contains(responder.content, "Received an appeal") || (responder.lastEdit.Components != nil && len(*responder.lastEdit.Components) != 0) {
+			t.Fatal("revoked moderator received statement content or controls")
+		}
+		if responder.followups != 0 || message.Content != "PRIVATE STATEMENT" {
+			t.Fatal("statement browsing changed the shared queue")
 		}
 	}
 }

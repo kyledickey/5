@@ -22,11 +22,11 @@ func appealStatementPage(services *quack.Services, appeals *quack.AppealService,
 		id, err := ui.DecodeCustomID(ctx.Interaction.MessageComponentData().CustomID)
 		parts := strings.SplitN(id.Payload, "|", 2)
 		if err != nil || len(parts) != 2 || parts[1] == "" {
-			return ui.Immediate(ui.Error("That appeal page is invalid."))
+			return ui.Immediate(ui.Error("I couldn’t open that page. Run /appeals to start again."))
 		}
 		page, err := strconv.Atoi(parts[0])
 		if err != nil || page < 1 || page > 1000000 {
-			return ui.Immediate(ui.Error("That appeal page is invalid."))
+			return ui.Immediate(ui.Error("I couldn’t open that page. Run /appeals to start again."))
 		}
 		ack := ui.DeferEphemeral()
 		if ctx.Interaction.Message != nil && ctx.Interaction.Message.Flags&discordgo.MessageFlagsEphemeral != 0 {
@@ -36,10 +36,12 @@ func appealStatementPage(services *quack.Services, appeals *quack.AppealService,
 			actor := ctx.Interaction.Member.User
 			guild, err := services.Guilds.ResolveDiscordStaffContext(taskCtx, quack.DiscordStaffContextInput{DiscordGuildID: ctx.Interaction.GuildID, DiscordUserID: actor.ID, DisplayName: actor.GlobalName, LastActiveAt: time.Now().UTC()})
 			if err != nil {
+				_, err = responder.EditOriginal(ui.ErrorEdit("I couldn’t check your Discord permissions. Try again in a moment."))
 				return err
 			}
 			appeal, err := appeals.GetStaff(taskCtx, guild, parts[1])
 			if err != nil {
+				_, err = responder.EditOriginal(ui.ErrorEdit("I couldn’t open that appeal. Check that you have Moderate Members permission, then try /appeals."))
 				return err
 			}
 			message := views.AppealStaffPage(appeal, page+delta, ui.SessionApplicationID(ctx.Session))

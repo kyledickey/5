@@ -14,14 +14,30 @@ import (
 // appealTestResponder captures only the edit used by the deferred submission.
 type appealTestResponder struct {
 	ui.Responder
-	content string
+	content   string
+	edits     int
+	followups int
+	lastEdit  ui.Edit
 }
 
+// EditOriginal captures the source message update for lifecycle assertions.
 func (r *appealTestResponder) EditOriginal(edit ui.Edit) (*discordgo.Message, error) {
+	r.edits++
+	r.lastEdit = edit
 	if edit.Content != nil {
 		r.content = *edit.Content
 	}
 	return &discordgo.Message{ID: "response"}, nil
+}
+
+// Followup captures private errors without replacing the shared queue entry.
+func (r *appealTestResponder) Followup(message ui.Message) (*discordgo.Message, error) {
+	r.content = message.Content
+	r.followups++
+	if !message.Ephemeral {
+		panic("appeal errors must stay private")
+	}
+	return &discordgo.Message{ID: "error"}, nil
 }
 
 // TestAppealDMFormOwnershipAndSingleSubmission runs actual component/modal payloads
@@ -130,9 +146,19 @@ func TestAppealQueueDecisionChecksLivePermissions(t *testing.T) {
 		if result.Task == nil {
 			t.Fatal("missing decision task")
 		}
+		if result.Response.Type != discordgo.InteractionResponseDeferredMessageUpdate {
+			t.Fatalf("decision created a separate acknowledgement: %+v", result.Response)
+		}
 		r := &appealTestResponder{}
 		if err := result.Task(ctx, r); err != nil {
 			t.Fatal(err)
+		}
+		if strings.Contains(r.content, "Appeal accepted") {
+			if r.edits != 1 || r.followups != 0 {
+				t.Fatal("decision did not update original exactly once", r)
+			}
+		} else if r.edits != 0 || r.followups != 1 {
+			t.Fatal("error replaced shared queue", r)
 		}
 		return r.content
 	}
