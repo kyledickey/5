@@ -1552,3 +1552,27 @@ means further work is required, not completion.
 - The separate blocked-DM regression (`b011be8`) verifies Discord 403/50007 is
   recorded as a definitive undelivered send with retained attempted content and
   no automatic resend. Account-level blocked-DM acceptance remains open.
+
+### Live missing-ticket-queue repair
+
+- Switched only the authorized beta pane `%1` to
+  `/tmp/quack-v5-ticket-recovery-review`, built from `e091aad` with
+  `vcs.modified=false`. Existing MySQL/Redis state was retained. `/readyz` passed
+  all checks, including Discord, storage, queue, and action capabilities.
+- Native Discord monkey opened ticket `01M21Q7TG4Y8KGG24E47NTMS6Y`, thread
+  `1547032990302085164`, and sent the synthetic queue-recovery marker. Helium
+  dickey deleted only that ticket's beta-authored queue post
+  `1547033000859144266` in `1546774567782195239`.
+- From the surviving thread View control, dickey selected Repair ticket and
+  received private success feedback. SQL saved replacement post
+  `1547033423158312971`; selecting Repair ticket again retained the same ID.
+- Monkey closed through the surviving thread control. SQL recorded resolved,
+  retained the replacement post as the transcript URL, and cleared the member's
+  open-ticket reservation. Helium displayed the exact synthetic marker inside
+  `ticket-01M21Q7TG4Y8KGG24E47NTMS6Y.txt` on that replacement post.
+- Read-only beta REST verification returned Discord `10003` for the deleted
+  thread and found exactly one matching transcript attachment in the queue's
+  latest 100 messages, authored by beta `819019613371236432`. No pending synthetic
+  ticket remains. This proves missing-post repair and normal closure after
+  repair; failed deletion and uncertain-send recovery remain regression evidence,
+  not live Discord acceptance.
