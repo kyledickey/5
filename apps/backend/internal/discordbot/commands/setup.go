@@ -32,6 +32,11 @@ func SetupCommandSpec(moduleSetup ...SetupHandlers) CommandSpec {
 		Type: discordgo.ApplicationCommandOptionSubCommand, Name: "audit", Description: "Set up moderation history",
 		Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionChannel, Name: "channel", Description: "Use an existing channel; otherwise Quack creates one", ChannelTypes: []discordgo.ChannelType{discordgo.ChannelTypeGuildText}}},
 	})
+	for _, command := range spec.Definition.Options {
+		if command.Name == "tickets" || command.Name == "honeypot" || command.Name == "logging" {
+			command.Options = append(command.Options, &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionBoolean, Name: "enabled", Description: "Enable or disable the saved setup; use this option on its own"})
+		}
+	}
 	spec.Handler = func(ctx ui.Context) ui.HandlerResult {
 		if ctx.Interaction != nil && ctx.Interaction.Interaction != nil {
 			options := ctx.Interaction.ApplicationCommandData().Options
@@ -39,6 +44,9 @@ func SetupCommandSpec(moduleSetup ...SetupHandlers) CommandSpec {
 				return handleAuditSetup(ctx)
 			}
 			if len(options) == 1 && (options[0].Name == "tickets" || options[0].Name == "honeypot" || options[0].Name == "logging") {
+				if enabled := options[0].GetOption("enabled"); enabled != nil {
+					return handleSetupToggle(ctx, options[0])
+				}
 				var handler ui.Handler
 				if len(moduleSetup) > 0 {
 					if options[0].Name == "tickets" {
