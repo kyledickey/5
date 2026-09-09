@@ -341,3 +341,14 @@ These questions follow the [implementation review](v5-product-review.md). They a
 - The `quack` tmux session may be used to inspect and work with the running processes.
 
 After answers, revise the product definition, write example interactions and concrete acceptance scenarios, and implement in logical commits. Unanswered questions are not permission to silently change established policy.
+
+## First walkthrough follow-up
+
+The September 8 feedback revises earlier presentation choices: normal command
+results should be public and singular; errors, intermediate selectors, and
+sensitive staff content remain private. Copy should be brief and human, with
+long explanations in help, native command mentions, semantic button colors,
+compact localized history, and useful channel introductions. Ticket closure
+should restore the member DM and transcript. See
+[v5-walkthrough-revisions.md](v5-walkthrough-revisions.md) for implemented behavior
+and verification limits.
