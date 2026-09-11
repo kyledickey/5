@@ -87,7 +87,7 @@ legacy template deletion state to archive state, installs one-default and
 one-action uniqueness plus final query/claim indexes, and inventories unsafe
 expired running actions for manual review without changing their history. Both
 are forward-only. Recovery, backup, restore, and coexistence are documented in
-`storage-recovery-v5.md` and `v4-historical-import.md`.
+`storage-recovery.md` and `v4-historical-import.md`.
 
 ## Forward procedure
 

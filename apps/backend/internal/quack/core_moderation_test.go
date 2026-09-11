@@ -94,7 +94,7 @@ func TestCaseContextEvidenceVoidReplacementAndMemberProjection(t *testing.T) {
 	template := createAppTemplate(t, ctx, store, admin, input)
 	link := "https://discord.com/channels/111111111111111111/222222222222222222/333333333333333333"
 	evidenceClient := &fakeEvidenceClient{message: quack.DiscordMessageSnapshot{GuildID: guildDiscordID, ChannelID: "222222222222222222", MessageID: "333333333333333333", AuthorDiscordUserID: "target-1", URL: link, Content: "original text", CreatedAt: time.Now().UTC(), Attachments: []quack.DiscordAttachmentSnapshot{{ID: "a1", Filename: "proof.png", ContentType: "image/png", SizeBytes: 100, URL: "https://cdn.discordapp.com/proof"}}}, preserved: quack.PreservedDiscordAttachment{URL: "https://cdn.discordapp.com/copy", MessageID: "copy-message", AttachmentID: "copy-attachment"}}
-	service := quack.NewCaseService(store).WithEvidenceCapture(quack.NewEvidenceService(evidenceClient, store))
+	service := quack.NewCaseService(store, nil).WithEvidenceCapture(quack.NewEvidenceService(evidenceClient, store))
 	summary, _ := json.Marshal("visible summary")
 	message, _ := json.Marshal(link)
 	created, err := service.Create(ctx, moderator, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: "target-1", ContextValues: []quack.CaseContextValueInput{{Key: "summary", Value: summary}, {Key: "message", Value: message}, {Key: "details", Value: json.RawMessage("null")}}})
@@ -233,7 +233,7 @@ func TestEnforcementUsesExactSettingsAndNotificationOrder(t *testing.T) {
 	input := validTemplateInput("timeout-policy")
 	input.Levels[0].Actions = []quack.TemplateActionInput{{ActionType: model.ActionTimeoutUser, TimeoutDurationSeconds: 937, MaxRetries: 2}}
 	template := createAppTemplate(t, ctx, store, admin, input)
-	created, err := quack.NewCaseService(store).Create(ctx, moderator, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: "target-1"})
+	created, err := quack.NewCaseService(store, nil).Create(ctx, moderator, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: "target-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +262,7 @@ func TestBanPreparesDMAndUsesExactHistoryDeletion(t *testing.T) {
 	input := validTemplateInput("ban-policy")
 	input.Levels[0].Actions = []quack.TemplateActionInput{{ActionType: model.ActionBanUser, DeleteMessageSeconds: 86400}}
 	template := createAppTemplate(t, ctx, store, admin, input)
-	created, err := quack.NewCaseService(store).Create(ctx, moderator, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: "target-1"})
+	created, err := quack.NewCaseService(store, nil).Create(ctx, moderator, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: "target-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +281,7 @@ func TestAppealableCaseNotificationUsesSecureDashboardControlContract(t *testing
 	admin := templateGuildContext(t, store, "guild-1", "admin-1", uint64(discordgo.PermissionManageGuild))
 	moderator := templateGuildContext(t, store, "guild-1", "mod-1", uint64(discordgo.PermissionModerateMembers))
 	template := createAppTemplate(t, ctx, store, admin, validTemplateInput("appeal-link"))
-	created, err := quack.NewCaseService(store).Create(ctx, moderator, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: "target-1"})
+	created, err := quack.NewCaseService(store, nil).Create(ctx, moderator, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: "target-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,7 +311,7 @@ func TestEscalationExcludesImportedV4HistoryAcrossTemplateVersions(t *testing.T)
 	if err != nil || updated.ID != template.ID || updated.Version != 2 {
 		t.Fatalf("version update: %+v err=%v", updated, err)
 	}
-	created, err := quack.NewCaseService(store).Create(ctx, moderator, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: "target-1"})
+	created, err := quack.NewCaseService(store, nil).Create(ctx, moderator, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: "target-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,7 +326,7 @@ func TestCaseCreationIdempotencyPreventsDuplicateWork(t *testing.T) {
 	admin := templateGuildContext(t, store, "guild-1", "admin-1", uint64(discordgo.PermissionManageGuild))
 	moderator := templateGuildContext(t, store, "guild-1", "mod-1", uint64(discordgo.PermissionModerateMembers))
 	template := createAppTemplate(t, ctx, store, admin, validTemplateInput("idempotent-policy"))
-	service := quack.NewCaseService(store)
+	service := quack.NewCaseService(store, nil)
 	input := quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: "target-1", IdempotencyKey: "discord-interaction-1"}
 	first, err := service.Create(ctx, moderator, input)
 	if err != nil {

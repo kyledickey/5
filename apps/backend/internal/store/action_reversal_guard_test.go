@@ -110,7 +110,7 @@ func exerciseReversalProvenanceQueries(t *testing.T, db *gorm.DB) {
 	reversal.ID = "inverse"
 	reversal.ActionType = model.ActionRemoveTimeout
 	reversal.ReversalOfExecutionID = &original.ID
-	if err := createCaseActionAudit(db, reversal, CompleteCaseActionParams{ExecutionStatus: model.ActionExecutionSucceeded, ResponsePayloadJSON: `{"result":"timeout_already_absent","reversal_noop":true}`}, now); err != nil {
+	if err := createCaseActionAudit(db, reversal, model.CompleteCaseActionParams{ExecutionStatus: model.ActionExecutionSucceeded, ResponsePayloadJSON: `{"result":"timeout_already_absent","reversal_noop":true}`}, now); err != nil {
 		t.Fatal(err)
 	}
 	var audit model.AuditLogEntry

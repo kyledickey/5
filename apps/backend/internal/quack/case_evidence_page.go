@@ -17,8 +17,15 @@ type CaseEvidencePageResponse struct {
 
 // GetEvidencePage checks current staff/guild access before fetching any captured
 // content. It preserves read audit behavior while bounding native snapshot reads.
-func (s *CaseService) GetEvidencePage(ctx context.Context, guild *GuildStaffContext, caseRef string, position int) (*CaseEvidencePageResponse, error) {
+// Positions below 1 or beyond the total are clamped into range.
+func (s *CaseService) GetEvidencePage(
+	ctx context.Context,
+	guild *GuildStaffContext,
+	caseRef string,
+	position int,
+) (*CaseEvidencePageResponse, error) {
 	if err := s.requireCaseRead(guild); err != nil {
+		// best-effort: the denial is already being returned to the caller
 		_ = s.audit(ctx, guild, string(model.AuditActionCaseRead), "case", strings.TrimSpace(caseRef), model.AuditResultDenied, "permission_denied")
 		return nil, err
 	}
@@ -50,5 +57,16 @@ func (s *CaseService) GetEvidencePage(ctx context.Context, guild *GuildStaffCont
 	if snapshot != nil {
 		evidence = caseEvidenceResponses([]model.CaseEvidenceSnapshot{*snapshot}, attachments, false)
 	}
-	return &CaseEvidencePageResponse{CaseDetailResponse: CaseDetailResponse{CaseResponse: CaseResponse{ID: item.ID, CaseNumber: item.CaseNumber, ContextValues: parseCaseContextValues(item.ContextValuesJSON)}, Evidence: evidence}, Position: position, Total: total}, nil
+	return &CaseEvidencePageResponse{
+		CaseDetailResponse: CaseDetailResponse{
+			CaseResponse: CaseResponse{
+				ID:            item.ID,
+				CaseNumber:    item.CaseNumber,
+				ContextValues: parseCaseContextValues(item.ContextValuesJSON),
+			},
+			Evidence: evidence,
+		},
+		Position: position,
+		Total:    total,
+	}, nil
 }

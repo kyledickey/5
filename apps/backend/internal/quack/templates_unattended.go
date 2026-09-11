@@ -18,9 +18,6 @@ var ErrUnattendedTemplateUnavailable = errors.New("unattended template is unavai
 // level. It performs no staff authorization: callers must establish their system
 // workflow authority before invoking this read-only compatibility check.
 func (s *TemplateService) ValidateUnattendedTemplate(ctx context.Context, guildID, templateID string) error {
-	if s == nil || s.store == nil {
-		return errors.New("template service is not configured")
-	}
 	template, err := s.store.GetCaseTemplateExpanded(ctx, strings.TrimSpace(guildID), strings.TrimSpace(templateID))
 	if err != nil {
 		if errors.Is(err, model.ErrTemplateCompatibilityReviewRequired) {

@@ -8,9 +8,10 @@ import (
 
 // captureStorage makes one bounded repair attempt per attachment batch. Failure
 // leaves metadata-only evidence with the existing explicit warning, never a new
-// requirement to preserve files before moderation can proceed.
+// requirement to preserve files before moderation can proceed. Without a store
+// the caller's channel ID is returned unchanged.
 func (s *EvidenceService) captureStorage(ctx context.Context, discordGuildID, fallback string) string {
-	if s == nil || s.store == nil {
+	if s.store == nil {
 		return fallback
 	}
 	repairCtx, cancel := context.WithTimeout(ctx, 10*time.Second)

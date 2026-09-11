@@ -2,10 +2,10 @@ package ui
 
 import (
 	"fmt"
-	"github.com/quackdiscord/bot/internal/discordtext"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/internal/discordtext"
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
@@ -35,7 +35,10 @@ func WithUserAuthor(message Message, user *discordgo.User) Message {
 		return message
 	}
 	copy := *message.Embeds[0]
-	copy.Author = &discordgo.MessageEmbedAuthor{Name: TruncateRunes(user.Username, EmbedTitleLimit), IconURL: user.AvatarURL("64")}
+	copy.Author = &discordgo.MessageEmbedAuthor{
+		Name:    TruncateRunes(user.Username, EmbedTitleLimit),
+		IconURL: user.AvatarURL("64"),
+	}
 	message.Embeds = append([]*discordgo.MessageEmbed(nil), message.Embeds...)
 	message.Embeds[0] = &copy
 	return message

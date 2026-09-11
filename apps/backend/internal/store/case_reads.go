@@ -11,10 +11,7 @@ import (
 )
 
 // CountTemplateCasesForTarget counts non-voided cases across versions of one guild-owned template.
-func (s *Store) CountTemplateCasesForTarget(ctx context.Context, params CountTemplateCasesForTargetParams) (int64, error) {
-	if s == nil || s.db == nil {
-		return 0, errors.New("database not connected")
-	}
+func (s *Store) CountTemplateCasesForTarget(ctx context.Context, params model.CountTemplateCasesForTargetParams) (int64, error) {
 
 	query := s.db.WithContext(ctx).
 		Model(&model.Case{}).
@@ -34,11 +31,9 @@ func (s *Store) CountTemplateCasesForTarget(ctx context.Context, params CountTem
 	return count, nil
 }
 
-// ListCases returns cases subject to authorization, ordering, and filtering constraints.
+// ListCases returns every case in a guild in case-number order. The caller
+// authorizes the guild; this method applies no filtering.
 func (s *Store) ListCases(ctx context.Context, guildID string) ([]model.Case, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 
 	var cases []model.Case
 	if err := s.db.WithContext(ctx).Where("guild_id = ?", guildID).Order("case_number ASC").Find(&cases).Error; err != nil {
@@ -49,10 +44,7 @@ func (s *Store) ListCases(ctx context.Context, guildID string) ([]model.Case, er
 }
 
 // ListCasesFiltered applies guild, member, and moderation filters before stable pagination.
-func (s *Store) ListCasesFiltered(ctx context.Context, params ListCasesParams) (*ListCasesResult, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
+func (s *Store) ListCasesFiltered(ctx context.Context, params model.ListCasesParams) (*model.ListCasesResult, error) {
 
 	limit := params.Limit
 	if limit <= 0 {
@@ -80,17 +72,15 @@ func (s *Store) ListCasesFiltered(ctx context.Context, params ListCasesParams) (
 		return nil, fmt.Errorf("list filtered cases: %w", err)
 	}
 
-	return &ListCasesResult{Cases: cases, Total: total}, nil
+	return &model.ListCasesResult{Cases: cases, Total: total}, nil
 }
 
 // GetCaseByIDOrNumber resolves either an internal case ID or a human-readable number within one guild.
 func (s *Store) GetCaseByIDOrNumber(ctx context.Context, guildID, caseRef string) (*model.Case, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 
 	query := s.db.WithContext(ctx).Where("guild_id = ?", guildID)
-	if caseNumber, err := strconv.ParseUint(caseRef, 10, 64); err == nil && strconv.FormatUint(caseNumber, 10) == caseRef {
+	caseNumber, err := strconv.ParseUint(caseRef, 10, 64)
+	if err == nil && strconv.FormatUint(caseNumber, 10) == caseRef {
 		query = query.Where("case_number = ?", caseNumber)
 	} else {
 		query = query.Where("id = ?", caseRef)
@@ -109,9 +99,6 @@ func (s *Store) GetCaseByIDOrNumber(ctx context.Context, guildID, caseRef string
 
 // GetCaseByID retrieves a case without requiring current guild membership, for member-owned access checks performed by the service.
 func (s *Store) GetCaseByID(ctx context.Context, caseID string) (*model.Case, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 	var item model.Case
 	result := s.db.WithContext(ctx).Where("id = ?", caseID).First(&item)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -125,9 +112,6 @@ func (s *Store) GetCaseByID(ctx context.Context, caseID string) (*model.Case, er
 
 // GetCaseByIdempotencyKey retrieves the durable result of an externally retried case request.
 func (s *Store) GetCaseByIdempotencyKey(ctx context.Context, guildID, key string) (*model.Case, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 	var item model.Case
 	result := s.db.WithContext(ctx).Where("guild_id = ? AND idempotency_key = ?", guildID, key).First(&item)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -139,13 +123,11 @@ func (s *Store) GetCaseByIdempotencyKey(ctx context.Context, guildID, key string
 	return &item, nil
 }
 
-// TargetCaseSummary encapsulates the target case summary rule so callers share one consistent package implementation.
-func (s *Store) TargetCaseSummary(ctx context.Context, guildID, targetDiscordUserID string) (*TargetCaseSummary, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
+// TargetCaseSummary counts one member's cases in a guild in total, by
+// validity, and by template (imported cases with no template count under "").
+func (s *Store) TargetCaseSummary(ctx context.Context, guildID, targetDiscordUserID string) (*model.TargetCaseSummary, error) {
 
-	summary := &TargetCaseSummary{
+	summary := &model.TargetCaseSummary{
 		ByValidity: map[model.CaseValidity]int64{},
 		ByTemplate: map[string]int64{},
 	}
@@ -186,9 +168,6 @@ func (s *Store) TargetCaseSummary(ctx context.Context, guildID, targetDiscordUse
 
 // ListCaseEvents returns a case timeline in chronological order; the caller must authorize the case first.
 func (s *Store) ListCaseEvents(ctx context.Context, caseID string) ([]model.CaseEvent, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 
 	var events []model.CaseEvent
 	if err := s.db.WithContext(ctx).
@@ -210,9 +189,6 @@ func (s *Store) ListRecentCaseEvents(ctx context.Context, caseID string, limit i
 	if limit < 1 || limit > 100 {
 		return nil, errors.New("recent case event limit must be between 1 and 100")
 	}
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 	var events []model.CaseEvent
 	if err := s.db.WithContext(ctx).Where("case_id = ?", caseID).
 		Where("event_type NOT IN ?", retiredCaseEventTypes).
@@ -225,7 +201,7 @@ func (s *Store) ListRecentCaseEvents(ctx context.Context, caseID string, limit i
 	return events, nil
 }
 
-// ListCaseActionExecutions returns case action executions subject to authorization, ordering, and filtering constraints.
+// ListCaseActionExecutions returns one case's executions in position order; the caller authorizes the case.
 func (s *Store) ListCaseActionExecutions(ctx context.Context, caseID string) ([]model.CaseActionExecution, error) {
 	return s.ListCaseActionsForCases(ctx, []string{caseID})
 }
@@ -233,15 +209,15 @@ func (s *Store) ListCaseActionExecutions(ctx context.Context, caseID string) ([]
 // ListCaseActionsForCases fetches actions for an already authorized case page.
 // Callers supply only case IDs selected by their guild or member ownership query.
 func (s *Store) ListCaseActionsForCases(ctx context.Context, caseIDs []string) ([]model.CaseActionExecution, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 	if len(caseIDs) == 0 {
 		return []model.CaseActionExecution{}, nil
 	}
 
 	var executions []model.CaseActionExecution
-	if err := s.db.WithContext(ctx).Where("case_id IN ?", caseIDs).Order("case_id ASC, position ASC, id ASC").Find(&executions).Error; err != nil {
+	if err := s.db.WithContext(ctx).
+		Where("case_id IN ?", caseIDs).
+		Order("case_id ASC, position ASC, id ASC").
+		Find(&executions).Error; err != nil {
 		return nil, fmt.Errorf("list case action executions: %w", err)
 	}
 
@@ -250,9 +226,6 @@ func (s *Store) ListCaseActionsForCases(ctx context.Context, caseIDs []string) (
 
 // ListCaseActionAttempts loads attempts for authorized execution IDs in attempt order.
 func (s *Store) ListCaseActionAttempts(ctx context.Context, executionIDs []string) ([]model.CaseActionAttempt, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 	if len(executionIDs) == 0 {
 		return nil, nil
 	}
@@ -270,11 +243,10 @@ func (s *Store) ListCaseActionAttempts(ctx context.Context, executionIDs []strin
 
 // GetCaseActionExecution retrieves one guild-scoped action for staff recovery controls.
 func (s *Store) GetCaseActionExecution(ctx context.Context, guildID, executionID string) (*model.CaseActionExecution, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 	var item model.CaseActionExecution
-	result := s.db.WithContext(ctx).Where("id = ? AND case_id IN (SELECT id FROM cases WHERE guild_id = ?)", executionID, guildID).First(&item)
+	result := s.db.WithContext(ctx).
+		Where("id = ? AND case_id IN (SELECT id FROM cases WHERE guild_id = ?)", executionID, guildID).
+		First(&item)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
@@ -286,9 +258,6 @@ func (s *Store) GetCaseActionExecution(ctx context.Context, guildID, executionID
 
 // ListCaseEvidence returns immutable snapshots and attachment metadata for one case.
 func (s *Store) ListCaseEvidence(ctx context.Context, caseID string) ([]model.CaseEvidenceSnapshot, []model.CaseEvidenceAttachment, error) {
-	if s == nil || s.db == nil {
-		return nil, nil, errors.New("database not connected")
-	}
 	var snapshots []model.CaseEvidenceSnapshot
 	if err := s.db.WithContext(ctx).Where("case_id = ?", caseID).Order("created_at ASC").Find(&snapshots).Error; err != nil {
 		return nil, nil, fmt.Errorf("list case evidence: %w", err)
@@ -308,9 +277,6 @@ func (s *Store) ListCaseEvidence(ctx context.Context, caseID string) ([]model.Ca
 
 // GetCaseNotification returns the one notification record when the selected level enabled member delivery.
 func (s *Store) GetCaseNotification(ctx context.Context, caseID string) (*model.CaseNotification, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 	var item model.CaseNotification
 	result := s.db.WithContext(ctx).Where("case_id = ?", caseID).First(&item)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -323,7 +289,7 @@ func (s *Store) GetCaseNotification(ctx context.Context, caseID string) (*model.
 }
 
 // filteredCasesQuery adds validated case filters to a caller-owned GORM query.
-func filteredCasesQuery(query *gorm.DB, params ListCasesParams) *gorm.DB {
+func filteredCasesQuery(query *gorm.DB, params model.ListCasesParams) *gorm.DB {
 	query = query.Where("guild_id = ?", params.GuildID)
 	if params.TargetDiscordUserID != "" {
 		query = query.Where("target_discord_user_id = ?", params.TargetDiscordUserID)
@@ -347,7 +313,10 @@ func filteredCasesQuery(query *gorm.DB, params ListCasesParams) *gorm.DB {
 		query = query.Where("created_at <= ?", params.CreatedBefore)
 	}
 	if params.ActionResult != "" {
-		query = query.Where("EXISTS (SELECT 1 FROM case_action_executions cae WHERE cae.case_id = cases.id AND cae.status = ?)", params.ActionResult)
+		query = query.Where(
+			"EXISTS (SELECT 1 FROM case_action_executions cae WHERE cae.case_id = cases.id AND cae.status = ?)",
+			params.ActionResult,
+		)
 	}
 	if params.AppealStatus != "" {
 		query = query.Where("EXISTS (SELECT 1 FROM appeals a WHERE a.case_id = cases.id AND a.status = ?)", params.AppealStatus)

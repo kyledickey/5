@@ -12,8 +12,8 @@ The final release harness is `apps/backend/scripts/v5-readiness.sh`. `--local` r
 composition, focused, race, full, vet, and four-command build gates. `--final`
 also requires disposable `QUACK_TEST_MYSQL_DSN` and `QUACK_TEST_REDIS_URL`
 targets and fails rather than treating missing external-storage evidence as a
-skip. Manual and real-guild steps are defined in `v5-rehearsal.md` and recorded
-in `v5-readiness.md`.
+skip. Manual and real-guild steps are defined in `release/rehearsal.md` and recorded
+in `release/readiness.md`.
 
 `apps/backend/internal/testutil/config.go` also installs a minimal test config so auth and
 cookie-dependent code can run without the full production environment.

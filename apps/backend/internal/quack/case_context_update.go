@@ -13,7 +13,7 @@ import (
 // Valid pasted message links are preserved after text commits; optional capture
 // failures return the saved detail with EvidenceIncomplete instead of losing text.
 func (s *CaseService) UpdateContext(ctx context.Context, guild *GuildStaffContext, caseRef, text string) (*CaseDetailResponse, error) {
-	if s == nil || s.store == nil || guild == nil || guild.Guild == nil || !guild.Can(model.PermissionActionCaseCreate) {
+	if guild == nil || guild.Guild == nil || !guild.Can(model.PermissionActionCaseCreate) {
 		return nil, ErrCasePermissionDenied
 	}
 	text = strings.TrimSpace(text)
@@ -22,7 +22,12 @@ func (s *CaseService) UpdateContext(ctx context.Context, guild *GuildStaffContex
 	}
 	values := []CaseContextValueResponse{}
 	if text != "" {
-		values = append(values, CaseContextValueResponse{Key: "context", Label: "Context", FieldType: model.ContextFieldLongText, Value: text})
+		values = append(values, CaseContextValueResponse{
+			Key:       "context",
+			Label:     "Context",
+			FieldType: model.ContextFieldLongText,
+			Value:     text,
+		})
 	}
 	body, err := json.Marshal(values)
 	if err != nil {

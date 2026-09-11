@@ -80,7 +80,7 @@ func TestV4ImportDryRunIdempotencyIsolationCollisionAndRollback(t *testing.T) {
 	if err != nil || member.Total != 1 {
 		t.Fatalf("member-owned historical projection unavailable: result=%+v err=%v", member, err)
 	}
-	service := quack.NewCaseService(repositories)
+	service := quack.NewCaseService(repositories, nil)
 	staffContext := &quack.GuildStaffContext{Guild: &model.Guild{ULIDModel: model.ULIDModel{ID: importGuildID}}, Staff: &model.StaffMember{DiscordUserID: "operator"}, Permissions: map[model.PermissionAction]bool{model.PermissionActionCaseRead: true}}
 	staffHistory, err := service.List(context.Background(), staffContext, quack.CaseListInput{})
 	if err != nil || staffHistory.Total != 4 {

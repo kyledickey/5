@@ -12,17 +12,22 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// CompleteCaseAction persists the terminal or retry outcome for case action.
-func (s *Store) CompleteCaseAction(ctx context.Context, params CompleteCaseActionParams) error {
-	if s == nil || s.db == nil {
-		return errors.New("database not connected")
-	}
+// CompleteCaseAction records a worker's outcome for one execution and its
+// attempt, fenced on params.LeaseToken when set: a stale token is an error and
+// a missing execution without a token is ignored. Locks are taken case-first
+// to match VoidCase and ClaimNextCaseAction. A retry reported after the case
+// was voided is downgraded to a failure so enforcement never resumes, and any
+// reversals owed to the void are queued here in the same transaction.
+func (s *Store) CompleteCaseAction(ctx context.Context, params model.CompleteCaseActionParams) error {
 
 	now := time.Now().UTC()
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// Serialize completion with void/claim using the same case-first order.
 		var caseRecord model.Case
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id IN (SELECT case_id FROM case_action_executions WHERE id = ?)", params.ExecutionID).Limit(1).Find(&caseRecord).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id IN (SELECT case_id FROM case_action_executions WHERE id = ?)", params.ExecutionID).
+			Limit(1).
+			Find(&caseRecord).Error; err != nil {
 			return err
 		}
 		var execution model.CaseActionExecution
@@ -59,9 +64,16 @@ func (s *Store) CompleteCaseAction(ctx context.Context, params CompleteCaseActio
 			attemptNumber = execution.AttemptCount
 		}
 		var attempt model.CaseActionAttempt
-		attemptResult := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("execution_id = ? AND attempt_number = ?", execution.ID, attemptNumber).First(&attempt)
+		attemptResult := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("execution_id = ? AND attempt_number = ?", execution.ID, attemptNumber).
+			First(&attempt)
 		if errors.Is(attemptResult.Error, gorm.ErrRecordNotFound) {
-			attempt = model.CaseActionAttempt{ExecutionID: execution.ID, AttemptNumber: attemptNumber, StartedAt: startedAt, WorkerID: params.WorkerID}
+			attempt = model.CaseActionAttempt{
+				ExecutionID:   execution.ID,
+				AttemptNumber: attemptNumber,
+				StartedAt:     startedAt,
+				WorkerID:      params.WorkerID,
+			}
 			if err := prepareULIDModel(&attempt.ULIDModel, now); err != nil {
 				return err
 			}
@@ -81,7 +93,10 @@ func (s *Store) CompleteCaseAction(ctx context.Context, params CompleteCaseActio
 		}
 
 		// A failure finishing after a void must not resurrect automatic enforcement.
-		if caseRecord.Validity == model.CaseValidityVoided && execution.ReversalOfExecutionID == nil && params.ExecutionStatus == model.ActionExecutionRetrying {
+		voidedRetry := caseRecord.Validity == model.CaseValidityVoided &&
+			execution.ReversalOfExecutionID == nil &&
+			params.ExecutionStatus == model.ActionExecutionRetrying
+		if voidedRetry {
 			params.ExecutionStatus = model.ActionExecutionFailed
 			params.NextRetryAt = nil
 			params.EventBody = "Enforcement failed after the case was voided; review the outcome"
@@ -132,17 +147,20 @@ func (s *Store) CompleteCaseAction(ctx context.Context, params CompleteCaseActio
 	})
 }
 
-// SkipCaseActions marks case actions as skipped when policy prevents further execution.
-func (s *Store) SkipCaseActions(ctx context.Context, params SkipCaseActionsParams) error {
-	if s == nil || s.db == nil {
-		return errors.New("database not connected")
-	}
+// SkipCaseActions marks every pending or retrying execution after
+// params.AfterPosition as skipped with params.Reason, auditing each one. It is
+// used when an earlier action failed without ContinueOnError semantics.
+func (s *Store) SkipCaseActions(ctx context.Context, params model.SkipCaseActionsParams) error {
 
 	now := time.Now().UTC()
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var executions []model.CaseActionExecution
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("case_id = ? AND position > ? AND status IN ?", params.CaseID, params.AfterPosition, []model.ActionExecutionStatus{model.ActionExecutionPending, model.ActionExecutionRetrying}).
+			Where("case_id = ? AND position > ? AND status IN ?",
+				params.CaseID,
+				params.AfterPosition,
+				[]model.ActionExecutionStatus{model.ActionExecutionPending, model.ActionExecutionRetrying},
+			).
 			Order("position ASC").
 			Find(&executions).Error; err != nil {
 			return fmt.Errorf("list case actions to skip: %w", err)
@@ -170,8 +188,10 @@ func (s *Store) SkipCaseActions(ctx context.Context, params SkipCaseActionsParam
 	})
 }
 
-// createCaseActionAudit creates case action audit while preserving validation, authorization, and persistence invariants.
-func createCaseActionAudit(tx *gorm.DB, execution model.CaseActionExecution, params CompleteCaseActionParams, now time.Time) error {
+// createCaseActionAudit writes the succeeded/retrying/failed audit row for a
+// completed execution. A reversal that found nothing to undo is flagged as
+// reversal_noop so the mirror can explain it. A missing case is ignored.
+func createCaseActionAudit(tx *gorm.DB, execution model.CaseActionExecution, params model.CompleteCaseActionParams, now time.Time) error {
 	var caseModel model.Case
 	result := tx.Where("id = ?", execution.CaseID).Limit(1).Find(&caseModel)
 	if result.Error != nil {
@@ -184,8 +204,11 @@ func createCaseActionAudit(tx *gorm.DB, execution model.CaseActionExecution, par
 	var response struct {
 		ReversalNoop bool `json:"reversal_noop"`
 	}
-	_ = json.Unmarshal([]byte(params.ResponsePayloadJSON), &response)
-	noop := response.ReversalNoop && params.ExecutionStatus == model.ActionExecutionSucceeded && execution.ReversalOfExecutionID != nil && (execution.ActionType == model.ActionRemoveTimeout || execution.ActionType == model.ActionUnbanUser)
+	_ = json.Unmarshal([]byte(params.ResponsePayloadJSON), &response) // best-effort: an unparseable payload just means no noop flag
+	noop := response.ReversalNoop &&
+		params.ExecutionStatus == model.ActionExecutionSucceeded &&
+		execution.ReversalOfExecutionID != nil &&
+		(execution.ActionType == model.ActionRemoveTimeout || execution.ActionType == model.ActionUnbanUser)
 	action := "case_action.succeeded"
 	resultValue := model.AuditResultSuccess
 	switch params.ExecutionStatus {
@@ -218,8 +241,9 @@ func createCaseActionAudit(tx *gorm.DB, execution model.CaseActionExecution, par
 	}, now)
 }
 
-// createSkippedCaseActionAudit creates skipped case action audit while preserving validation, authorization, and persistence invariants.
-func createSkippedCaseActionAudit(tx *gorm.DB, execution model.CaseActionExecution, params SkipCaseActionsParams, now time.Time) error {
+// createSkippedCaseActionAudit writes the case_action.skipped audit row for one
+// execution skipped by SkipCaseActions. A missing case is ignored.
+func createSkippedCaseActionAudit(tx *gorm.DB, execution model.CaseActionExecution, params model.SkipCaseActionsParams, now time.Time) error {
 	var caseModel model.Case
 	result := tx.Where("id = ?", execution.CaseID).Limit(1).Find(&caseModel)
 	if result.Error != nil {

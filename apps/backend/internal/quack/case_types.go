@@ -80,7 +80,8 @@ type CaseProfileResponse struct {
 	Summary CaseProfileSummary `json:"summary"`
 }
 
-// CaseProfileSummary groups the case profile summary state used to keep this package's responsibilities explicit.
+// CaseProfileSummary is the all-time count of a member's cases in the guild,
+// broken down by validity and by template, independent of the page filters.
 type CaseProfileSummary struct {
 	Total      int64            `json:"total"`
 	ByValidity map[string]int64 `json:"by_validity"`
@@ -260,6 +261,10 @@ type selectedTemplateLevel struct {
 	MatchedCaseCount int64
 }
 
+// caseCreatePreflight is what the unlocked preflight computed. The identity
+// fields are compared against a fresh selection inside the guild lock so a
+// concurrent template edit or escalation change cannot commit a stale decision;
+// Captured carries the evidence snapshots taken before the transaction began.
 type caseCreatePreflight struct {
 	TemplateID, SelectedLevelID, ContextValuesJSON string
 	TemplateVersion                                uint

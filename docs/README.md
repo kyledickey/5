@@ -1,52 +1,41 @@
-# Docs
+# Quack v5 backend docs
 
-Internal maintainer docs for the Quack v5 backend.
+Maintainer documentation for the Go backend in `apps/backend`. Everything in
+this directory describes the code as it exists in this checkout. Product
+definition, plans, and historical decision records live under
+[`planning/`](planning/README.md) and are not kept in sync with the code.
 
-This directory covers the code that exists in this checkout today. The
-authoritative product definition lives in [`v5.md`](../v5.md). When current code
-differs from that definition, [`v5-scope-drift.md`](v5-scope-drift.md) records
-the high-level mismatch without making the technical docs inaccurate.
+## Start here
 
-## Index
+| If you want to… | Read |
+|---|---|
+| Understand how the process is assembled and how a request flows | [`architecture.md`](architecture.md) |
+| Find the package that owns a behaviour | [`codebase-map.md`](codebase-map.md) |
+| Run it locally | [`development.md`](development.md) |
+| Configure it | [`configuration.md`](configuration.md) |
+| Understand the tests and how to run the gated ones | [`testing.md`](testing.md) |
 
-- `architecture.md`: service layout, startup flow, request flow, Discord interaction flow, and action execution.
-- `configuration.md`: environment variables and runtime dependencies.
-- `development.md`: local workflow, Docker usage, commands, and where to make common changes.
-- `http-api-platform.md`: OAuth/session lifecycle, browser security, stable errors, rate limits, and HTTP idempotency contracts.
-- `dashboard-api-policy-v5.md`: final dashboard/internal endpoint policy matrix.
-- `migrations.md`: production migration ledger, forward, rerun, failure recovery, and rollback procedures.
-- `operations-security-v5.md`: final health, metrics, configuration, outage, recovery, and shutdown runbook.
-- `storage-recovery-v5.md`: MySQL backup/restore manifest and Redis recovery rehearsal.
-- `v4-historical-import.md`: final v4 import format, dry-run, repeat, rollback, coexistence, and cutover.
-- `v5-rehearsal.md`: local, external-storage, coexistence, restore, and real-guild evidence protocol.
-- `v5-readiness.md`: requirement matrix, validation evidence, exceptions, and current READY/NOT READY verdict.
-- `release-readiness.md`: compatibility overview linking the final operations and readiness evidence.
-- `release-infrastructure-proposal-v5.md`: exact unauthorized CI/container/Compose changes for an infrastructure owner.
-- `v5-scope-drift.md`: high-level differences between the current backend and the intended v5 product.
-- `modules/README.md`: focused notes for core runtime modules and pipelines.
-- `testing.md`: current test harness and scope limits.
+## Reference
 
-## Current Surface
+- [`architecture.md`](architecture.md): composition root, layering rules, startup and shutdown order, HTTP and Discord request flows, the durable action queue.
+- [`codebase-map.md`](codebase-map.md): every package, what it owns, what it may import, and the files to open first.
+- [`http-api-platform.md`](http-api-platform.md): OAuth and session lifecycle, browser security, the stable error envelope, rate limits, HTTP idempotency.
+- [`dashboard-api-policy.md`](dashboard-api-policy.md): endpoint policy matrix for the dashboard and internal adapters.
+- [`appeals-and-member-access.md`](appeals-and-member-access.md): member-owned reads and the appeal state machine.
+- [`audit-statistics-discord.md`](audit-statistics-discord.md): audit log contract, staff statistics, and the Discord audit mirror.
+- [`migrations.md`](migrations.md): the two schema mechanisms (startup reconciliation and the frozen migration ledger), adoption, and rollback.
+- [`v4-historical-import.md`](v4-historical-import.md): importing v4 history without letting it affect escalation.
+- [`modules/README.md`](modules/README.md): focused notes on the case pipeline, action engine, queue, command registry, interactions, guild setup, and the optional modules.
 
-The live backend currently has four main runtime surfaces:
+## Operations
 
-- Discord bot startup, slash-command registration, and interaction dispatch in `apps/backend/cmd/quack/main.go`, `apps/backend/internal/discordbot/commands/`, and `apps/backend/internal/discordbot/interactions/`.
-- HTTP API routes for liveness/readiness/metrics, ops status, auth, guild settings,
-  templates, cases/recovery, audit/statistics, appeals/member access, and optional
-  modules in `apps/backend/internal/httpapi/server.go` and `apps/backend/internal/httpapi/routes/`.
-- Case-action queue processing in `apps/backend/internal/workqueue/queue.go` and `apps/backend/internal/workqueue/queue.go`.
-- Operator-only v4 import, migration, and storage verification commands in
-  `apps/backend/cmd/quack-v4-import`, `apps/backend/cmd/quack-migrate`, and `apps/backend/cmd/quack-storage-verify`.
-- Existing local container packaging in `compose.yaml` and `apps/backend/Dockerfile`;
-  proposed release-infrastructure changes remain explicitly unauthorized.
+- [`operations-security.md`](operations-security.md): health endpoints, metrics, outage and recovery behaviour, shutdown.
+- [`storage-recovery.md`](storage-recovery.md): MySQL backup and restore manifests, Redis recovery.
+- [`release/README.md`](release/README.md): release readiness evidence, rehearsal protocol, and the infrastructure proposal.
 
-Relevant files:
+## Planning and history
 
-- `apps/backend/cmd/quack/main.go`
-- `apps/backend/internal/httpapi/server.go`
-- `apps/backend/internal/httpapi/routes/router.go`
-- `apps/backend/internal/discordbot/commands/case.go`
-- `apps/backend/internal/discordbot/interactions/dispatcher.go`
-- `apps/backend/internal/discordbot/ui/message.go`
-- `apps/backend/internal/workqueue/queue.go`
-- `compose.yaml`
+[`planning/`](planning/README.md) holds the product definition (`v5.md`), the
+backlog, scope-drift audits, product interviews and reviews, execution plans,
+and integration notes from the v5 build-out. They are kept for provenance.
+When they disagree with the code, the code and the reference docs above win.

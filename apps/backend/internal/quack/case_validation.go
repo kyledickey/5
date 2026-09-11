@@ -25,7 +25,9 @@ func normalizeOptionalTime(value string) (string, error) {
 // validActionExecutionStatus reports whether a staff action-result filter is supported.
 func validActionExecutionStatus(value model.ActionExecutionStatus) bool {
 	switch value {
-	case model.ActionExecutionPending, model.ActionExecutionRunning, model.ActionExecutionSucceeded, model.ActionExecutionFailed, model.ActionExecutionRetrying, model.ActionExecutionSkipped, model.ActionExecutionCancelled:
+	case model.ActionExecutionPending, model.ActionExecutionRunning, model.ActionExecutionSucceeded,
+		model.ActionExecutionFailed, model.ActionExecutionRetrying, model.ActionExecutionSkipped,
+		model.ActionExecutionCancelled:
 		return true
 	default:
 		return false
@@ -35,14 +37,17 @@ func validActionExecutionStatus(value model.ActionExecutionStatus) bool {
 // validAppealStatus reports whether a staff appeal-status filter is supported.
 func validAppealStatus(value model.AppealStatus) bool {
 	switch value {
-	case model.AppealStatusPending, model.AppealStatusNeedsInformation, model.AppealStatusAccepted, model.AppealStatusRejected, model.AppealStatusClosed:
+	case model.AppealStatusPending, model.AppealStatusNeedsInformation, model.AppealStatusAccepted,
+		model.AppealStatusRejected, model.AppealStatusClosed:
 		return true
 	default:
 		return false
 	}
 }
 
-// pagination encapsulates the pagination rule so callers share one consistent package implementation.
+// pagination parses the raw limit and offset query values shared by every case
+// list endpoint. An empty limit defaults to 50 and is capped at 100; an empty
+// offset defaults to 0. Non-numeric, zero, or negative values are validation errors.
 func pagination(limitValue, offsetValue string) (int, int, error) {
 	limit := 50
 	if strings.TrimSpace(limitValue) != "" {

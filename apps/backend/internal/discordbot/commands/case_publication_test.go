@@ -146,7 +146,7 @@ func TestCasePublicationPersistsStaffSnapshot(t *testing.T) {
 	repository := &publicationCaptureRepository{}
 	created := &quack.CaseResponse{ID: "case", CaseNumber: 42, TargetDiscordUserID: "member", Reason: "SECRET reason", ModeratorDiscordUserID: "SECRET moderator", ContextURL: "SECRET evidence", Metadata: "SECRET metadata", SelectedLevel: &quack.CaseSelectedLevel{TemplateLevelDetails: quack.TemplateLevelDetails{Name: "Public level", TriggerCaseCount: 12345}, MatchedCaseCount: 54321}}
 	template := &quack.TemplateResponse{Name: "Public rule", Slug: "rule", Description: "SECRET description"}
-	if err := updatePublicCaseResult(context.Background(), &fakeResponder{}, &quack.Services{Cases: quack.NewCaseService(repository)}, created, "message", "channel", template); err != nil {
+	if err := updatePublicCaseResult(context.Background(), &fakeResponder{}, &quack.Services{Cases: quack.NewCaseService(repository, nil)}, created, "message", "channel", template); err != nil {
 		t.Fatal(err)
 	}
 	if repository.receipt.ChannelID != "channel" || repository.receipt.CaseID != "case" || !strings.Contains(repository.receipt.PresentationJSON, "SECRET reason") || !strings.Contains(repository.receipt.PresentationJSON, "SECRET moderator") || strings.Contains(repository.receipt.PresentationJSON, "SECRET description") || strings.Contains(repository.receipt.PresentationJSON, "SECRET metadata") || strings.Contains(repository.receipt.PresentationJSON, "12345") || strings.Contains(repository.receipt.PresentationJSON, "54321") || !strings.Contains(repository.receipt.PresentationJSON, "Public rule") {

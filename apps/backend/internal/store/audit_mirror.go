@@ -23,9 +23,6 @@ type auditMirrorDelivery struct {
 // The single-process mirror serializes sends; a crash after Discord accepts a
 // message but before this write can still duplicate that message on restart.
 func (s *Store) SaveAuditMirrorDelivery(ctx context.Context, entryID string, finished bool, retryAt time.Time) error {
-	if s == nil || s.db == nil {
-		return errors.New("database not connected")
-	}
 	if entryID == "" {
 		return errors.New("audit entry ID is required")
 	}
@@ -41,16 +38,17 @@ func (s *Store) SaveAuditMirrorDelivery(ctx context.Context, entryID string, fin
 // their next deadline. Each poll examines at most four bounded batches, retiring
 // orphaned or no-longer-important receipts so they cannot permanently block work.
 func (s *Store) ListPendingAuditMirrorEntries(ctx context.Context, limit int) ([]model.AuditLogEntry, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
 	now := time.Now().UTC()
 	for batch := 0; batch < 4; batch++ {
 		var receipts []auditMirrorDelivery
-		if err := s.db.WithContext(ctx).Where("finished = ? AND retry_at <= ?", false, now).Order("retry_at ASC, audit_entry_id ASC").Limit(limit).Find(&receipts).Error; err != nil {
+		if err := s.db.WithContext(ctx).
+			Where("finished = ? AND retry_at <= ?", false, now).
+			Order("retry_at ASC, audit_entry_id ASC").
+			Limit(limit).
+			Find(&receipts).Error; err != nil {
 			return nil, fmt.Errorf("list due mirror deliveries: %w", err)
 		}
 		if len(receipts) == 0 {
@@ -78,7 +76,9 @@ func (s *Store) ListPendingAuditMirrorEntries(ctx context.Context, limit int) ([
 			}
 		}
 		if len(obsolete) > 0 {
-			if err := s.db.WithContext(ctx).Model(&auditMirrorDelivery{}).Where("audit_entry_id IN ? AND finished = ?", obsolete, false).Update("finished", true).Error; err != nil {
+			if err := s.db.WithContext(ctx).Model(&auditMirrorDelivery{}).
+				Where("audit_entry_id IN ? AND finished = ?", obsolete, false).
+				Update("finished", true).Error; err != nil {
 				return nil, fmt.Errorf("retire obsolete mirror deliveries: %w", err)
 			}
 		}

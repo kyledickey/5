@@ -21,13 +21,20 @@ type failingResponseClient struct {
 	err error
 }
 
+// InteractionRespond fails every initial response with the configured error.
 func (c *failingResponseClient) InteractionRespond(*discordgo.Interaction, *discordgo.InteractionResponse) error {
 	return c.err
 }
 
+// TestDispatcherLogsNeverExposeWebhookCredentials proves response, task and
+// panic logs omit the interaction token even when the error text contains it.
 func TestDispatcherLogsNeverExposeWebhookCredentials(t *testing.T) {
 	const secret = "private-interaction-token"
-	transportErr := &url.Error{Op: "Post", URL: "https://discord.com/api/v10/webhooks/application/" + secret, Err: errors.New("connection reset")}
+	transportErr := &url.Error{
+		Op:  "Post",
+		URL: "https://discord.com/api/v10/webhooks/application/" + secret,
+		Err: errors.New("connection reset"),
+	}
 	prior := slog.Default()
 	t.Cleanup(func() { slog.SetDefault(prior) })
 	for _, mode := range []string{"response", "task", "panic"} {

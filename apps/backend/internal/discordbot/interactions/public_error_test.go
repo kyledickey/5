@@ -3,10 +3,11 @@ package interactions_test
 import (
 	"context"
 	"errors"
+	"testing"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/interactions"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
-	"testing"
 )
 
 // TestUnexpectedPublicTaskErrorsStayPrivate protects both an unfinished defer and

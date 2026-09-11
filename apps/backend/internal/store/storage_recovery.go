@@ -68,9 +68,6 @@ var recoveryTables = []recoveryTableDefinition{
 
 // BuildRecoveryManifest creates a deterministic, content-minimizing backup manifest from an isolated target.
 func (s *Store) BuildRecoveryManifest(ctx context.Context) (*RecoveryManifest, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 	manifest := &RecoveryManifest{Version: "quack-v5-recovery/v1", CapturedAt: time.Now().UTC(), Tables: map[string]RecoveryTableManifest{}, GuildCaseHighWater: map[string]uint64{}}
 	definitions := append([]recoveryTableDefinition{}, recoveryTables...)
 	if s.db.Migrator().HasTable(&currentSchema{}) {

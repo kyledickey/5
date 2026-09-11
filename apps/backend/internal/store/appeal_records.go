@@ -44,39 +44,134 @@ type AppealEventRecord struct {
 // TableName identifies the current appeal event table.
 func (AppealEventRecord) TableName() string { return "appeal_events" }
 
+// The appeal tables are the one area where the store reads and writes the
+// *Record types rather than the model structs, so each direction needs an
+// explicit field-by-field copy. Keep these in sync with the drift test.
+
 func appealRecord(item model.Appeal) *AppealRecord {
-	return &AppealRecord{ULIDModelRecord: ULIDModelRecord{ID: item.ID, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}, GuildID: item.GuildID, CaseID: item.CaseID, TargetDiscordUserID: item.TargetDiscordUserID, Status: item.Status, Content: item.Content, QuestionSnapshotJSON: item.QuestionSnapshotJSON, AnswersJSON: item.AnswersJSON, Version: item.Version, DecisionReason: item.DecisionReason, ReviewedByDiscordUserID: item.ReviewedByDiscordUserID, ReviewedAt: item.ReviewedAt, ReviewMessageDiscordID: item.ReviewMessageDiscordID, MetadataJSON: item.MetadataJSON}
+	return &AppealRecord{
+		ULIDModelRecord:         ulidRecordFromModel(item.ULIDModel),
+		GuildID:                 item.GuildID,
+		CaseID:                  item.CaseID,
+		TargetDiscordUserID:     item.TargetDiscordUserID,
+		Status:                  item.Status,
+		Content:                 item.Content,
+		QuestionSnapshotJSON:    item.QuestionSnapshotJSON,
+		AnswersJSON:             item.AnswersJSON,
+		Version:                 item.Version,
+		DecisionReason:          item.DecisionReason,
+		ReviewedByDiscordUserID: item.ReviewedByDiscordUserID,
+		ReviewedAt:              item.ReviewedAt,
+		ReviewMessageDiscordID:  item.ReviewMessageDiscordID,
+		MetadataJSON:            item.MetadataJSON,
+	}
 }
 
 func appealModel(record AppealRecord) *model.Appeal {
-	return &model.Appeal{ULIDModel: model.ULIDModel{ID: record.ID, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}, GuildID: record.GuildID, CaseID: record.CaseID, TargetDiscordUserID: record.TargetDiscordUserID, Status: record.Status, Content: record.Content, QuestionSnapshotJSON: record.QuestionSnapshotJSON, AnswersJSON: record.AnswersJSON, Version: record.Version, DecisionReason: record.DecisionReason, ReviewedByDiscordUserID: record.ReviewedByDiscordUserID, ReviewedAt: record.ReviewedAt, ReviewMessageDiscordID: record.ReviewMessageDiscordID, MetadataJSON: record.MetadataJSON}
+	return &model.Appeal{
+		ULIDModel:               ulidModelFromRecord(record.ULIDModelRecord),
+		GuildID:                 record.GuildID,
+		CaseID:                  record.CaseID,
+		TargetDiscordUserID:     record.TargetDiscordUserID,
+		Status:                  record.Status,
+		Content:                 record.Content,
+		QuestionSnapshotJSON:    record.QuestionSnapshotJSON,
+		AnswersJSON:             record.AnswersJSON,
+		Version:                 record.Version,
+		DecisionReason:          record.DecisionReason,
+		ReviewedByDiscordUserID: record.ReviewedByDiscordUserID,
+		ReviewedAt:              record.ReviewedAt,
+		ReviewMessageDiscordID:  record.ReviewMessageDiscordID,
+		MetadataJSON:            record.MetadataJSON,
+	}
 }
 
 func appealEventRecord(item model.AppealEvent) *AppealEventRecord {
-	return &AppealEventRecord{ULIDModelRecord: ULIDModelRecord{ID: item.ID, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}, AppealID: item.AppealID, GuildID: item.GuildID, EventType: item.EventType, ActorDiscordUserID: item.ActorDiscordUserID, ActorType: item.ActorType, Body: item.Body, MetadataJSON: item.MetadataJSON}
+	return &AppealEventRecord{
+		ULIDModelRecord:    ulidRecordFromModel(item.ULIDModel),
+		AppealID:           item.AppealID,
+		GuildID:            item.GuildID,
+		EventType:          item.EventType,
+		ActorDiscordUserID: item.ActorDiscordUserID,
+		ActorType:          item.ActorType,
+		Body:               item.Body,
+		MetadataJSON:       item.MetadataJSON,
+	}
 }
 
 func appealEventModel(record AppealEventRecord) model.AppealEvent {
-	return model.AppealEvent{ULIDModel: model.ULIDModel{ID: record.ID, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}, AppealID: record.AppealID, GuildID: record.GuildID, EventType: record.EventType, ActorDiscordUserID: record.ActorDiscordUserID, ActorType: record.ActorType, Body: record.Body, MetadataJSON: record.MetadataJSON}
+	return model.AppealEvent{
+		ULIDModel:          ulidModelFromRecord(record.ULIDModelRecord),
+		AppealID:           record.AppealID,
+		GuildID:            record.GuildID,
+		EventType:          record.EventType,
+		ActorDiscordUserID: record.ActorDiscordUserID,
+		ActorType:          record.ActorType,
+		Body:               record.Body,
+		MetadataJSON:       record.MetadataJSON,
+	}
 }
 
 func guildAppealSettingsRecord(item model.GuildAppealSettings) GuildAppealSettingsRecord {
-	return GuildAppealSettingsRecord{ULIDModelRecord: ULIDModelRecord{ID: item.ID, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}, GuildID: item.GuildID, QuestionsJSON: item.QuestionsJSON, UpdatedByDiscordUserID: item.UpdatedByDiscordUserID}
+	return GuildAppealSettingsRecord{
+		ULIDModelRecord:        ulidRecordFromModel(item.ULIDModel),
+		GuildID:                item.GuildID,
+		QuestionsJSON:          item.QuestionsJSON,
+		UpdatedByDiscordUserID: item.UpdatedByDiscordUserID,
+	}
 }
 
 func guildAppealSettingsModel(record GuildAppealSettingsRecord) *model.GuildAppealSettings {
-	return &model.GuildAppealSettings{ULIDModel: model.ULIDModel{ID: record.ID, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}, GuildID: record.GuildID, QuestionsJSON: record.QuestionsJSON, UpdatedByDiscordUserID: record.UpdatedByDiscordUserID}
+	return &model.GuildAppealSettings{
+		ULIDModel:              ulidModelFromRecord(record.ULIDModelRecord),
+		GuildID:                record.GuildID,
+		QuestionsJSON:          record.QuestionsJSON,
+		UpdatedByDiscordUserID: record.UpdatedByDiscordUserID,
+	}
 }
 
 func appealNotificationRecord(item model.AppealNotification) *AppealNotificationRecord {
-	return &AppealNotificationRecord{ULIDModelRecord: ULIDModelRecord{ID: item.ID, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}, AppealID: item.AppealID, EventID: item.EventID, GuildID: item.GuildID, TargetDiscordUserID: item.TargetDiscordUserID, Audience: item.Audience, Status: item.Status, Body: item.Body, DecisionIntentJSON: item.DecisionIntentJSON, DeliveryMessageID: item.DeliveryMessageID, DeliveryChannelID: item.DeliveryChannelID, RefreshRequested: item.RefreshRequested, LastErrorCode: item.LastErrorCode, LeaseToken: item.LeaseToken, LeaseExpiresAt: item.LeaseExpiresAt}
+	return &AppealNotificationRecord{
+		ULIDModelRecord:     ulidRecordFromModel(item.ULIDModel),
+		AppealID:            item.AppealID,
+		EventID:             item.EventID,
+		GuildID:             item.GuildID,
+		TargetDiscordUserID: item.TargetDiscordUserID,
+		Audience:            item.Audience,
+		Status:              item.Status,
+		Body:                item.Body,
+		DecisionIntentJSON:  item.DecisionIntentJSON,
+		DeliveryMessageID:   item.DeliveryMessageID,
+		DeliveryChannelID:   item.DeliveryChannelID,
+		RefreshRequested:    item.RefreshRequested,
+		LastErrorCode:       item.LastErrorCode,
+		LeaseToken:          item.LeaseToken,
+		LeaseExpiresAt:      item.LeaseExpiresAt,
+	}
 }
 
 func appealNotificationModel(record AppealNotificationRecord) model.AppealNotification {
-	return model.AppealNotification{ULIDModel: model.ULIDModel{ID: record.ID, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}, AppealID: record.AppealID, EventID: record.EventID, GuildID: record.GuildID, TargetDiscordUserID: record.TargetDiscordUserID, Audience: record.Audience, Status: record.Status, Body: record.Body, DecisionIntentJSON: record.DecisionIntentJSON, DeliveryMessageID: record.DeliveryMessageID, DeliveryChannelID: record.DeliveryChannelID, RefreshRequested: record.RefreshRequested, LastErrorCode: record.LastErrorCode, LeaseToken: record.LeaseToken, LeaseExpiresAt: record.LeaseExpiresAt}
+	return model.AppealNotification{
+		ULIDModel:           ulidModelFromRecord(record.ULIDModelRecord),
+		AppealID:            record.AppealID,
+		EventID:             record.EventID,
+		GuildID:             record.GuildID,
+		TargetDiscordUserID: record.TargetDiscordUserID,
+		Audience:            record.Audience,
+		Status:              record.Status,
+		Body:                record.Body,
+		DecisionIntentJSON:  record.DecisionIntentJSON,
+		DeliveryMessageID:   record.DeliveryMessageID,
+		DeliveryChannelID:   record.DeliveryChannelID,
+		RefreshRequested:    record.RefreshRequested,
+		LastErrorCode:       record.LastErrorCode,
+		LeaseToken:          record.LeaseToken,
+		LeaseExpiresAt:      record.LeaseExpiresAt,
+	}
 }
 
-// These aliases keep the frozen migration source checksum stable until the
-// pre-release migration chain is replaced. Runtime code uses the current records.
+// These aliases exist only because migration_0200_appeals.go (whose source is
+// embedded and checksummed) refers to them; renaming them would change that
+// migration's checksum. Runtime code uses the current record types directly.
 type appealV5Record = AppealRecord
 type appealEventV5Record = AppealEventRecord

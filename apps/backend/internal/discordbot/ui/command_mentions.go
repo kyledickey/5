@@ -79,7 +79,11 @@ func addCommandMentionPaths(paths map[string]string, command *discordgo.Applicat
 	walk = func(path string, options []*discordgo.ApplicationCommandOption) {
 		children := false
 		for _, option := range options {
-			if option != nil && (option.Type == discordgo.ApplicationCommandOptionSubCommand || option.Type == discordgo.ApplicationCommandOptionSubCommandGroup) {
+			if option == nil {
+				continue
+			}
+			if option.Type == discordgo.ApplicationCommandOptionSubCommand ||
+				option.Type == discordgo.ApplicationCommandOptionSubCommandGroup {
 				children = true
 				walk(path+" "+option.Name, option.Options)
 			}

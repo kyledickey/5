@@ -70,9 +70,6 @@ func (s *Store) Migrate() error {
 // for operator recovery and adoption. It is never used by normal bot startup and
 // refuses current-schema databases, whose models may have changed independently.
 func (s *Store) MigrateLegacySchema() error {
-	if s == nil || s.db == nil {
-		return errors.New("database not connected")
-	}
 	return withMigrationLock(s.db, func() error {
 		if s.db.Migrator().HasTable(&currentSchema{}) {
 			return errors.New("legacy migration replay is unavailable for a current-schema database")
@@ -83,9 +80,6 @@ func (s *Store) MigrateLegacySchema() error {
 
 // RollbackLastMigration reverses the newest applied migration when that migration declares a safe Down operation.
 func (s *Store) RollbackLastMigration() error {
-	if s == nil || s.db == nil {
-		return errors.New("database not connected")
-	}
 	if s.db.Migrator().HasTable(&currentSchema{}) {
 		return ErrMigrationNotReversible
 	}

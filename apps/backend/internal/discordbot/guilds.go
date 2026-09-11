@@ -12,7 +12,9 @@ import (
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
-// UserGuilds encapsulates the user guilds rule so callers share one consistent package implementation.
+// UserGuilds lists the guilds a dashboard user belongs to using their OAuth
+// bearer token, not the bot token. It goes through HTTPClient so tests and the
+// OAuth flow can share a client.
 func (b *Bot) UserGuilds(ctx context.Context, accessToken string) ([]quack.DiscordUserGuild, error) {
 	if strings.TrimSpace(accessToken) == "" {
 		return nil, errors.New("missing discord access token")
@@ -41,26 +43,26 @@ func (b *Bot) UserGuilds(ctx context.Context, accessToken string) ([]quack.Disco
 	return guilds, nil
 }
 
-// BotGuild encapsulates the bot guild rule so callers share one consistent package implementation.
+// BotGuild returns display metadata for one guild the bot is in, preferring the
+// gateway cache and falling back to one REST read. Any failure is reported as
+// quack.ErrBotNotInGuild because callers only need to know whether to proceed.
 func (b *Bot) BotGuild(ctx context.Context, guildID string) (*quack.DiscordBotGuild, error) {
-	if b == nil || b.Session == nil {
-		return nil, quack.ErrBotNotInGuild
-	}
 	if b.Session.State != nil {
 		if guild, err := b.Session.State.Guild(guildID); err == nil && guild != nil {
 			return botGuild(guild), nil
 		}
 	}
-	guild, err := b.Session.Guild(guildID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+	guild, err := b.Session.Guild(guildID, singleAttempt(ctx)...)
 	if err != nil {
 		return nil, quack.ErrBotNotInGuild
 	}
 	return botGuild(guild), nil
 }
 
-// BotGuilds encapsulates the bot guilds rule so callers share one consistent package implementation.
+// BotGuilds lists every guild in the gateway cache. It never calls Discord, so
+// before the gateway has delivered its guilds the list is empty, not an error.
 func (b *Bot) BotGuilds(context.Context) ([]quack.DiscordBotGuild, error) {
-	if b == nil || b.Session == nil || b.Session.State == nil {
+	if b.Session.State == nil {
 		return []quack.DiscordBotGuild{}, nil
 	}
 	b.Session.State.RLock()
@@ -74,7 +76,7 @@ func (b *Bot) BotGuilds(context.Context) ([]quack.DiscordBotGuild, error) {
 	return guilds, nil
 }
 
-// botGuild encapsulates the bot guild rule so callers share one consistent package implementation.
+// botGuild copies the display fields the core needs from a discordgo guild.
 func botGuild(guild *discordgo.Guild) *quack.DiscordBotGuild {
 	return &quack.DiscordBotGuild{ID: guild.ID, Name: guild.Name, Icon: guild.Icon, OwnerID: guild.OwnerID}
 }

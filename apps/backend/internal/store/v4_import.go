@@ -50,17 +50,11 @@ func (V4ImportSourceRecord) TableName() string { return "v4_import_sources" }
 
 // PreviewV4Import reports durable idempotency and number collisions without writing.
 func (s *Store) PreviewV4Import(ctx context.Context, batch v4import.Batch, rows []v4import.PreparedCase) ([]v4import.Decision, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 	return inspectV4Rows(s.db.WithContext(ctx), batch, rows)
 }
 
 // ApplyV4Import atomically creates historical-only cases, source mappings, one batch ledger row, and a safe audit record.
 func (s *Store) ApplyV4Import(ctx context.Context, batch v4import.Batch, rows []v4import.PreparedCase) ([]v4import.Decision, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 	var decisions []v4import.Decision
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var guild model.Guild
@@ -203,9 +197,6 @@ func caseNumberForID(db *gorm.DB, caseID string) uint64 {
 
 // RollbackV4Import removes only untouched historical projections from one batch and leaves an audit trail.
 func (s *Store) RollbackV4Import(ctx context.Context, guildID, batchID, actorID string) error {
-	if s == nil || s.db == nil {
-		return errors.New("database not connected")
-	}
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var mappings []V4ImportSourceRecord
 		if err := tx.Where("guild_id = ? AND batch_id = ?", guildID, batchID).Find(&mappings).Error; err != nil {
@@ -247,8 +238,5 @@ func (s *Store) RollbackV4Import(ctx context.Context, guildID, batchID, actorID 
 
 // RecordV4ImportFailure audits only bounded failure classification and counts.
 func (s *Store) RecordV4ImportFailure(ctx context.Context, batch v4import.Batch, failures int, code string) error {
-	if s == nil || s.db == nil {
-		return errors.New("database not connected")
-	}
 	return s.CreateAuditLogEntry(ctx, &model.AuditLogEntry{GuildID: batch.GuildID, ActorDiscordUserID: batch.ActorDiscordUserID, Source: model.AuditSourceSystem, Action: "v4_import.batch", ResourceType: "v4_import_batch", ResourceID: batch.ID, Result: model.AuditResultFailure, FailureReason: code, MetadataJSON: fmt.Sprintf(`{"checksum":"%s","records":%d,"failures":%d}`, batch.Checksum, batch.RecordCount, failures)})
 }

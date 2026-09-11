@@ -15,9 +15,9 @@ func TestCaseTemplateStorageCreateListGetExpanded(t *testing.T) {
 	ctx := context.Background()
 	store, guildID := templateTestStore(t)
 
-	created, err := store.CreateCaseTemplate(ctx, storage.CreateCaseTemplateParams{
+	created, err := store.CreateCaseTemplate(ctx, model.CreateCaseTemplateParams{
 		Template: templateModel(guildID, "spam"),
-		Levels: []storage.ExpandedCaseTemplateLevel{
+		Levels: []model.ExpandedCaseTemplateLevel{
 			{
 				Level: model.CaseTemplateLevel{Position: 2, Name: "Second", TriggerCaseCount: 3},
 				Actions: []model.CaseTemplateLevelAction{
@@ -56,7 +56,7 @@ func TestCaseTemplateStorageUpdateReplacesChildrenAndIncrementsVersion(t *testin
 	ctx := context.Background()
 	store, guildID := templateTestStore(t)
 
-	created, err := store.CreateCaseTemplate(ctx, storage.CreateCaseTemplateParams{
+	created, err := store.CreateCaseTemplate(ctx, model.CreateCaseTemplateParams{
 		Template: templateModel(guildID, "spam"),
 		Levels:   templateLevels(),
 	})
@@ -67,11 +67,11 @@ func TestCaseTemplateStorageUpdateReplacesChildrenAndIncrementsVersion(t *testin
 	update := templateModel(guildID, "spam-updated")
 	update.Name = "Spam Updated"
 	update.UpdatedByDiscordUserID = "moderator-2"
-	updated, err := store.UpdateCaseTemplate(ctx, storage.UpdateCaseTemplateParams{
+	updated, err := store.UpdateCaseTemplate(ctx, model.UpdateCaseTemplateParams{
 		GuildID:    guildID,
 		TemplateID: created.Template.ID,
 		Template:   update,
-		Levels: []storage.ExpandedCaseTemplateLevel{
+		Levels: []model.ExpandedCaseTemplateLevel{
 			{
 				Level: model.CaseTemplateLevel{Position: 1, Name: "Default", IsDefault: true},
 				Actions: []model.CaseTemplateLevelAction{
@@ -95,7 +95,7 @@ func TestCaseTemplateStorageArchiveHidesFromListButDetailStillWorks(t *testing.T
 	ctx := context.Background()
 	store, guildID := templateTestStore(t)
 
-	created, err := store.CreateCaseTemplate(ctx, storage.CreateCaseTemplateParams{
+	created, err := store.CreateCaseTemplate(ctx, model.CreateCaseTemplateParams{
 		Template: templateModel(guildID, "spam"),
 		Levels:   templateLevels(),
 	})
@@ -132,7 +132,7 @@ func TestCaseTemplateStorageListOmitsQuarantinedTemplates(t *testing.T) {
 	ctx := context.Background()
 	store, guildID := templateTestStore(t)
 
-	created, err := store.CreateCaseTemplate(ctx, storage.CreateCaseTemplateParams{
+	created, err := store.CreateCaseTemplate(ctx, model.CreateCaseTemplateParams{
 		Template: templateModel(guildID, "legacy-policy"),
 		Levels:   templateLevels(),
 	})
@@ -170,7 +170,7 @@ func TestCaseTemplateStorageSlugUniquePerGuild(t *testing.T) {
 	ctx := context.Background()
 	store, guildID := templateTestStore(t)
 
-	_, err := store.CreateCaseTemplate(ctx, storage.CreateCaseTemplateParams{
+	_, err := store.CreateCaseTemplate(ctx, model.CreateCaseTemplateParams{
 		Template: templateModel(guildID, "spam"),
 		Levels:   templateLevels(),
 	})
@@ -178,7 +178,7 @@ func TestCaseTemplateStorageSlugUniquePerGuild(t *testing.T) {
 		t.Fatalf("create template: %v", err)
 	}
 
-	_, err = store.CreateCaseTemplate(ctx, storage.CreateCaseTemplateParams{
+	_, err = store.CreateCaseTemplate(ctx, model.CreateCaseTemplateParams{
 		Template: templateModel(guildID, "spam"),
 		Levels:   templateLevels(),
 	})
@@ -187,8 +187,8 @@ func TestCaseTemplateStorageSlugUniquePerGuild(t *testing.T) {
 	}
 }
 
-func templateLevels() []storage.ExpandedCaseTemplateLevel {
-	return []storage.ExpandedCaseTemplateLevel{
+func templateLevels() []model.ExpandedCaseTemplateLevel {
+	return []model.ExpandedCaseTemplateLevel{
 		{
 			Level: model.CaseTemplateLevel{
 				Position:  1,
@@ -211,7 +211,7 @@ func templateTestStore(t *testing.T) (*storage.Store, string) {
 		t.Fatalf("migrate schema: %v", err)
 	}
 
-	guild, err := store.UpsertGuild(ctx, storage.UpsertGuildParams{
+	guild, err := store.UpsertGuild(ctx, model.UpsertGuildParams{
 		DiscordGuildID:     "guild-1",
 		Name:               "Guild",
 		OwnerDiscordUserID: "owner-1",

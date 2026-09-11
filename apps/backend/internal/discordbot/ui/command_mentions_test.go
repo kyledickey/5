@@ -65,7 +65,11 @@ func TestCommandMentionsReachSendAndEdit(t *testing.T) {
 	const app = "transport-mentions"
 	SetCommandMentions(app, []*discordgo.ApplicationCommand{{ID: "123", Name: "help"}})
 	original := Signal("info", "Try `/help`.", false)
-	for _, content := range []string{original.ForApplication(app).Content, original.SendParams(app).Content, *EditMessage(original).ForApplication(app).Content} {
+	for _, content := range []string{
+		original.ForApplication(app).Content,
+		original.SendParams(app).Content,
+		*EditMessage(original).ForApplication(app).Content,
+	} {
 		if !strings.Contains(content, "</help:123>") {
 			t.Fatal("transport did not resolve command", content)
 		}

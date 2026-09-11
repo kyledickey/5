@@ -11,7 +11,9 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-// OpenMySQL opens and verifies my sql so startup fails before serving traffic when the dependency is unavailable.
+// OpenMySQL opens a GORM MySQL handle with parseTime forced on, a five-minute
+// connection lifetime, and the privacy-preserving databaseLogger, then pings it
+// with a five-second timeout so startup fails before serving traffic.
 func OpenMySQL(dsn string) (*gorm.DB, error) {
 	normalized, err := normalizeMySQLDSN(dsn)
 	if err != nil {
@@ -29,13 +31,14 @@ func OpenMySQL(dsn string) (*gorm.DB, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := sqlDB.PingContext(ctx); err != nil {
-		_ = sqlDB.Close()
+		_ = sqlDB.Close() // best-effort: the ping error is what the caller needs
 		return nil, fmt.Errorf("ping database: %w", err)
 	}
 	return db, nil
 }
 
-// normalizeMySQLDSN produces a stable my sqldsn representation for deterministic validation, comparison, or caching.
+// normalizeMySQLDSN validates the DSN and forces parseTime=true, which GORM
+// needs to scan DATETIME columns into time.Time.
 func normalizeMySQLDSN(dsn string) (string, error) {
 	cfg, err := mysqlconfig.ParseDSN(dsn)
 	if err != nil {

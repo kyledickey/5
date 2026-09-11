@@ -71,7 +71,12 @@ func TestSetupChannelSelection(t *testing.T) {
 					t.Fatalf("unexpected mutation or request: %s %s", r.Method, r.URL.Path)
 				}
 				encoded, _ := json.Marshal(body)
-				return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(encoded))), Request: r}, nil
+				return &http.Response{
+					StatusCode: status,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(string(encoded))),
+					Request:    r,
+				}, nil
 			})}
 			id, err := SetupChannel(context.Background(), session, "guild", scenario.specified, scenario.configured, "appeals", SetupStaffChannel)
 			wantErr := scenario.status == 403 || scenario.status == 503
@@ -92,11 +97,22 @@ func TestSetupChannelSelection(t *testing.T) {
 // for members, moderators and the bot, including private-ticket thread capabilities.
 func TestCreatedChannelEffectivePermissions(t *testing.T) {
 	read := int64(discordgo.PermissionViewChannel | discordgo.PermissionReadMessageHistory)
-	guild := &discordgo.Guild{ID: "guild", Roles: []*discordgo.Role{{ID: "guild"}, {ID: "mod", Permissions: discordgo.PermissionModerateMembers}}, Members: []*discordgo.Member{
-		{User: &discordgo.User{ID: "member"}}, {User: &discordgo.User{ID: "moderator"}, Roles: []string{"mod"}}, {User: &discordgo.User{ID: "bot"}},
-	}}
+	guild := &discordgo.Guild{
+		ID:    "guild",
+		Roles: []*discordgo.Role{{ID: "guild"}, {ID: "mod", Permissions: discordgo.PermissionModerateMembers}},
+		Members: []*discordgo.Member{
+			{User: &discordgo.User{ID: "member"}},
+			{User: &discordgo.User{ID: "moderator"}, Roles: []string{"mod"}},
+			{User: &discordgo.User{ID: "bot"}},
+		},
+	}
 	for _, kind := range []SetupChannelKind{SetupStaffChannel, SetupTicketEntry, SetupHoneypotChannel} {
-		channel := &discordgo.Channel{ID: "channel", GuildID: guild.ID, Type: discordgo.ChannelTypeGuildText, PermissionOverwrites: setupChannelPermissions(guild, "bot", kind)}
+		channel := &discordgo.Channel{
+			ID:                   "channel",
+			GuildID:              guild.ID,
+			Type:                 discordgo.ChannelTypeGuildText,
+			PermissionOverwrites: setupChannelPermissions(guild, "bot", kind),
+		}
 		guild.Channels = []*discordgo.Channel{channel}
 		state := discordgo.NewState()
 		if err := state.GuildAdd(guild); err != nil {
@@ -120,7 +136,8 @@ func TestCreatedChannelEffectivePermissions(t *testing.T) {
 			}
 		case SetupTicketEntry:
 			required := int64(discordgo.PermissionCreatePrivateThreads | discordgo.PermissionManageThreads | discordgo.PermissionSendMessagesInThreads)
-			if member&read != read || member&discordgo.PermissionSendMessages != 0 || member&discordgo.PermissionSendMessagesInThreads == 0 || bot&required != required {
+			if member&read != read || member&discordgo.PermissionSendMessages != 0 ||
+				member&discordgo.PermissionSendMessagesInThreads == 0 || bot&required != required {
 				t.Fatal("ticket entry cannot support private conversations")
 			}
 		case SetupHoneypotChannel:
@@ -152,7 +169,12 @@ func TestSetupChannelIntroFailureRetainsCreatedDestination(t *testing.T) {
 		default:
 			t.Fatalf("unexpected request: %s", r.URL.Path)
 		}
-		return &http.Response{StatusCode: code, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
+		return &http.Response{
+			StatusCode: code,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Request:    r,
+		}, nil
 	})}
 	id, err := SetupChannel(context.Background(), session, "guild", "", "", "appeals", SetupStaffChannel)
 	if err != nil || id != "created" {

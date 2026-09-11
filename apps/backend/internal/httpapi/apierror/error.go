@@ -1,14 +1,14 @@
-// Package apierror defines Quack's stable, safe HTTP error contract.
 package apierror
 
 import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/quackdiscord/bot/internal/quack"
+	"github.com/quackdiscord/bot/internal/quack/idutil"
 )
 
-// Code is a stable machine-readable HTTP failure classification.
+// Code is a stable, machine-readable classification of an HTTP failure. Clients
+// branch on Code; Message is free-form and may change wording.
 type Code string
 
 const (
@@ -26,12 +26,13 @@ const (
 	CodeInternal       Code = "internal_error"
 )
 
-// Response is the stable top-level error envelope returned by every HTTP adapter.
+// Response is the top-level error envelope returned by every HTTP failure.
 type Response struct {
 	Error Detail `json:"error"`
 }
 
-// Detail contains safe client-facing failure data and trace identifiers.
+// Detail carries the client-safe failure classification and the trace
+// identifiers a client can quote when reporting a problem.
 type Detail struct {
 	Code          Code   `json:"code"`
 	Message       string `json:"message"`
@@ -39,9 +40,11 @@ type Detail struct {
 	CorrelationID string `json:"correlation_id"`
 }
 
-// Write terminates a Gin request with a safe structured error response.
+// Write aborts the Gin request with status and a Response built from code,
+// message, and the trace identifiers on the request context. message must
+// already be safe to return to clients; Write does not redact it.
 func Write(c *gin.Context, status int, code Code, message string) {
-	requestID, correlationID := quack.TraceIDsFromContext(c.Request.Context())
+	requestID, correlationID := idutil.TraceIDsFromContext(c.Request.Context())
 	c.AbortWithStatusJSON(status, Response{Error: Detail{
 		Code:          code,
 		Message:       message,
@@ -50,7 +53,9 @@ func Write(c *gin.Context, status int, code Code, message string) {
 	}})
 }
 
-// Default returns a stable code and safe message for a legacy status response.
+// Default returns the code and generic message used when a handler produced a
+// failure status without a structured body. Unknown statuses map to
+// CodeInternal so no unclassified failure ever reaches a client.
 func Default(status int) (Code, string) {
 	switch status {
 	case http.StatusBadRequest, http.StatusUnprocessableEntity:

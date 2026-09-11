@@ -28,27 +28,40 @@ const (
 // authority first and validate the bot's operational permissions before saving.
 // Only a confirmed missing configured channel is replaced; transient errors must
 // not create duplicates. Explicit choices are never edited or silently replaced.
-func SetupChannel(ctx context.Context, session *discordgo.Session, guildID, specified, configured, name string, kind SetupChannelKind) (string, error) {
+//
+// Every error it returns is a *UserError whose message is safe to show to the
+// administrator who ran setup.
+func SetupChannel(
+	ctx context.Context,
+	session *discordgo.Session,
+	guildID, specified, configured, name string,
+	kind SetupChannelKind,
+) (string, error) {
 	if specified != "" {
 		return specified, nil
 	}
 	if session == nil {
-		return "", errors.New("Quack is not connected. Try again shortly.")
+		return "", &UserError{Message: "Quack is not connected. Try again shortly."}
 	}
-	options := []discordgo.RequestOption{discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false)}
+	options := []discordgo.RequestOption{
+		discordgo.WithContext(ctx),
+		discordgo.WithRestRetries(0),
+		discordgo.WithRetryOnRatelimit(false),
+	}
 	if configured != "" {
 		channel, err := session.Channel(configured, options...)
 		if err == nil && channel != nil && channel.GuildID == guildID && channel.Type == discordgo.ChannelTypeGuildText {
 			return configured, nil
 		}
-		var rest *discordgo.RESTError
-		if !errors.As(err, &rest) || rest.Response == nil || rest.Response.StatusCode != http.StatusNotFound || rest.Message == nil || rest.Message.Code != discordgo.ErrCodeUnknownChannel {
-			return "", errors.New("Could not access the configured channel. Check Quack's permissions or specify another channel.")
+		if !isUnknownChannel(err) {
+			return "", &UserError{
+				Message: "Could not access the configured channel. Check Quack's permissions or specify another channel.",
+			}
 		}
 	}
 	guild, err := session.Guild(guildID, options...)
 	if err != nil || guild == nil {
-		return "", errors.New("Could not read the server's roles. Try again.")
+		return "", &UserError{Message: "Could not read the server's roles. Try again."}
 	}
 	botID := ""
 	if session.State != nil && session.State.User != nil {
@@ -57,26 +70,43 @@ func SetupChannel(ctx context.Context, session *discordgo.Session, guildID, spec
 	if botID == "" {
 		user, err := session.User("@me", options...)
 		if err != nil || user == nil {
-			return "", errors.New("Could not identify Quack's server account. Try again.")
+			return "", &UserError{Message: "Could not identify Quack's server account. Try again."}
 		}
 		botID = user.ID
 	}
 	topic, intro := setupChannelPresentation(name, kind)
 	channel, err := session.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{
-		Name: name, Type: discordgo.ChannelTypeGuildText, Topic: topic,
+		Name:                 name,
+		Type:                 discordgo.ChannelTypeGuildText,
+		Topic:                topic,
 		PermissionOverwrites: setupChannelPermissions(guild, botID, kind),
 	}, options...)
 	if err != nil || channel == nil || channel.ID == "" {
-		return "", fmt.Errorf("Could not create #%s. Quack needs Manage Channels permission. You can also specify an existing channel.", name)
+		return "", &UserError{Message: fmt.Sprintf(
+			"Could not create #%s. Quack needs Manage Channels permission. You can also specify an existing channel.",
+			name,
+		)}
 	}
 	// The channel already exists. Return its identity even if presentation fails,
 	// allowing the caller to save it instead of creating another channel on retry.
 	if intro != "" {
-		if _, err := session.ChannelMessageSendComplex(channel.ID, Content(intro, false).SendParams(SessionApplicationID(session)), options...); err != nil {
+		params := Content(intro, false).SendParams(SessionApplicationID(session))
+		if _, err := session.ChannelMessageSendComplex(channel.ID, params, options...); err != nil {
 			slog.WarnContext(ctx, "Could not send new channel introduction", "channel_id", channel.ID, "error", err)
 		}
 	}
 	return channel.ID, nil
+}
+
+// isUnknownChannel reports whether Discord explicitly said the channel no longer
+// exists (404 / Unknown Channel). Any other failure, including transient ones,
+// must not be treated as permission to create a replacement.
+func isUnknownChannel(err error) bool {
+	var rest *discordgo.RESTError
+	if !errors.As(err, &rest) || rest.Response == nil || rest.Message == nil {
+		return false
+	}
+	return rest.Response.StatusCode == http.StatusNotFound && rest.Message.Code == discordgo.ErrCodeUnknownChannel
 }
 
 // setupChannelPermissions gives new channels a usable default without guessing
@@ -91,9 +121,14 @@ func setupChannelPermissions(guild *discordgo.Guild, botID string, kind SetupCha
 	switch kind {
 	case SetupStaffChannel:
 		everyone.Deny = discordgo.PermissionViewChannel
+		staff := int64(discordgo.PermissionManageGuild | discordgo.PermissionModerateMembers | discordgo.PermissionAdministrator)
 		for _, role := range guild.Roles {
-			if role != nil && role.ID != guild.ID && role.Permissions&(discordgo.PermissionManageServer|discordgo.PermissionModerateMembers|discordgo.PermissionAdministrator) != 0 {
-				overwrites = append(overwrites, &discordgo.PermissionOverwrite{ID: role.ID, Type: discordgo.PermissionOverwriteTypeRole, Allow: write})
+			if role != nil && role.ID != guild.ID && role.Permissions&staff != 0 {
+				overwrites = append(overwrites, &discordgo.PermissionOverwrite{
+					ID:    role.ID,
+					Type:  discordgo.PermissionOverwriteTypeRole,
+					Allow: write,
+				})
 			}
 		}
 	case SetupTicketEntry:
@@ -119,14 +154,19 @@ func setupChannelPresentation(name string, kind SetupChannelKind) (topic, intro 
 	}
 	switch name {
 	case "appeals":
-		return "Case appeals for the team to review.", "# Appeals\nNew appeals will appear here for the team to review."
+		return "Case appeals for the team to review.",
+			"# Appeals\nNew appeals will appear here for the team to review."
 	case "moderation-log":
-		return "Quack case activity, moderation actions, and settings changes.", "# Moderation log\nQuack will keep case activity, moderation actions, and settings changes here."
+		return "Quack case activity, moderation actions, and settings changes.",
+			"# Moderation log\nQuack will keep case activity, moderation actions, and settings changes here."
 	case "discord-log":
-		return "Message activity, member arrivals and departures, and server changes recorded by Quack.", "# Server activity\nQuack will record message edits and deletions, member arrivals and departures, bans, and server changes here."
+		return "Message activity, member arrivals and departures, and server changes recorded by Quack.",
+			"# Server activity\nQuack will record message edits and deletions, member arrivals and departures, bans, and server changes here."
 	case "ticket-log":
-		return "Support tickets and updates for the team.", "# Tickets\nNew tickets and updates will appear here. Open a ticket's thread to help out."
+		return "Support tickets and updates for the team.",
+			"# Tickets\nNew tickets and updates will appear here. Open a ticket's thread to help out."
 	default:
-		return "Updates from Quack for the moderation team.", "# Quack updates\nUpdates for the team will appear here."
+		return "Updates from Quack for the moderation team.",
+			"# Quack updates\nUpdates for the team will appear here."
 	}
 }

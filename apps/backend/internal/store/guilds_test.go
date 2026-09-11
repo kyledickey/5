@@ -13,7 +13,7 @@ func TestStaffUpsertRefreshesActivity(t *testing.T) {
 	store := testutil.NewSQLiteStore(t)
 	migrateStore(t, store)
 
-	guild, err := store.UpsertGuild(ctx, storage.UpsertGuildParams{
+	guild, err := store.UpsertGuild(ctx, model.UpsertGuildParams{
 		DiscordGuildID:     "100",
 		Name:               "Quack Test",
 		OwnerDiscordUserID: "200",
@@ -22,7 +22,7 @@ func TestStaffUpsertRefreshesActivity(t *testing.T) {
 		t.Fatalf("upsert guild: %v", err)
 	}
 
-	staff, err := store.UpsertStaffMember(ctx, storage.UpsertStaffMemberParams{
+	staff, err := store.UpsertStaffMember(ctx, model.UpsertStaffMemberParams{
 		GuildID:                guild.ID,
 		DiscordUserID:          "300",
 		LastSeenPermissionBits: 1,
@@ -35,7 +35,7 @@ func TestStaffUpsertRefreshesActivity(t *testing.T) {
 		t.Fatalf("expected last active time to be set")
 	}
 
-	updated, err := store.UpsertStaffMember(ctx, storage.UpsertStaffMemberParams{
+	updated, err := store.UpsertStaffMember(ctx, model.UpsertStaffMemberParams{
 		GuildID:                guild.ID,
 		DiscordUserID:          "300",
 		LastSeenPermissionBits: 64,

@@ -125,14 +125,39 @@ type TemplateActionResponse struct {
 // EditInput copies this exact policy snapshot and its version for a guarded edit.
 // Child slices are rebuilt so changing the input cannot mutate the response.
 func (template TemplateResponse) EditInput() TemplateInput {
-	input := TemplateInput{CaseDecayDays: template.CaseDecayDays, ExpectedVersion: template.Version, Slug: template.Slug, Name: template.Name, Description: template.Description, ReasonTemplate: template.ReasonTemplate, Appealable: template.Appealable}
+	input := TemplateInput{
+		CaseDecayDays:   template.CaseDecayDays,
+		ExpectedVersion: template.Version,
+		Slug:            template.Slug,
+		Name:            template.Name,
+		Description:     template.Description,
+		ReasonTemplate:  template.ReasonTemplate,
+		Appealable:      template.Appealable,
+	}
 	for _, f := range template.ContextFields {
-		input.ContextFields = append(input.ContextFields, TemplateContextFieldInput{Key: f.Key, Label: f.Label, FieldType: f.FieldType, Position: f.Position, Required: f.Required})
+		input.ContextFields = append(input.ContextFields, TemplateContextFieldInput{
+			Key:       f.Key,
+			Label:     f.Label,
+			FieldType: f.FieldType,
+			Position:  f.Position,
+			Required:  f.Required,
+		})
 	}
 	for _, level := range template.Levels {
-		in := TemplateLevelInput{Name: level.Name, Position: level.Position, IsDefault: level.IsDefault, TriggerCaseCount: level.TriggerCaseCount, NotifyUser: level.NotifyUser}
+		in := TemplateLevelInput{
+			Name:             level.Name,
+			Position:         level.Position,
+			IsDefault:        level.IsDefault,
+			TriggerCaseCount: level.TriggerCaseCount,
+			NotifyUser:       level.NotifyUser,
+		}
 		for _, action := range level.Actions {
-			in.Actions = append(in.Actions, TemplateActionInput{ActionType: action.ActionType, TimeoutDurationSeconds: action.TimeoutDurationSeconds, DeleteMessageSeconds: action.DeleteMessageSeconds, MaxRetries: int(action.MaxRetries)})
+			in.Actions = append(in.Actions, TemplateActionInput{
+				ActionType:             action.ActionType,
+				TimeoutDurationSeconds: action.TimeoutDurationSeconds,
+				DeleteMessageSeconds:   action.DeleteMessageSeconds,
+				MaxRetries:             int(action.MaxRetries),
+			})
 		}
 		input.Levels = append(input.Levels, in)
 	}

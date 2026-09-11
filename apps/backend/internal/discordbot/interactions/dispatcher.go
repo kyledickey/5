@@ -4,13 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"log/slog"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
@@ -18,12 +17,15 @@ import (
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
-// CommandLookup groups the command lookup state used to keep this package's responsibilities explicit.
+// CommandLookup resolves a slash, user or message command name to its handler.
+// The commands package's Registry implements it.
 type CommandLookup interface {
 	LookupCommand(name string) (ui.Handler, bool)
 }
 
-// Client defines the external operations needed by this package, keeping the concrete client at the adapter boundary.
+// Client is the slice of the Discord REST API the dispatcher and its Responder
+// need. Production uses sessionClient over a discordgo.Session; tests substitute
+// an in-memory fake.
 type Client interface {
 	ChannelMessageSend(context.Context, string, *discordgo.MessageSend) (*discordgo.Message, error)
 	ChannelMessageEdit(context.Context, *discordgo.MessageEdit) (*discordgo.Message, error)
@@ -34,17 +36,26 @@ type Client interface {
 	InteractionResponseDelete(*discordgo.Interaction) error
 }
 
-// Dispatcher routes Discord interactions to registered handlers and applies the required response lifecycle.
+// Dispatcher routes Discord interactions to registered handlers and applies the
+// response lifecycle described in the package documentation. Handle is invoked
+// concurrently by discordgo, so every lazily initialised field is guarded by mu.
+//
+// Commands and Components are optional: an interaction whose kind has no lookup
+// is ignored (commands) or answered with a generic error (components). Client
+// defaults to the session Handle receives; Deduper defaults to a process-local
+// InteractionDeduper. Both defaults are created once, under mu.
 type Dispatcher struct {
 	Services   *quack.Services
 	Commands   CommandLookup
 	Components *ComponentRegistry
 	Client     Client
 	Deduper    *InteractionDeduper
-	dedupeMu   sync.Mutex
+	mu         sync.Mutex
 }
 
-// NewDispatcher constructs dispatcher with required dependencies explicit so callers control lifecycle and substitution.
+// NewDispatcher wires a dispatcher with an empty component registry and a
+// process-local deduper. Client is filled in from the gateway session on the
+// first interaction unless the caller sets it first.
 func NewDispatcher(services *quack.Services, commands CommandLookup) *Dispatcher {
 	return &Dispatcher{
 		Services:   services,
@@ -54,14 +65,13 @@ func NewDispatcher(services *quack.Services, commands CommandLookup) *Dispatcher
 	}
 }
 
-// Handle handles handle and translates it into the package's application or response contract.
+// Handle is the discordgo event handler for InteractionCreate. It is safe to
+// call concurrently. Nil interactions and unsupported interaction types are ignored.
 func (d *Dispatcher) Handle(session *discordgo.Session, interaction *discordgo.InteractionCreate) {
 	if interaction == nil || interaction.Interaction == nil {
 		return
 	}
-	if d.Client == nil {
-		d.Client = sessionClient{session: session}
-	}
+	d.ensureClient(session)
 
 	switch interaction.Type {
 	case discordgo.InteractionApplicationCommand, discordgo.InteractionApplicationCommandAutocomplete:
@@ -73,7 +83,36 @@ func (d *Dispatcher) Handle(session *discordgo.Session, interaction *discordgo.I
 	}
 }
 
-// handleCommand handles command and translates it into the package's application or response contract.
+// ensureClient installs a session-backed Client exactly once when none was
+// configured. It takes mu because Handle runs on discordgo's event goroutines.
+func (d *Dispatcher) ensureClient(session *discordgo.Session) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.Client == nil {
+		d.Client = sessionClient{session: session}
+	}
+}
+
+// client reads the configured Client under mu so it is never observed half-written.
+func (d *Dispatcher) client() Client {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.Client
+}
+
+// interactionDeduper returns the configured deduper, creating the process-local
+// default once when the caller left Deduper nil.
+func (d *Dispatcher) interactionDeduper() *InteractionDeduper {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.Deduper == nil {
+		d.Deduper = NewInteractionDeduper(15*time.Minute, 10000)
+	}
+	return d.Deduper
+}
+
+// handleCommand looks up the command by name and executes it. Unknown commands
+// and command interactions with unexpected data are dropped without a reply.
 func (d *Dispatcher) handleCommand(session *discordgo.Session, interaction *discordgo.InteractionCreate) {
 	if d.Commands == nil {
 		return
@@ -89,10 +128,12 @@ func (d *Dispatcher) handleCommand(session *discordgo.Session, interaction *disc
 	d.execute(session, interaction, data.Name, handler)
 }
 
-// handleComponent handles component and translates it into the package's application or response contract.
+// handleComponent routes a button or select click by its custom ID. A custom ID
+// that no longer resolves (old message, retired handler) gets a private
+// "not available" reply rather than silence, because the user clicked something.
 func (d *Dispatcher) handleComponent(session *discordgo.Session, interaction *discordgo.InteractionCreate) {
 	if d.Components == nil {
-		_ = d.respond(interaction, ui.Error("That component is not available."))
+		_ = d.respond(interaction, ui.Error("That component is not available.")) // best-effort: nothing else to tell the user
 		return
 	}
 	data, valid := interaction.Data.(discordgo.MessageComponentInteractionData)
@@ -101,16 +142,17 @@ func (d *Dispatcher) handleComponent(session *discordgo.Session, interaction *di
 	}
 	handler, ok, err := d.Components.LookupComponent(data.CustomID)
 	if err != nil || !ok {
-		_ = d.respond(interaction, ui.Error("That component is not available."))
+		_ = d.respond(interaction, ui.Error("That component is not available.")) // best-effort: nothing else to tell the user
 		return
 	}
 	d.execute(session, interaction, "component:"+data.CustomID, handler)
 }
 
-// handleModal handles modal and translates it into the package's application or response contract.
+// handleModal routes a submitted form by its custom ID, with the same
+// "not available" fallback as components.
 func (d *Dispatcher) handleModal(session *discordgo.Session, interaction *discordgo.InteractionCreate) {
 	if d.Components == nil {
-		_ = d.respond(interaction, ui.Error("That modal is not available."))
+		_ = d.respond(interaction, ui.Error("That modal is not available.")) // best-effort: nothing else to tell the user
 		return
 	}
 	data, valid := interaction.Data.(discordgo.ModalSubmitInteractionData)
@@ -119,16 +161,25 @@ func (d *Dispatcher) handleModal(session *discordgo.Session, interaction *discor
 	}
 	handler, ok, err := d.Components.LookupModal(data.CustomID)
 	if err != nil || !ok {
-		_ = d.respond(interaction, ui.Error("That modal is not available."))
+		_ = d.respond(interaction, ui.Error("That modal is not available.")) // best-effort: nothing else to tell the user
 		return
 	}
 	d.execute(session, interaction, "modal:"+data.CustomID, handler)
 }
 
-// execute processes execute according to persisted state and retry policy.
-func (d *Dispatcher) execute(session *discordgo.Session, interaction *discordgo.InteractionCreate, name string, handler ui.Handler) {
+// execute runs one handler through the full lifecycle: claim the interaction ID
+// so a redelivery cannot run it twice, build the traced context, call the
+// handler with panic recovery, send its immediate response, and if it returned a
+// Task start that on a goroutine. A rejected initial response is logged with
+// timing so an expired three-second window is distinguishable from a bad payload.
+func (d *Dispatcher) execute(
+	session *discordgo.Session,
+	interaction *discordgo.InteractionCreate,
+	name string,
+	handler ui.Handler,
+) {
 	started := time.Now()
-	if interaction != nil && !d.interactionDeduper().Claim(interaction.ID) {
+	if !d.interactionDeduper().Claim(interaction.ID) {
 		return
 	}
 	ctx := quack.ContextWithAuditSource(interactionTraceContext(interaction), model.AuditSourceDiscord)
@@ -141,7 +192,14 @@ func (d *Dispatcher) execute(session *discordgo.Session, interaction *discordgo.
 	responseStarted := time.Now()
 	if err := d.respond(interaction, result.Response); err != nil {
 		attrs := discordErrorAttrs(err)
-		attrs = append(attrs, "interaction", name, "interaction_type", int(interaction.Type), "response_type", int(result.Response.Type), "elapsed_ms", time.Since(started).Milliseconds(), "prepare_ms", responseStarted.Sub(started).Milliseconds(), "response_ms", time.Since(responseStarted).Milliseconds())
+		attrs = append(attrs,
+			"interaction", name,
+			"interaction_type", int(interaction.Type),
+			"response_type", int(result.Response.Type),
+			"elapsed_ms", time.Since(started).Milliseconds(),
+			"prepare_ms", responseStarted.Sub(started).Milliseconds(),
+			"response_ms", time.Since(responseStarted).Milliseconds(),
+		)
 		if created, timestampErr := discordgo.SnowflakeTimestamp(interaction.ID); timestampErr == nil {
 			attrs = append(attrs, "interaction_age_ms", time.Since(created).Milliseconds())
 		}
@@ -155,20 +213,24 @@ func (d *Dispatcher) execute(session *discordgo.Session, interaction *discordgo.
 	go d.runTask(ctx, interaction, name, result.Task, result.Response)
 }
 
-func (d *Dispatcher) interactionDeduper() *InteractionDeduper {
-	d.dedupeMu.Lock()
-	defer d.dedupeMu.Unlock()
-	if d.Deduper == nil {
-		d.Deduper = NewInteractionDeduper(15*time.Minute, 10000)
-	}
-	return d.Deduper
-}
-
-// safeHandle encapsulates the safe handle rule so callers share one consistent package implementation.
-func (d *Dispatcher) safeHandle(ctx context.Context, session *discordgo.Session, interaction *discordgo.InteractionCreate, name string, handler ui.Handler) (result ui.HandlerResult) {
+// safeHandle calls the handler and converts a panic into a private generic
+// error response so one interaction cannot take down the gateway goroutine.
+func (d *Dispatcher) safeHandle(
+	ctx context.Context,
+	session *discordgo.Session,
+	interaction *discordgo.InteractionCreate,
+	name string,
+	handler ui.Handler,
+) (result ui.HandlerResult) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			slog.Error("Discord interaction handler panicked", "interaction", name, "request_id", quack.RequestIDFromContext(ctx), "correlation_id", quack.CorrelationIDFromContext(ctx), "panic_type", fmt.Sprintf("%T", recovered), "stack", debug.Stack())
+			slog.Error("Discord interaction handler panicked",
+				"interaction", name,
+				"request_id", quack.RequestIDFromContext(ctx),
+				"correlation_id", quack.CorrelationIDFromContext(ctx),
+				"panic_type", fmt.Sprintf("%T", recovered),
+				"stack", debug.Stack(),
+			)
 			result = ui.Immediate(ui.Error("Quack could not handle that interaction."))
 		}
 	}()
@@ -180,22 +242,42 @@ func (d *Dispatcher) safeHandle(ctx context.Context, session *discordgo.Session,
 	})
 }
 
-// runTask encapsulates the run task rule so callers share one consistent package implementation.
-func (d *Dispatcher) runTask(ctx context.Context, interaction *discordgo.InteractionCreate, name string, task ui.Task, response *discordgo.InteractionResponse) {
+// runTask executes the deferred half of an Async handler. Errors and panics are
+// reported to the user through taskError; the error type is logged but never its
+// text, which may contain member content.
+func (d *Dispatcher) runTask(
+	ctx context.Context,
+	interaction *discordgo.InteractionCreate,
+	name string,
+	task ui.Task,
+	response *discordgo.InteractionResponse,
+) {
 	tracked := &taskResponder{Responder: d.responder(interaction)}
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			slog.Error("Discord interaction task panicked", "interaction", name, "request_id", quack.RequestIDFromContext(ctx), "correlation_id", quack.CorrelationIDFromContext(ctx), "panic_type", fmt.Sprintf("%T", recovered), "stack", debug.Stack())
+			slog.Error("Discord interaction task panicked",
+				"interaction", name,
+				"request_id", quack.RequestIDFromContext(ctx),
+				"correlation_id", quack.CorrelationIDFromContext(ctx),
+				"panic_type", fmt.Sprintf("%T", recovered),
+				"stack", debug.Stack(),
+			)
 			d.taskError(interaction, response, tracked.published.Load(), nil)
 		}
 	}()
 	if err := task(ctx, tracked); err != nil {
-		slog.Error("Discord interaction task failed", "error_type", fmt.Sprintf("%T", err), "interaction", name, "request_id", quack.RequestIDFromContext(ctx), "correlation_id", quack.CorrelationIDFromContext(ctx))
+		slog.Error("Discord interaction task failed",
+			"error_type", fmt.Sprintf("%T", err),
+			"interaction", name,
+			"request_id", quack.RequestIDFromContext(ctx),
+			"correlation_id", quack.CorrelationIDFromContext(ctx),
+		)
 		d.taskError(interaction, response, tracked.published.Load(), err)
 	}
 }
 
-// interactionTraceContext encapsulates the interaction trace context rule so callers share one consistent package implementation.
+// interactionTraceContext derives request and correlation IDs from the
+// interaction snowflake so logs and audit rows for one click share an ID.
 func interactionTraceContext(interaction *discordgo.InteractionCreate) context.Context {
 	requestID := quack.NewTraceID()
 	correlationID := requestID
@@ -206,11 +288,10 @@ func interactionTraceContext(interaction *discordgo.InteractionCreate) context.C
 	return quack.ContextWithTrace(context.Background(), requestID, correlationID)
 }
 
-// respond encapsulates the respond rule so callers share one consistent package implementation.
+// respond resolves icons and command mentions for the sending application and
+// sends the initial response. Ephemeral flags are cleared for DMs (no GuildID)
+// because Discord rejects them outside guilds.
 func (d *Dispatcher) respond(interaction *discordgo.InteractionCreate, response *discordgo.InteractionResponse) error {
-	if d.Client == nil {
-		return fmt.Errorf("discord interaction client is not configured")
-	}
 	response = ui.PrepareResponse(response, interaction.AppID)
 	if interaction.GuildID == "" && response != nil && response.Data != nil {
 		copyResponse, data := *response, *response.Data
@@ -218,26 +299,28 @@ func (d *Dispatcher) respond(interaction *discordgo.InteractionCreate, response 
 		copyResponse.Data = &data
 		response = &copyResponse
 	}
-	return d.Client.InteractionRespond(interaction.Interaction, response)
+	return d.client().InteractionRespond(interaction.Interaction, response)
 }
 
-// responder encapsulates the responder rule so callers share one consistent package implementation.
+// responder binds the configured Client to one interaction for use by a Task.
 func (d *Dispatcher) responder(interaction *discordgo.InteractionCreate) ui.Responder {
-	return responder{client: d.Client, interaction: interaction.Interaction}
+	return responder{client: d.client(), interaction: interaction.Interaction}
 }
 
-// responder groups the responder state used to keep this package's responsibilities explicit.
+// responder implements ui.Responder for one interaction. Webhook-token methods
+// stop working 15 minutes after the interaction; the channel methods do not.
 type responder struct {
 	client      Client
 	interaction *discordgo.Interaction
 }
 
-// EditOriginal encapsulates the edit original rule so callers share one consistent package implementation.
+// EditOriginal replaces the initial response through the interaction webhook.
 func (r responder) EditOriginal(edit ui.Edit) (*discordgo.Message, error) {
 	return r.client.InteractionResponseEdit(r.interaction, edit.ForApplication(r.interaction.AppID).WebhookEdit())
 }
 
-// Followup encapsulates the followup rule so callers share one consistent package implementation.
+// Followup sends an additional reply. In DMs it is forced public because Discord
+// rejects ephemeral followups there.
 func (r responder) Followup(message ui.Message) (*discordgo.Message, error) {
 	if r.interaction.GuildID == "" {
 		message.Ephemeral = false
@@ -265,7 +348,16 @@ func (r responder) EditChannel(ctx context.Context, messageID string, edit ui.Ed
 		return nil, errors.New("message coordinate unavailable")
 	}
 	prepared := edit.ForApplication(r.interaction.AppID).WebhookEdit()
-	return r.client.ChannelMessageEdit(ctx, &discordgo.MessageEdit{ID: messageID, Channel: r.interaction.ChannelID, Content: prepared.Content, Embeds: prepared.Embeds, Components: prepared.Components, Files: prepared.Files, Attachments: prepared.Attachments, AllowedMentions: prepared.AllowedMentions})
+	return r.client.ChannelMessageEdit(ctx, &discordgo.MessageEdit{
+		ID:              messageID,
+		Channel:         r.interaction.ChannelID,
+		Content:         prepared.Content,
+		Embeds:          prepared.Embeds,
+		Components:      prepared.Components,
+		Files:           prepared.Files,
+		Attachments:     prepared.Attachments,
+		AllowedMentions: prepared.AllowedMentions,
+	})
 }
 
 // EditFollowup updates a previously published public result after asynchronous work reaches a terminal state.
@@ -273,78 +365,106 @@ func (r responder) EditFollowup(messageID string, edit ui.Edit) (*discordgo.Mess
 	return r.client.FollowupMessageEdit(r.interaction, messageID, edit.ForApplication(r.interaction.AppID).WebhookEdit())
 }
 
-// DeleteOriginal encapsulates the delete original rule so callers share one consistent package implementation.
+// DeleteOriginal removes the initial response, typically an unused public placeholder.
 func (r responder) DeleteOriginal() error {
 	return r.client.InteractionResponseDelete(r.interaction)
 }
 
-// UpdateMessage updates message while retaining validation, compatibility, and audit requirements.
+// UpdateMessage edits the message a component belongs to. After DeferUpdate the
+// original response is that message, so this is the same call as EditOriginal.
 func (r responder) UpdateMessage(edit ui.Edit) (*discordgo.Message, error) {
 	return r.EditOriginal(edit)
 }
 
-// sessionClient defines the external operations needed by this package, keeping the concrete client at the adapter boundary.
+// sessionClient adapts a discordgo.Session to Client.
 type sessionClient struct {
 	session *discordgo.Session
 }
 
 // ChannelMessageSend publishes without automatic retries because an uncertain
 // POST could already have created the notice. The private case receipt survives.
-func (c sessionClient) ChannelMessageSend(ctx context.Context, channelID string, message *discordgo.MessageSend) (*discordgo.Message, error) {
-	return c.session.ChannelMessageSendComplex(channelID, message, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+func (c sessionClient) ChannelMessageSend(
+	ctx context.Context,
+	channelID string,
+	message *discordgo.MessageSend,
+) (*discordgo.Message, error) {
+	return c.session.ChannelMessageSendComplex(channelID, message,
+		discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 }
 
 // ChannelMessageEdit performs a context-bound bot edit of the persisted notice.
 func (c sessionClient) ChannelMessageEdit(ctx context.Context, edit *discordgo.MessageEdit) (*discordgo.Message, error) {
-	return c.session.ChannelMessageEditComplex(edit, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+	return c.session.ChannelMessageEditComplex(edit,
+		discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 }
 
-// InteractionRespond encapsulates the interaction respond rule so callers share one consistent package implementation.
+// InteractionRespond sends the initial response for an interaction.
 func (c sessionClient) InteractionRespond(interaction *discordgo.Interaction, response *discordgo.InteractionResponse) error {
 	return c.session.InteractionRespond(interaction, response)
 }
 
-// InteractionResponseEdit encapsulates the interaction response edit rule so callers share one consistent package implementation.
-func (c sessionClient) InteractionResponseEdit(interaction *discordgo.Interaction, edit *discordgo.WebhookEdit) (*discordgo.Message, error) {
+// InteractionResponseEdit edits the initial response through the webhook token.
+func (c sessionClient) InteractionResponseEdit(
+	interaction *discordgo.Interaction,
+	edit *discordgo.WebhookEdit,
+) (*discordgo.Message, error) {
 	return c.session.InteractionResponseEdit(interaction, edit)
 }
 
-// FollowupMessageCreate encapsulates the followup message create rule so callers share one consistent package implementation.
-func (c sessionClient) FollowupMessageCreate(interaction *discordgo.Interaction, wait bool, params *discordgo.WebhookParams) (*discordgo.Message, error) {
+// FollowupMessageCreate sends a followup through the webhook token.
+func (c sessionClient) FollowupMessageCreate(
+	interaction *discordgo.Interaction,
+	wait bool,
+	params *discordgo.WebhookParams,
+) (*discordgo.Message, error) {
 	return c.session.FollowupMessageCreate(interaction, wait, params)
 }
 
 // FollowupMessageEdit updates an interaction followup through the application webhook token.
-func (c sessionClient) FollowupMessageEdit(interaction *discordgo.Interaction, messageID string, edit *discordgo.WebhookEdit) (*discordgo.Message, error) {
+func (c sessionClient) FollowupMessageEdit(
+	interaction *discordgo.Interaction,
+	messageID string,
+	edit *discordgo.WebhookEdit,
+) (*discordgo.Message, error) {
 	return c.session.WebhookMessageEdit(interaction.AppID, interaction.Token, messageID, edit)
 }
 
-// InteractionResponseDelete encapsulates the interaction response delete rule so callers share one consistent package implementation.
+// InteractionResponseDelete deletes the initial response through the webhook token.
 func (c sessionClient) InteractionResponseDelete(interaction *discordgo.Interaction) error {
 	return c.session.InteractionResponseDelete(interaction)
 }
 
-// Key encapsulates the key rule so callers share one consistent package implementation.
+// Key builds the registry key "namespace:action" used for component and modal handlers.
 func Key(namespace, action string) string {
 	return strings.TrimSpace(namespace) + ":" + strings.TrimSpace(action)
 }
 
 // taskError preserves a shared component message when an action fails, reporting
 // the error only to the person who clicked it. Private defers remain private.
-func (d *Dispatcher) taskError(interaction *discordgo.InteractionCreate, response *discordgo.InteractionResponse, published bool, err error) {
+// A public defer that was never edited is deleted so the channel does not keep
+// a stale placeholder; one that was already published is left as the result.
+func (d *Dispatcher) taskError(
+	interaction *discordgo.InteractionCreate,
+	response *discordgo.InteractionResponse,
+	published bool,
+	err error,
+) {
 	message := "I couldn’t finish that. Try again in a moment."
 	if errors.Is(err, quack.ErrCasePermissionDenied) || errors.Is(err, quack.ErrAuthorizationDenied) {
 		message = "You do not have permission to use this control."
 	}
 	responder := d.responder(interaction)
-	if response.Type == discordgo.InteractionResponseDeferredMessageUpdate || (response.Type == discordgo.InteractionResponseDeferredChannelMessageWithSource && (response.Data == nil || response.Data.Flags&discordgo.MessageFlagsEphemeral == 0)) {
-		if response.Type == discordgo.InteractionResponseDeferredChannelMessageWithSource && !published {
-			_ = responder.DeleteOriginal()
+	deferredUpdate := response.Type == discordgo.InteractionResponseDeferredMessageUpdate
+	deferredPublic := response.Type == discordgo.InteractionResponseDeferredChannelMessageWithSource &&
+		(response.Data == nil || response.Data.Flags&discordgo.MessageFlagsEphemeral == 0)
+	if deferredUpdate || deferredPublic {
+		if deferredPublic && !published {
+			_ = responder.DeleteOriginal() // best-effort: the private error below is what matters
 		}
-		_, _ = responder.Followup(ui.Signal("error", message, true))
+		_, _ = responder.Followup(ui.Signal("error", message, true)) // best-effort: the failure is already logged
 		return
 	}
-	_, _ = responder.EditOriginal(ui.ErrorEdit(message))
+	_, _ = responder.EditOriginal(ui.ErrorEdit(message)) // best-effort: the failure is already logged
 }
 
 // discordErrorAttrs retains Discord's numeric rejection details without logging

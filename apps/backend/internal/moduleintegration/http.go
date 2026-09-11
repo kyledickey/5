@@ -6,10 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/quackdiscord/bot/internal/httpapi/apierror"
-
 	"github.com/gin-gonic/gin"
 	"github.com/quackdiscord/bot/internal/config"
+	"github.com/quackdiscord/bot/internal/httpapi/apierror"
 	"github.com/quackdiscord/bot/internal/httpapi/middleware"
 	httpplatform "github.com/quackdiscord/bot/internal/httpapi/platform"
 	"github.com/quackdiscord/bot/internal/modules/generallogging"
@@ -19,12 +18,12 @@ import (
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
-// RegisterHTTP mounts both optional-module route registrars beneath one live,
-// authenticated guild context and applies QP-B's shared safety primitives.
+// RegisterHTTP mounts every module's routes under
+// /:discordGuildID/modules behind the shared live guild context, the
+// authenticated-member rate limit, write idempotency and the error envelope.
+// group and services are required; the Runtime's module services are assumed
+// present.
 func (r *Runtime) RegisterHTTP(group *gin.RouterGroup, services *quack.Services, primitives httpplatform.Primitives) error {
-	if r == nil || r.Tickets == nil || r.Logging == nil || r.Honeypot == nil {
-		return errors.New("optional module HTTP runtime is not configured")
-	}
 	if group == nil || services == nil {
 		return errors.New("optional module HTTP dependencies are not configured")
 	}
@@ -46,20 +45,22 @@ func (r *Runtime) RegisterHTTP(group *gin.RouterGroup, services *quack.Services,
 	return nil
 }
 
-// resolveHoneypotActor translates one live guild context into Manage Guild authority.
+// resolveHoneypotActor maps the live guild context into honeypot authority;
+// only Manage Guild (guild settings write) grants CanManage.
 func resolveHoneypotActor(c *gin.Context) (honeypot.Actor, error) {
 	guildContext := middleware.GetGuildContext(c)
 	if guildContext == nil || guildContext.Guild == nil {
 		return honeypot.Actor{}, errors.New("live guild context is unavailable")
 	}
 	return honeypot.Actor{
-		GuildID: guildContext.Guild.ID, DiscordUserID: guildContext.ActorDiscordUserID,
-		CanManage: guildContext.Can(model.PermissionActionGuildSettingsWrite),
+		GuildID:       guildContext.Guild.ID,
+		DiscordUserID: guildContext.ActorDiscordUserID,
+		CanManage:     guildContext.Can(model.PermissionActionGuildSettingsWrite),
 	}, nil
 }
 
-// moduleRateLimit applies the shared authenticated-member policy to all module
-// reads and writes, keyed by the current actor and internal guild.
+// moduleRateLimit applies the member-read policy to every module request,
+// keyed by internal guild and actor.
 func moduleRateLimit(primitives httpplatform.Primitives, cfg config.Config) gin.HandlerFunc {
 	limit := httpplatform.RateLimit{
 		Maximum: cfg.RateLimits.MemberRead.Maximum,
@@ -68,9 +69,12 @@ func moduleRateLimit(primitives httpplatform.Primitives, cfg config.Config) gin.
 	return primitives.RateLimits.Limit("optional-modules", limit, moduleSubject)
 }
 
-// moduleIdempotency requires a fenced key for mutation methods while leaving
-// safe reads unaffected.
-func moduleIdempotency(primitives httpplatform.Primitives, cfg config.Config, ticketServices ...*tickets.Service) gin.HandlerFunc {
+// moduleIdempotency authorizes mutating methods and then requires a fenced
+// idempotency key for them; safe reads pass through untouched. Ticket closure
+// paths are authorized as owner-or-moderator through ticketService, which may
+// be nil when tickets are not mounted (closure then falls back to the settings
+// write permission).
+func moduleIdempotency(primitives httpplatform.Primitives, cfg config.Config, ticketService *tickets.Service) gin.HandlerFunc {
 	ttl := time.Duration(cfg.RateLimits.IdempotencyTTLHours) * time.Hour
 	protect := primitives.Idempotency.Protect("optional-module-write", ttl, moduleWriteSubject)
 	return func(c *gin.Context) {
@@ -83,11 +87,12 @@ func moduleIdempotency(primitives httpplatform.Primitives, cfg config.Config, ti
 				action = model.PermissionActionTicketResolve
 			}
 			allowed := guild != nil && guild.Can(action)
-			if isTicketClosePath(path) && len(ticketServices) > 0 && ticketServices[0] != nil {
+			if isTicketClosePath(path) && ticketService != nil {
 				actor, err := resolveTicketActor(c)
 				if err == nil {
-					ticket, _, err := ticketServices[0].Detail(c.Request.Context(), actor, c.Param("ticketID"))
-					allowed = err == nil && ticket != nil && (actor.CanModerate || ticket.OwnerDiscordUserID == actor.DiscordUserID)
+					ticket, _, err := ticketService.Detail(c.Request.Context(), actor, c.Param("ticketID"))
+					allowed = err == nil && ticket != nil &&
+						(actor.CanModerate || ticket.OwnerDiscordUserID == actor.DiscordUserID)
 				}
 			}
 			if !allowed {
@@ -101,13 +106,14 @@ func moduleIdempotency(primitives httpplatform.Primitives, cfg config.Config, ti
 	}
 }
 
-// moduleWriteSubject prevents one idempotency key from replaying a response
-// across distinct module operations while retaining the actor/guild boundary.
+// moduleWriteSubject scopes an idempotency key to actor, guild, method and
+// path so one key cannot replay a response across distinct operations.
 func moduleWriteSubject(c *gin.Context) string {
 	return moduleSubject(c) + ":" + c.Request.Method + ":" + c.Request.URL.EscapedPath()
 }
 
-// moduleSubject keeps identity material inside the shared hashed key boundary.
+// moduleSubject is the rate-limit and idempotency identity: internal guild plus
+// actor, or "unknown" before guild context is established.
 func moduleSubject(c *gin.Context) string {
 	guildContext := middleware.GetGuildContext(c)
 	if guildContext == nil || guildContext.Guild == nil {
@@ -116,33 +122,35 @@ func moduleSubject(c *gin.Context) string {
 	return guildContext.Guild.ID + ":" + guildContext.ActorDiscordUserID
 }
 
-// resolveTicketActor translates one live guild context into ticket authority.
+// resolveTicketActor maps the live guild context into ticket authority.
 func resolveTicketActor(c *gin.Context) (tickets.Actor, error) {
 	guildContext := middleware.GetGuildContext(c)
 	if guildContext == nil || guildContext.Guild == nil {
 		return tickets.Actor{}, errors.New("live guild context is unavailable")
 	}
 	return tickets.Actor{
-		GuildID: guildContext.Guild.ID, DiscordUserID: guildContext.ActorDiscordUserID,
-		CanManage:   guildContext.Can(model.PermissionActionGuildSettingsWrite),
-		CanModerate: guildContext.Can(model.PermissionActionTicketResolve),
+		GuildID:       guildContext.Guild.ID,
+		DiscordUserID: guildContext.ActorDiscordUserID,
+		CanManage:     guildContext.Can(model.PermissionActionGuildSettingsWrite),
+		CanModerate:   guildContext.Can(model.PermissionActionTicketResolve),
 	}, nil
 }
 
-// resolveLoggingActor translates one live guild context into Manage Guild authority.
+// resolveLoggingActor maps the live guild context into logging authority.
 func resolveLoggingActor(c *gin.Context) (generallogging.Actor, error) {
 	guildContext := middleware.GetGuildContext(c)
 	if guildContext == nil || guildContext.Guild == nil {
 		return generallogging.Actor{}, errors.New("live guild context is unavailable")
 	}
 	return generallogging.Actor{
-		GuildID: guildContext.Guild.ID, DiscordUserID: guildContext.ActorDiscordUserID,
-		CanManage: guildContext.Can(model.PermissionActionGuildSettingsWrite),
+		GuildID:       guildContext.Guild.ID,
+		DiscordUserID: guildContext.ActorDiscordUserID,
+		CanManage:     guildContext.Can(model.PermissionActionGuildSettingsWrite),
 	}, nil
 }
 
-// isTicketClosePath keeps canonical closure and its aliases on the same live
-// owner-or-moderator authorization boundary before idempotent replay.
+// isTicketClosePath matches the close route and its resolve/cancel aliases so
+// all three share the owner-or-moderator authorization before idempotent replay.
 func isTicketClosePath(path string) bool {
 	for _, action := range []string{"close", "resolve", "cancel"} {
 		if strings.HasSuffix(path, "/tickets/:ticketID/"+action) {

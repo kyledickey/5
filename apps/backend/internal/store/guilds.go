@@ -2,24 +2,15 @@ package store
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
-// UpsertGuildParams aliases the core upsert guild params contract so Store satisfies the port without maintaining a second data shape.
-type UpsertGuildParams = model.UpsertGuildParams
-
-// UpsertStaffMemberParams aliases the core upsert staff member params contract so Store satisfies the port without maintaining a second data shape.
-type UpsertStaffMemberParams = model.UpsertStaffMemberParams
-
-// GetGuildByDiscordID retrieves guild by discord id without exposing the underlying adapter implementation.
+// GetGuildByDiscordID looks a guild up by its Discord snowflake, returning
+// (nil, nil) when unknown. Inactive (departed) guilds are still returned.
 func (s *Store) GetGuildByDiscordID(ctx context.Context, discordGuildID string) (*model.Guild, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 
 	var guild model.Guild
 	result := s.db.WithContext(ctx).Where("discord_guild_id = ?", discordGuildID).Limit(1).Find(&guild)
@@ -35,9 +26,6 @@ func (s *Store) GetGuildByDiscordID(ctx context.Context, discordGuildID string) 
 
 // GetGuildByID retrieves the durable guild identity used by case notifications.
 func (s *Store) GetGuildByID(ctx context.Context, guildID string) (*model.Guild, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 	var guild model.Guild
 	result := s.db.WithContext(ctx).Where("id = ?", guildID).Limit(1).Find(&guild)
 	if result.Error != nil {
@@ -49,11 +37,10 @@ func (s *Store) GetGuildByID(ctx context.Context, guildID string) (*model.Guild,
 	return &guild, nil
 }
 
-// UpsertGuild encapsulates the upsert guild rule so callers share one consistent package implementation.
-func (s *Store) UpsertGuild(ctx context.Context, params UpsertGuildParams) (*model.Guild, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
+// UpsertGuild creates the guild on first sight or refreshes its name, icon,
+// owner, and active flag. An unchanged active guild is returned without a
+// write so the ready/guild-create storm does not churn UpdatedAt.
+func (s *Store) UpsertGuild(ctx context.Context, params model.UpsertGuildParams) (*model.Guild, error) {
 
 	now := time.Now().UTC()
 	existing, err := s.GetGuildByDiscordID(ctx, params.DiscordGuildID)
@@ -99,11 +86,10 @@ func (s *Store) UpsertGuild(ctx context.Context, params UpsertGuildParams) (*mod
 	return guild, nil
 }
 
-// UpsertStaffMember encapsulates the upsert staff member rule so callers share one consistent package implementation.
-func (s *Store) UpsertStaffMember(ctx context.Context, params UpsertStaffMemberParams) (*model.StaffMember, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
+// UpsertStaffMember records a staff member's latest permission bits and
+// display name. LastActiveAt is bumped at most every five minutes so each
+// interaction does not cost a write; unchanged rows are returned as-is.
+func (s *Store) UpsertStaffMember(ctx context.Context, params model.UpsertStaffMemberParams) (*model.StaffMember, error) {
 
 	now := time.Now().UTC()
 	activeAt := params.LastActiveAt
@@ -159,11 +145,8 @@ func (s *Store) UpsertStaffMember(ctx context.Context, params UpsertStaffMemberP
 	return &staff, nil
 }
 
-// GetStaffMember retrieves staff member without exposing the underlying adapter implementation.
+// GetStaffMember returns one guild's staff row for a Discord user, or (nil, nil) when never seen.
 func (s *Store) GetStaffMember(ctx context.Context, guildID, discordUserID string) (*model.StaffMember, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 
 	var staff model.StaffMember
 	result := s.db.WithContext(ctx).

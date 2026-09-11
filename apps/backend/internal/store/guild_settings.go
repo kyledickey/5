@@ -18,9 +18,6 @@ const starterPolicySlug = "general-rule-violation"
 // GetGuildSettings returns core settings with enablement projected from the
 // canonical module envelopes, including changes made through native setup.
 func (s *Store) GetGuildSettings(ctx context.Context, guildID string) (*model.GuildSettings, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 	var record GuildSettingsRecord
 	result := s.db.WithContext(ctx).Where("guild_id = ?", guildID).Limit(1).Find(&record)
 	if result.Error != nil {
@@ -39,9 +36,6 @@ func (s *Store) GetGuildSettings(ctx context.Context, guildID string) (*model.Gu
 // UpdateGuildSettings atomically replaces validated core settings, applies only
 // explicit canonical module toggles, and appends success audit evidence.
 func (s *Store) UpdateGuildSettings(ctx context.Context, params model.UpdateGuildSettingsParams) (*model.GuildSettings, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 	var record GuildSettingsRecord
 	now := time.Now().UTC()
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -83,11 +77,11 @@ func (s *Store) UpdateGuildSettings(ctx context.Context, params model.UpdateGuil
 	return &settings, nil
 }
 
-// ClearGuildChannelReferences atomically clears every core settings reference to a deleted or invalid Discord channel.
+// ClearGuildChannelReferences blanks every core settings field that points at
+// channelID (appeal queue, audit mirror, managed evidence) under a row lock and
+// appends the audit row. When nothing referenced the channel no write or audit
+// happens.
 func (s *Store) ClearGuildChannelReferences(ctx context.Context, guildID, channelID string, audit *model.AuditLogEntry) (*model.GuildSettings, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 	var record GuildSettingsRecord
 	now := time.Now().UTC()
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -134,7 +128,11 @@ func (s *Store) ClearGuildChannelReferences(ctx context.Context, guildID, channe
 	return &settings, nil
 }
 
-// BootstrapGuild atomically refreshes guild lifecycle state and creates the one-time exact starter policy.
+// BootstrapGuild is the guild-join and ready-event entry point: it creates or
+// reactivates the guild, seeds guild settings and the exact starter policy on
+// first bootstrap, drops channel references that are no longer in
+// KnownChannelDiscordIDs, and audits each of those lifecycle changes. Repeat
+// calls are idempotent and report what was created.
 func (s *Store) BootstrapGuild(ctx context.Context, params model.BootstrapGuildParams) (*model.BootstrapGuildResult, error) {
 	// Concurrent ready/guild-create events can deadlock while locking a guild
 	// that does not exist yet. MySQL rolls back the victim transaction in full,
@@ -158,9 +156,6 @@ func (s *Store) BootstrapGuild(ctx context.Context, params model.BootstrapGuildP
 // bootstrapGuildOnce owns one atomic attempt; no external effects occur before
 // commit and failed attempts never leak created flags into a later retry.
 func (s *Store) bootstrapGuildOnce(ctx context.Context, params model.BootstrapGuildParams) (*model.BootstrapGuildResult, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 	result := &model.BootstrapGuildResult{}
 	now := time.Now().UTC()
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -219,7 +214,8 @@ func (s *Store) bootstrapGuildOnce(ctx context.Context, params model.BootstrapGu
 			result.StarterTemplate = *starter
 			result.StarterTemplateCreated = created
 			if created {
-				if err := createSystemLifecycleAudit(tx, guild.ID, "case_template.bootstrap", "case_template", starter.Template.ID, now); err != nil {
+				err := createSystemLifecycleAudit(tx, guild.ID, "case_template.bootstrap", "case_template", starter.Template.ID, now)
+				if err != nil {
 					return err
 				}
 			}
@@ -264,7 +260,8 @@ func (s *Store) bootstrapGuildOnce(ctx context.Context, params model.BootstrapGu
 			}
 		}
 		if channelReferencesRepaired {
-			if err := createSystemLifecycleAudit(tx, guild.ID, "guild_settings.channel_references.repaired", "guild_settings", settingsRecord.ID, now); err != nil {
+			err := createSystemLifecycleAudit(tx, guild.ID, "guild_settings.channel_references.repaired", "guild_settings", settingsRecord.ID, now)
+			if err != nil {
 				return err
 			}
 		}
@@ -287,21 +284,27 @@ func (s *Store) bootstrapGuildOnce(ctx context.Context, params model.BootstrapGu
 // createSystemLifecycleAudit appends adapter-attributed lifecycle evidence inside the caller's transaction.
 func createSystemLifecycleAudit(tx *gorm.DB, guildID, action, resourceType, resourceID string, now time.Time) error {
 	return createAuditLogEntry(tx, &model.AuditLogEntry{
-		GuildID: guildID, ActorDiscordUserID: "quack-system", Source: model.AuditSourceDiscord,
-		Action: action, ResourceType: resourceType, ResourceID: resourceID,
-		Result: model.AuditResultSuccess, MetadataJSON: "{}",
+		GuildID:            guildID,
+		ActorDiscordUserID: "quack-system",
+		Source:             model.AuditSourceDiscord,
+		Action:             action,
+		ResourceType:       resourceType,
+		ResourceID:         resourceID,
+		Result:             model.AuditResultSuccess,
+		MetadataJSON:       "{}",
 	}, now)
 }
 
-// DeactivateGuild marks a departed guild inactive while retaining every owned record and appends lifecycle audit evidence.
+// DeactivateGuild flags a guild inactive when the bot leaves it. Nothing the
+// guild owns is deleted, so a rejoin resumes with full history. A guild that
+// was never seen returns (nil, nil).
 func (s *Store) DeactivateGuild(ctx context.Context, discordGuildID string, audit *model.AuditLogEntry) (*model.Guild, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 	var guild model.Guild
 	now := time.Now().UTC()
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("discord_guild_id = ?", discordGuildID).First(&guild).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("discord_guild_id = ?", discordGuildID).
+			First(&guild).Error; err != nil {
 			return fmt.Errorf("get guild for deactivation: %w", err)
 		}
 		guild.IsActive = false
@@ -347,10 +350,15 @@ func ensureStarterPolicy(tx *gorm.DB, guildID string, now time.Time) (*model.Exp
 	}
 
 	template := model.CaseTemplate{
-		GuildID: guildID, Slug: starterPolicySlug, Name: "General rule violation",
-		Description:    "A starter rule for general violations. Review and customize it for this guild.",
-		ReasonTemplate: "General rule violation", Appealable: true, Version: 1,
-		CreatedByDiscordUserID: "quack-system", UpdatedByDiscordUserID: "quack-system",
+		GuildID:                guildID,
+		Slug:                   starterPolicySlug,
+		Name:                   "General rule violation",
+		Description:            "A starter rule for general violations. Review and customize it for this guild.",
+		ReasonTemplate:         "General rule violation",
+		Appealable:             true,
+		Version:                1,
+		CreatedByDiscordUserID: "quack-system",
+		UpdatedByDiscordUserID: "quack-system",
 	}
 	if err := prepareULIDModel(&template.ULIDModel, now); err != nil {
 		return nil, false, fmt.Errorf("prepare starter policy: %w", err)
@@ -370,48 +378,72 @@ func ensureStarterPolicy(tx *gorm.DB, guildID string, now time.Time) (*model.Exp
 // starterPolicyLevels returns the product-defined case-only, timeout, and ban escalation policy.
 func starterPolicyLevels() []model.ExpandedCaseTemplateLevel {
 	return []model.ExpandedCaseTemplateLevel{
-		{Level: model.CaseTemplateLevel{Position: 1, Name: "Default", IsDefault: true, TriggerCaseCount: 0, NotifyUser: true}},
-		{Level: model.CaseTemplateLevel{Position: 2, Name: "24-hour timeout", TriggerCaseCount: 3, NotifyUser: true}, Actions: []model.CaseTemplateLevelAction{{ActionType: model.ActionTimeoutUser, ConfigJSON: `{"duration_seconds":86400}`, MaxRetries: 0}}},
-		{Level: model.CaseTemplateLevel{Position: 3, Name: "Ban", TriggerCaseCount: 5, NotifyUser: true}, Actions: []model.CaseTemplateLevelAction{{ActionType: model.ActionBanUser, ConfigJSON: `{"delete_message_seconds":86400}`, MaxRetries: 0}}},
+		{
+			Level: model.CaseTemplateLevel{Position: 1, Name: "Default", IsDefault: true, TriggerCaseCount: 0, NotifyUser: true},
+		},
+		{
+			Level: model.CaseTemplateLevel{Position: 2, Name: "24-hour timeout", TriggerCaseCount: 3, NotifyUser: true},
+			Actions: []model.CaseTemplateLevelAction{
+				{ActionType: model.ActionTimeoutUser, ConfigJSON: `{"duration_seconds":86400}`, MaxRetries: 0},
+			},
+		},
+		{
+			Level: model.CaseTemplateLevel{Position: 3, Name: "Ban", TriggerCaseCount: 5, NotifyUser: true},
+			Actions: []model.CaseTemplateLevelAction{
+				{ActionType: model.ActionBanUser, ConfigJSON: `{"delete_message_seconds":86400}`, MaxRetries: 0},
+			},
+		},
 	}
 }
 
 // isExactStarterPolicy prevents an unrelated policy from being silently adopted when the reserved starter slug already exists.
 func isExactStarterPolicy(template model.ExpandedCaseTemplate) bool {
 	want := starterPolicyLevels()
-	if template.Template.Name != "General rule violation" || template.Template.ReasonTemplate != "General rule violation" || !template.Template.Appealable || template.Template.ArchivedAt != nil || len(template.Levels) != len(want) {
+	header := template.Template
+	if header.Name != "General rule violation" || header.ReasonTemplate != "General rule violation" ||
+		!header.Appealable || header.ArchivedAt != nil || len(template.Levels) != len(want) {
 		return false
 	}
 	for i := range want {
 		gotLevel, wantLevel := template.Levels[i], want[i]
-		if gotLevel.Level.IsDefault != wantLevel.Level.IsDefault || gotLevel.Level.TriggerCaseCount != wantLevel.Level.TriggerCaseCount || !gotLevel.Level.NotifyUser || len(gotLevel.Actions) != len(wantLevel.Actions) {
+		if gotLevel.Level.IsDefault != wantLevel.Level.IsDefault ||
+			gotLevel.Level.TriggerCaseCount != wantLevel.Level.TriggerCaseCount ||
+			!gotLevel.Level.NotifyUser ||
+			len(gotLevel.Actions) != len(wantLevel.Actions) {
 			return false
 		}
-		if len(wantLevel.Actions) == 1 && (gotLevel.Actions[0].ActionType != wantLevel.Actions[0].ActionType || gotLevel.Actions[0].ConfigJSON != wantLevel.Actions[0].ConfigJSON) {
+		if len(wantLevel.Actions) == 1 &&
+			(gotLevel.Actions[0].ActionType != wantLevel.Actions[0].ActionType || gotLevel.Actions[0].ConfigJSON != wantLevel.Actions[0].ConfigJSON) {
 			return false
 		}
 	}
 	return true
 }
 
-// guildSettingsModelFromRecord maps adapter storage into the persistence-free settings model.
+// guildSettingsModelFromRecord copies the settings row into the model. The
+// three module flags are copied verbatim here and then overwritten by
+// loadCanonicalModuleFlags; the module_configurations rows are authoritative.
 func guildSettingsModelFromRecord(record GuildSettingsRecord) model.GuildSettings {
 	return model.GuildSettings{
-		ULIDModel:                   model.ULIDModel{ID: record.ID, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt},
-		AppealQueueChannelDiscordID: record.AppealQueueChannelDiscordID,
-		AppealRejoinURL:             record.AppealRejoinURL,
-		AppealReviewReasonRequired:  record.AppealReviewReasonRequired,
-		GuildID:                     record.GuildID, AuditMirrorChannelDiscordID: record.AuditMirrorChannelDiscordID,
-		ManagedEvidenceChannelDiscordID: record.ManagedEvidenceChannelDiscordID,
-		NotificationIntroduction:        record.NotificationIntroduction, NotificationFooter: record.NotificationFooter,
-		TicketsEnabled: record.TicketsEnabled, GeneralLoggingEnabled: record.GeneralLoggingEnabled,
-		HoneypotEnabled: record.HoneypotEnabled, StarterPolicyTemplateID: record.StarterPolicyTemplateID,
+		ULIDModel:                         ulidModelFromRecord(record.ULIDModelRecord),
+		GuildID:                           record.GuildID,
+		AppealQueueChannelDiscordID:       record.AppealQueueChannelDiscordID,
+		AppealRejoinURL:                   record.AppealRejoinURL,
+		AppealReviewReasonRequired:        record.AppealReviewReasonRequired,
+		AuditMirrorChannelDiscordID:       record.AuditMirrorChannelDiscordID,
+		ManagedEvidenceChannelDiscordID:   record.ManagedEvidenceChannelDiscordID,
+		NotificationIntroduction:          record.NotificationIntroduction,
+		NotificationFooter:                record.NotificationFooter,
+		TicketsEnabled:                    record.TicketsEnabled,
+		GeneralLoggingEnabled:             record.GeneralLoggingEnabled,
+		HoneypotEnabled:                   record.HoneypotEnabled,
+		StarterPolicyTemplateID:           record.StarterPolicyTemplateID,
 		StarterPolicyNoticePending:        record.StarterPolicyNoticePending,
 		StarterPolicyNoticeAcknowledgedAt: record.StarterPolicyNoticeAcknowledgedAt,
 	}
 }
 
-// prepareULIDRecord initializes adapter-owned records without exposing storage tags to the core model.
+// prepareULIDRecord is prepareULIDModel for rows written through a *Record type.
 func prepareULIDRecord(record *ULIDModelRecord, now time.Time) error {
 	modelValue := model.ULIDModel{ID: record.ID, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
 	if err := prepareULIDModel(&modelValue, now); err != nil {
@@ -425,7 +457,8 @@ func prepareULIDRecord(record *ULIDModelRecord, now time.Time) error {
 // booleans never override configuration written by native module setup.
 func loadCanonicalModuleFlags(db *gorm.DB, settings *model.GuildSettings) error {
 	var configs []modules.Configuration
-	if err := db.Select("module_id, enabled").Where("guild_id = ? AND module_id IN ?", settings.GuildID, []modules.ID{modules.Tickets, modules.GeneralLogging, modules.Honeypots}).Find(&configs).Error; err != nil {
+	core := []modules.ID{modules.Tickets, modules.GeneralLogging, modules.Honeypots}
+	if err := db.Select("module_id, enabled").Where("guild_id = ? AND module_id IN ?", settings.GuildID, core).Find(&configs).Error; err != nil {
 		return err
 	}
 	settings.TicketsEnabled, settings.GeneralLoggingEnabled, settings.HoneypotEnabled = false, false, false
@@ -465,7 +498,8 @@ func applyCanonicalModuleToggles(tx *gorm.DB, guildID string, toggles []model.Gu
 		if toggle.Enabled && (toggle.ExpectedConfigJSON == "" || config.ConfigJSON != toggle.ExpectedConfigJSON) {
 			return &model.GuildModuleConfigurationError{Message: fmt.Sprintf("%s configuration changed; reload settings and try again", id)}
 		}
-		if err := tx.Model(&modules.Configuration{}).Where("id = ?", config.ID).Updates(map[string]any{"enabled": toggle.Enabled, "updated_at": now}).Error; err != nil {
+		if err := tx.Model(&modules.Configuration{}).Where("id = ?", config.ID).
+			Updates(map[string]any{"enabled": toggle.Enabled, "updated_at": now}).Error; err != nil {
 			return err
 		}
 	}

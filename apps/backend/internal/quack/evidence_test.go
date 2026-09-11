@@ -35,7 +35,7 @@ func TestCaseProceedsWithoutContextOrWorkingEvidence(t *testing.T) {
 		{name: "transport failure", links: []string{"https://discord.com/channels/111111111111111111/222222222222222222/333333333333333333"}, client: unavailableEvidenceClient{err: errors.New("transport secret must not be exposed")}},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			service := quack.NewCaseService(repository).WithEvidenceCapture(quack.NewEvidenceService(scenario.client, repository))
+			service := quack.NewCaseService(repository, nil).WithEvidenceCapture(quack.NewEvidenceService(scenario.client, repository))
 			created, err := service.Create(ctx, moderator, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: "target", EvidenceLinks: scenario.links})
 			if err != nil {
 				t.Fatalf("optional evidence blocked case: %v", err)
@@ -93,7 +93,7 @@ func TestParseDiscordMessageLinkRejectsLookalikesAndCrossGuildCapture(t *testing
 			t.Fatalf("accepted invalid link %q: %v", invalid, err)
 		}
 	}
-	service := quack.NewEvidenceService(unavailableEvidenceClient{})
+	service := quack.NewEvidenceService(unavailableEvidenceClient{}, nil)
 	if _, err := service.Capture(context.Background(), "999999999999999999", "actor", "target", "", []string{valid}); !errors.Is(err, quack.ErrEvidenceValidation) {
 		t.Fatalf("cross-guild capture accepted: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestParseDiscordMessageLinkRejectsLookalikesAndCrossGuildCapture(t *testing
 func TestUnavailableEvidenceDoesNotRequireFallbackContext(t *testing.T) {
 	link := "https://discord.com/channels/111111111111111111/222222222222222222/333333333333333333"
 	for _, outcome := range []string{"deleted", "inaccessible"} {
-		service := quack.NewEvidenceService(unavailableEvidenceClient{err: &quack.EvidenceUnavailableError{Outcome: outcome, Message: "message " + outcome}})
+		service := quack.NewEvidenceService(unavailableEvidenceClient{err: &quack.EvidenceUnavailableError{Outcome: outcome, Message: "message " + outcome}}, nil)
 		captured, err := service.Capture(context.Background(), "111111111111111111", "actor", "target", "", []string{link})
 		if err != nil || len(captured.Snapshots) != 1 || captured.Snapshots[0].CaptureOutcome != outcome || captured.Snapshots[0].MessageCreatedAt.IsZero() {
 			t.Fatalf("partial %s capture: %+v err=%v", outcome, captured, err)
@@ -130,7 +130,7 @@ func TestLiveEvidencePreservesSupportedAndRetainsUnsupportedOrOversizedMetadata(
 		},
 		preserved: quack.PreservedDiscordAttachment{URL: "https://cdn.example/preserved", MessageID: "copy-message", AttachmentID: "copy-attachment"},
 	}
-	captured, err := quack.NewEvidenceService(client).Capture(context.Background(), guildID, "actor", targetID, "evidence-channel", []string{link})
+	captured, err := quack.NewEvidenceService(client, nil).Capture(context.Background(), guildID, "actor", targetID, "evidence-channel", []string{link})
 	if err != nil {
 		t.Fatalf("capture live evidence: %v", err)
 	}

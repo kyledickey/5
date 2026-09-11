@@ -14,9 +14,6 @@ import (
 
 // GetGuildAppealSettings returns a guild's configured future appeal form, or nil to select the product default.
 func (s *Store) GetGuildAppealSettings(ctx context.Context, guildID string) (*model.GuildAppealSettings, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 	var record GuildAppealSettingsRecord
 	result := s.db.WithContext(ctx).Where("guild_id = ?", guildID).First(&record)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -30,9 +27,6 @@ func (s *Store) GetGuildAppealSettings(ctx context.Context, guildID string) (*mo
 
 // UpdateGuildAppealSettings replaces only the form used by future submissions and appends its audit record atomically.
 func (s *Store) UpdateGuildAppealSettings(ctx context.Context, params model.UpdateGuildAppealSettingsParams) (*model.GuildAppealSettings, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 	now := time.Now().UTC()
 	settings := params.Settings
 	if err := prepareULIDModel(&settings.ULIDModel, now); err != nil {
@@ -68,9 +62,6 @@ func (s *Store) UpdateGuildAppealSettings(ctx context.Context, params model.Upda
 
 // CreateAppeal inserts one case-unique appeal with its first immutable event, public case history, audit, and staff notification.
 func (s *Store) CreateAppeal(ctx context.Context, params model.CreateAppealParams) (*model.Appeal, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 	now := time.Now().UTC()
 	appeal := params.Appeal
 	if err := prepareULIDModel(&appeal.ULIDModel, now); err != nil {
@@ -94,14 +85,19 @@ func (s *Store) CreateAppeal(ctx context.Context, params model.CreateAppealParam
 			return model.ErrAppealCaseIneligible
 		}
 		var item CaseRecord
-		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND guild_id = ?", *appeal.CaseID, appeal.GuildID).First(&item)
+		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND guild_id = ?", *appeal.CaseID, appeal.GuildID).
+			First(&item)
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return model.ErrAppealCaseIneligible
 		}
 		if result.Error != nil {
 			return result.Error
 		}
-		if item.TargetDiscordUserID != appeal.TargetDiscordUserID || item.Validity != model.CaseValidityValid || !snapshotAppealable(item.TemplateSnapshotJSON) {
+		ineligible := item.TargetDiscordUserID != appeal.TargetDiscordUserID ||
+			item.Validity != model.CaseValidityValid ||
+			!snapshotAppealable(item.TemplateSnapshotJSON)
+		if ineligible {
 			return model.ErrAppealCaseIneligible
 		}
 		var existing int64
@@ -141,9 +137,6 @@ func (s *Store) CreateAppeal(ctx context.Context, params model.CreateAppealParam
 
 // GetAppealByID returns one appeal without applying caller authorization.
 func (s *Store) GetAppealByID(ctx context.Context, appealID string) (*model.Appeal, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 	var record AppealRecord
 	result := s.db.WithContext(ctx).Where("id = ?", appealID).First(&record)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -157,9 +150,6 @@ func (s *Store) GetAppealByID(ctx context.Context, appealID string) (*model.Appe
 
 // GetAppealByCaseID returns the only appeal for a case, if any.
 func (s *Store) GetAppealByCaseID(ctx context.Context, caseID string) (*model.Appeal, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 	var record AppealRecord
 	result := s.db.WithContext(ctx).Where("case_id = ?", caseID).First(&record)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -173,9 +163,6 @@ func (s *Store) GetAppealByCaseID(ctx context.Context, caseID string) (*model.Ap
 
 // ListAppeals returns stable newest-first staff queue pagination for one guild.
 func (s *Store) ListAppeals(ctx context.Context, params model.AppealListParams) (*model.AppealListResult, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 	query := s.db.WithContext(ctx).Model(&AppealRecord{}).Where("guild_id = ?", params.GuildID)
 	if params.Status != "" {
 		query = query.Where("status = ?", params.Status)
@@ -197,9 +184,6 @@ func (s *Store) ListAppeals(ctx context.Context, params model.AppealListParams) 
 
 // ListAppealEvents returns one immutable timeline in creation order.
 func (s *Store) ListAppealEvents(ctx context.Context, appealID string) ([]model.AppealEvent, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 	var records []AppealEventRecord
 	if err := s.db.WithContext(ctx).Where("appeal_id = ?", appealID).Order("created_at ASC, id ASC").Find(&records).Error; err != nil {
 		return nil, err
@@ -211,22 +195,31 @@ func (s *Store) ListAppealEvents(ctx context.Context, appealID string) ([]model.
 	return items, nil
 }
 
-// TransitionAppeal applies one staff timeline transition and optionally voids the case in the same transaction.
+// TransitionAppeal moves a pending appeal to accepted or rejected under a row
+// lock, bumping its version with an optimistic check so two concurrent
+// decisions cannot both succeed. Accepting (params.VoidCase) also voids the
+// case, cancels its pending work, and queues reversals in the same
+// transaction. It appends the appeal event, the member and staff outbox
+// rows, and the audit rows, and asks the staff queue message to refresh.
 func (s *Store) TransitionAppeal(ctx context.Context, params model.TransitionAppealParams) (*model.Appeal, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 	now := time.Now().UTC()
 	var updated AppealRecord
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND guild_id = ?", params.AppealID, params.GuildID).First(&updated)
+		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND guild_id = ?", params.AppealID, params.GuildID).
+			First(&updated)
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return model.ErrAppealStateConflict
 		}
 		if result.Error != nil {
 			return result.Error
 		}
-		if updated.Status != model.AppealStatusPending || !appealStatusIn(updated.Status, params.AllowedFrom) || (params.To != model.AppealStatusAccepted && params.To != model.AppealStatusRejected) || params.VoidCase != (params.To == model.AppealStatusAccepted) {
+		terminal := params.To == model.AppealStatusAccepted || params.To == model.AppealStatusRejected
+		invalid := updated.Status != model.AppealStatusPending ||
+			!appealStatusIn(updated.Status, params.AllowedFrom) ||
+			!terminal ||
+			params.VoidCase != (params.To == model.AppealStatusAccepted)
+		if invalid {
 			return model.ErrAppealStateConflict
 		}
 		if params.VoidCase {
@@ -234,18 +227,36 @@ func (s *Store) TransitionAppeal(ctx context.Context, params model.TransitionApp
 				return model.ErrAppealCaseIneligible
 			}
 			var item CaseRecord
-			caseResult := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND guild_id = ?", *updated.CaseID, params.GuildID).First(&item)
+			caseResult := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+				Where("id = ? AND guild_id = ?", *updated.CaseID, params.GuildID).
+				First(&item)
 			if caseResult.Error != nil || item.Validity != model.CaseValidityValid {
 				return model.ErrAppealStateConflict
 			}
-			caseUpdates := map[string]any{"status": model.CaseValidityVoided, "voided_reason": "Appeal accepted", "voided_by_discord_user_id": params.ActorDiscordUserID, "voided_at": now, "updated_at": now}
-			if result := tx.Model(&CaseRecord{}).Where("id = ? AND status = ?", item.ID, model.CaseValidityValid).Updates(caseUpdates); result.Error != nil || result.RowsAffected != 1 {
+			caseUpdates := map[string]any{
+				"status":                    model.CaseValidityVoided,
+				"voided_reason":             "Appeal accepted",
+				"voided_by_discord_user_id": params.ActorDiscordUserID,
+				"voided_at":                 now,
+				"updated_at":                now,
+			}
+			voided := tx.Model(&CaseRecord{}).Where("id = ? AND status = ?", item.ID, model.CaseValidityValid).Updates(caseUpdates)
+			if voided.Error != nil || voided.RowsAffected != 1 {
 				return model.ErrAppealStateConflict
 			}
 			if err := cancelVoidedCaseWork(tx, item.ID, now); err != nil {
 				return err
 			}
-			caseEvent := model.CaseEvent{CaseID: item.ID, GuildID: item.GuildID, EventType: model.CaseEventVoided, ActorDiscordUserID: params.ActorDiscordUserID, ActorType: "staff", Visibility: model.EventVisibilityPublic, Body: "Case voided after appeal accepted", MetadataJSON: "{}"}
+			caseEvent := model.CaseEvent{
+				CaseID:             item.ID,
+				GuildID:            item.GuildID,
+				EventType:          model.CaseEventVoided,
+				ActorDiscordUserID: params.ActorDiscordUserID,
+				ActorType:          "staff",
+				Visibility:         model.EventVisibilityPublic,
+				Body:               "Case voided after appeal accepted",
+				MetadataJSON:       "{}",
+			}
 			if err := appendCaseEvent(tx, &caseEvent, now); err != nil {
 				return err
 			}
@@ -264,9 +275,12 @@ func (s *Store) TransitionAppeal(ctx context.Context, params model.TransitionApp
 		updated.Version++
 		updated.UpdatedAt = now
 		result = tx.Model(&AppealRecord{}).Where("id = ? AND version = ?", updated.ID, updated.Version-1).Updates(map[string]any{
-			"status": updated.Status, "decision_reason": updated.DecisionReason,
+			"status":                      updated.Status,
+			"decision_reason":             updated.DecisionReason,
 			"reviewed_by_discord_user_id": updated.ReviewedByDiscordUserID,
-			"reviewed_at":                 now, "version": updated.Version, "updated_at": now,
+			"reviewed_at":                 now,
+			"version":                     updated.Version,
+			"updated_at":                  now,
 		})
 		if result.Error != nil || result.RowsAffected != 1 {
 			return model.ErrAppealStateConflict
@@ -301,7 +315,8 @@ func (s *Store) TransitionAppeal(ctx context.Context, params model.TransitionApp
 		}
 		// Preserve an in-flight send's lease and request another pass after it
 		// finishes. Idle queue messages can be refreshed immediately.
-		if err := tx.Model(&AppealNotificationRecord{}).Where("appeal_id = ? AND audience = ?", updated.ID, model.AppealNotificationStaff).Updates(map[string]any{
+		staffRows := tx.Model(&AppealNotificationRecord{}).Where("appeal_id = ? AND audience = ?", updated.ID, model.AppealNotificationStaff)
+		if err := staffRows.Updates(map[string]any{
 			"refresh_requested": true,
 			"status":            gorm.Expr("CASE WHEN status = ? THEN ? ELSE status END", model.AppealNotificationSent, model.AppealNotificationPending),
 			"updated_at":        now,
@@ -318,6 +333,8 @@ func (s *Store) TransitionAppeal(ctx context.Context, params model.TransitionApp
 	return appealModel(updated), nil
 }
 
+// snapshotAppealable reads the appealable flag frozen into a case's template
+// snapshot; later template edits must not change an existing case's eligibility.
 func snapshotAppealable(body string) bool {
 	var snapshot struct {
 		Template struct {
@@ -336,6 +353,9 @@ func appealStatusIn(status model.AppealStatus, allowed []model.AppealStatus) boo
 	return false
 }
 
+// isDuplicateError recognizes unique-constraint violations from both MySQL
+// ("Duplicate entry") and SQLite ("UNIQUE constraint failed") by message text,
+// since neither driver exposes a portable sentinel.
 func isDuplicateError(err error) bool {
 	text := strings.ToLower(err.Error())
 	return strings.Contains(text, "duplicate") || strings.Contains(text, "unique constraint")

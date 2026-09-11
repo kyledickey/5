@@ -28,16 +28,21 @@ type AppealNotificationDispatcher struct {
 	client AppealNotificationClient
 }
 
-// NewAppealNotificationDispatcher constructs an integration-ready appeal notification worker.
+// NewAppealNotificationDispatcher returns a dispatcher over store and client.
+// Both are required; it panics on nil so a misconfigured process fails at
+// startup rather than on the first outbox poll.
 func NewAppealNotificationDispatcher(store AppealRepository, client AppealNotificationClient) *AppealNotificationDispatcher {
+	if store == nil {
+		panic("quack: NewAppealNotificationDispatcher requires a repository")
+	}
+	if client == nil {
+		panic("quack: NewAppealNotificationDispatcher requires a notification client")
+	}
 	return &AppealNotificationDispatcher{store: store, client: client}
 }
 
 // DispatchPending delivers a bounded batch and records every success or classified failure idempotently.
 func (d *AppealNotificationDispatcher) DispatchPending(ctx context.Context, limit int) error {
-	if d == nil || d.store == nil || d.client == nil {
-		return errors.New("appeal notification dispatcher is not configured")
-	}
 	if limit < 1 || limit > 100 {
 		return errors.New("appeal notification limit is invalid")
 	}
@@ -82,7 +87,13 @@ func (d *AppealNotificationDispatcher) DispatchPending(ctx context.Context, limi
 		default:
 			sendErr = errors.New("appeal notification audience is invalid")
 		}
-		params := model.CompleteAppealNotificationParams{NotificationID: item.ID, LeaseToken: item.LeaseToken, DeliveryMessageID: messageID, DeliveryChannelID: receipt.ChannelID, Status: model.AppealNotificationSent}
+		params := model.CompleteAppealNotificationParams{
+			NotificationID:    item.ID,
+			LeaseToken:        item.LeaseToken,
+			DeliveryMessageID: messageID,
+			DeliveryChannelID: receipt.ChannelID,
+			Status:            model.AppealNotificationSent,
+		}
 		if sendErr != nil {
 			params.Status = model.AppealNotificationFailed
 			params.ErrorCode = appealNotificationErrorCode(sendErr)
@@ -94,6 +105,8 @@ func (d *AppealNotificationDispatcher) DispatchPending(ctx context.Context, limi
 	return nil
 }
 
+// appealNotificationErrorCode classifies a delivery error into the stable code
+// stored on the outbox row. Unknown Discord errors are bucketed by message text.
 func appealNotificationErrorCode(err error) string {
 	if err == nil {
 		return ""

@@ -7,7 +7,10 @@ import (
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
-// Context carries the request-scoped context data needed by downstream logic.
+// Context is what a Handler receives for one interaction: the trace-bearing
+// context.Context, application services, the gateway session and the raw
+// interaction. Services and Session may be nil in unit tests that only assert
+// on the immediate response.
 type Context struct {
 	context.Context
 	Services    *quack.Services
@@ -15,7 +18,11 @@ type Context struct {
 	Interaction *discordgo.InteractionCreate
 }
 
-// Responder exposes the Discord response operations available to asynchronous interaction tasks.
+// Responder is what an asynchronous Task uses to talk back to Discord after the
+// acknowledgement has been sent. EditOriginal, Followup, EditFollowup and
+// DeleteOriginal use the interaction webhook token, which expires 15 minutes
+// after the interaction; PublishChannel and EditChannel use bot credentials
+// and have no such lifetime.
 type Responder interface {
 	// PublishChannel sends a standalone public notice in the originating channel.
 	PublishChannel(context.Context, Message) (*discordgo.Message, error)
@@ -28,7 +35,9 @@ type Responder interface {
 	UpdateMessage(Edit) (*discordgo.Message, error)
 }
 
-// Task performs deferred interaction work after the acknowledgement has been sent to Discord.
+// Task is the deferred half of an Async handler. It runs on its own goroutine
+// after the acknowledgement was accepted; a returned error is reported privately
+// to the invoking user by the dispatcher (see interactions.Dispatcher).
 type Task func(context.Context, Responder) error
 
 // HandlerResult tells the dispatcher how to acknowledge an interaction and whether deferred work follows.
@@ -37,15 +46,17 @@ type HandlerResult struct {
 	Task     Task
 }
 
-// Handler handles one unit of work through the package's transport-neutral callback contract.
+// Handler is the entry point for one command, component or modal interaction.
+// It must return within Discord's three-second acknowledgement window, so slow
+// work belongs in the Task of an Async result.
 type Handler func(Context) HandlerResult
 
-// Immediate encapsulates the immediate rule so callers share one consistent package implementation.
+// Immediate answers the interaction with response and schedules no further work.
 func Immediate(response *discordgo.InteractionResponse) HandlerResult {
 	return HandlerResult{Response: response}
 }
 
-// Async encapsulates the async rule so callers share one consistent package implementation.
+// Async sends response (normally a Defer* acknowledgement) and then runs task.
 func Async(response *discordgo.InteractionResponse, task Task) HandlerResult {
 	return HandlerResult{Response: response, Task: task}
 }
@@ -84,7 +95,7 @@ func (r publicCommandResponder) EditOriginal(edit Edit) (*discordgo.Message, err
 	return r.Responder.Followup(message)
 }
 
-// Public encapsulates the public rule so callers share one consistent package implementation.
+// Public builds a visible channel reply, clearing any ephemeral flag on message.
 func Public(message Message) *discordgo.InteractionResponse {
 	message.Ephemeral = false
 	return &discordgo.InteractionResponse{
@@ -93,7 +104,7 @@ func Public(message Message) *discordgo.InteractionResponse {
 	}
 }
 
-// Ephemeral encapsulates the ephemeral rule so callers share one consistent package implementation.
+// Ephemeral builds a reply only the invoking user can see.
 func Ephemeral(message Message) *discordgo.InteractionResponse {
 	message.Ephemeral = true
 	return &discordgo.InteractionResponse{
@@ -102,14 +113,15 @@ func Ephemeral(message Message) *discordgo.InteractionResponse {
 	}
 }
 
-// DeferPublic encapsulates the defer public rule so callers share one consistent package implementation.
+// DeferPublic acknowledges with a visible "thinking" placeholder that a Task
+// later replaces with EditOriginal or Publish.
 func DeferPublic() *discordgo.InteractionResponse {
 	return &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 	}
 }
 
-// DeferEphemeral encapsulates the defer ephemeral rule so callers share one consistent package implementation.
+// DeferEphemeral acknowledges with a placeholder only the invoking user can see.
 func DeferEphemeral() *discordgo.InteractionResponse {
 	return &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
@@ -119,14 +131,15 @@ func DeferEphemeral() *discordgo.InteractionResponse {
 	}
 }
 
-// DeferUpdate encapsulates the defer update rule so callers share one consistent package implementation.
+// DeferUpdate acknowledges a component click without changing the message it
+// belongs to; the Task then edits that message with UpdateMessage.
 func DeferUpdate() *discordgo.InteractionResponse {
 	return &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredMessageUpdate,
 	}
 }
 
-// Update updates update while retaining validation, compatibility, and audit requirements.
+// Update immediately replaces the message a component belongs to.
 func Update(message Message) *discordgo.InteractionResponse {
 	return &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseUpdateMessage,
@@ -134,7 +147,7 @@ func Update(message Message) *discordgo.InteractionResponse {
 	}
 }
 
-// Autocomplete encapsulates the autocomplete rule so callers share one consistent package implementation.
+// Autocomplete answers an autocomplete interaction with up to 25 choices.
 func Autocomplete(choices []*discordgo.ApplicationCommandOptionChoice) *discordgo.InteractionResponse {
 	return &discordgo.InteractionResponse{
 		Type: discordgo.InteractionApplicationCommandAutocompleteResult,
@@ -144,7 +157,8 @@ func Autocomplete(choices []*discordgo.ApplicationCommandOptionChoice) *discordg
 	}
 }
 
-// Modal encapsulates the modal rule so callers share one consistent package implementation.
+// Modal opens a form. It must be the initial response, so handlers that need a
+// form cannot defer first.
 func Modal(title, customID string, components []discordgo.MessageComponent) *discordgo.InteractionResponse {
 	return &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseModal,
@@ -156,12 +170,13 @@ func Modal(title, customID string, components []discordgo.MessageComponent) *dis
 	}
 }
 
-// Error formats - as a standard Go error without discarding its classification.
+// Error builds an ephemeral reply carrying content behind the error icon.
 func Error(content string) *discordgo.InteractionResponse {
 	return Ephemeral(Signal("error", content, true))
 }
 
-// ErrorEdit encapsulates the error edit rule so callers share one consistent package implementation.
+// ErrorEdit builds an edit carrying content behind the error icon and marks it
+// PrivateError so AsyncPublic routes it to the invoking user instead of the channel.
 func ErrorEdit(content string) Edit {
 	edit := EditMessage(Signal("error", content, false))
 	edit.PrivateError = true

@@ -1,6 +1,6 @@
 # V5 Scope Drift
 
-This document is a high-level comparison between the current backend and the product definition in [`v5.md`](../v5.md).
+This document is a high-level comparison between the current backend and the product definition in [`v5.md`](v5.md).
 
 It is an audit, not a roadmap or implementation plan. A listed mismatch does not mean the behavior has already changed. Technical documentation should continue describing the code that exists until that code is updated.
 

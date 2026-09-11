@@ -11,14 +11,30 @@ import (
 )
 
 var (
-	ErrCaseValidation           = errors.New("case validation failed")
+	// ErrCaseValidation wraps every rejected case input; the suffix after the
+	// colon is safe to show to staff.
+	ErrCaseValidation = errors.New("case validation failed")
+	// ErrCaseTemplateNotAvailable reports a template that is missing from the
+	// guild or archived, so it cannot be applied to new cases.
 	ErrCaseTemplateNotAvailable = errors.New("case template not available")
-	ErrCasePermissionDenied     = errors.New("case permission denied")
-	ErrCaseNotFound             = errors.New("case not found")
-	errCasePreflightStale       = errors.New("case preflight became stale")
+	// ErrCasePermissionDenied reports a staff context that lacks the permission
+	// bit the operation requires.
+	ErrCasePermissionDenied = errors.New("case permission denied")
+	// ErrCaseNotFound reports a case reference that does not resolve inside the
+	// caller's guild; cross-guild lookups deliberately look identical.
+	ErrCaseNotFound = errors.New("case not found")
+	// errCasePreflightStale signals that the template, escalation level, or
+	// action changed between preflight and the locked transaction, so the
+	// preflight must be recomputed.
+	errCasePreflightStale = errors.New("case preflight became stale")
 )
 
-// CaseService owns case authorization, escalation selection, snapshots, auditing, and action scheduling.
+// CaseService creates, reads, corrects, and annotates moderation cases. It owns
+// the guild-scoped creation lock, escalation level selection, the immutable
+// template snapshot, case audit rows, and the post-commit hand-off to the action
+// scheduler. Live Discord authorization (authorizer) and evidence capture
+// (evidence) are optional collaborators: without them cases are created from
+// stored permissions alone and evidence is recorded as unavailable.
 type CaseService struct {
 	store      CaseRepository
 	scheduler  CaseWorkScheduler
@@ -26,21 +42,32 @@ type CaseService struct {
 	evidence   *EvidenceService
 }
 
-// NewCaseService binds case persistence and an optional latency queue without starting workers.
-func NewCaseService(store CaseRepository, scheduler ...CaseWorkScheduler) *CaseService {
-	service := &CaseService{store: store}
-	if len(scheduler) > 0 {
-		service.scheduler = scheduler[0]
+// NewCaseService wires case persistence and an optional scheduler. A nil
+// scheduler means committed cases wait for the durable poller instead of being
+// submitted immediately; a nil store is a programming error and panics.
+func NewCaseService(store CaseRepository, scheduler CaseWorkScheduler) *CaseService {
+	if store == nil {
+		panic("quack: NewCaseService requires a non-nil CaseRepository")
 	}
-	return service
+	return &CaseService{store: store, scheduler: scheduler}
 }
 
-// WithEvidenceCapture configures the shared pre-commit evidence service.
+// WithEvidenceCapture installs the evidence service used to snapshot message
+// links and uploads before a case commits. It returns the receiver for chaining.
 func (s *CaseService) WithEvidenceCapture(evidence *EvidenceService) *CaseService {
-	if s != nil {
-		s.evidence = evidence
-	}
+	s.evidence = evidence
 	return s
+}
+
+// evidenceCapture returns the configured evidence service or, when none was
+// installed, a zero-value service whose captures produce "unavailable" snapshots
+// and metadata-only upload records. Case creation therefore never depends on
+// Discord evidence access.
+func (s *CaseService) evidenceCapture() *EvidenceService {
+	if s.evidence != nil {
+		return s.evidence
+	}
+	return &EvidenceService{}
 }
 
 // Create applies a staff-attributed template to a user inside the guild-scoped
@@ -50,16 +77,14 @@ func (s *CaseService) Create(ctx context.Context, guildContext *GuildStaffContex
 	if input.Source == model.CaseSourceHoneypot {
 		return nil, validationCaseError("honeypot cases require the system application boundary")
 	}
-	return s.createWithAttribution(ctx, guildContext, input, caseCreateAttribution{actorType: "staff", auditSource: model.AuditSourceAPI})
+	attribution := caseCreateAttribution{actorType: "staff", auditSource: model.AuditSourceAPI}
+	return s.createWithAttribution(ctx, guildContext, input, attribution)
 }
 
 // CreateSystemHoneypot applies one honeypot template through the ordinary case
 // transaction while attributing the operation to Quack itself. It is intended
 // only for the injected optional-module adapter and rejects every other source.
 func (s *CaseService) CreateSystemHoneypot(ctx context.Context, guildID string, input CaseInput) (*CaseResponse, error) {
-	if s == nil || s.store == nil {
-		return nil, errors.New("case service is not configured")
-	}
 	if s.authorizer == nil {
 		return nil, ErrAuthorizationUnavailable
 	}
@@ -80,17 +105,22 @@ func (s *CaseService) CreateSystemHoneypot(ctx context.Context, guildID string, 
 			model.PermissionActionCaseCreate: true,
 		},
 	}
-	return s.createWithAttribution(ctx, systemContext, input, caseCreateAttribution{actorType: "system", auditSource: model.AuditSourceSystem, system: true})
+	attribution := caseCreateAttribution{actorType: "system", auditSource: model.AuditSourceSystem, system: true}
+	return s.createWithAttribution(ctx, systemContext, input, attribution)
 }
 
 // createWithAttribution owns the shared moderation path for staff and the
-// narrowly scoped honeypot system boundary.
-func (s *CaseService) createWithAttribution(ctx context.Context, guildContext *GuildStaffContext, input CaseInput, attribution caseCreateAttribution) (*CaseResponse, error) {
+// narrowly scoped honeypot system boundary. It answers idempotent replays from
+// storage, then runs preflight outside the lock and the create inside it,
+// retrying a bounded number of times when the preflight goes stale.
+func (s *CaseService) createWithAttribution(
+	ctx context.Context,
+	guildContext *GuildStaffContext,
+	input CaseInput,
+	attribution caseCreateAttribution,
+) (*CaseResponse, error) {
 	ctx = ensureTraceContext(ctx)
 	ctx = ContextWithAuditSource(ctx, AuditSourceForCaseSource(input.Source))
-	if s == nil || s.store == nil {
-		return nil, errors.New("case service is not configured")
-	}
 	if guildContext == nil || guildContext.Guild == nil {
 		return nil, validationCaseError("missing guild context")
 	}
@@ -108,7 +138,9 @@ func (s *CaseService) createWithAttribution(ctx context.Context, guildContext *G
 			return nil, getErr
 		}
 		if existing != nil {
-			if existing.TargetDiscordUserID != strings.TrimSpace(input.TargetDiscordUserID) || (existing.TemplateID != nil && *existing.TemplateID != strings.TrimSpace(input.TemplateID)) {
+			sameTarget := existing.TargetDiscordUserID == strings.TrimSpace(input.TargetDiscordUserID)
+			sameTemplate := existing.TemplateID == nil || *existing.TemplateID == strings.TrimSpace(input.TemplateID)
+			if !sameTarget || !sameTemplate {
 				return nil, validationCaseError("idempotency key was already used for another case request")
 			}
 			actions, listErr := s.store.ListCaseActionExecutions(ctx, existing.ID)
@@ -147,9 +179,21 @@ func (s *CaseService) createWithAttribution(ctx context.Context, guildContext *G
 	if err != nil {
 		var authorizationErr *AuthorizationError
 		if errors.As(err, &authorizationErr) && s.authorizer != nil {
-			_ = s.authorizer.auditAuthorizationDenialWithMetadata(ctx, guildContext, authorizationErr.Capability, AuditSourceFromContext(ctx), authorizationErr.Reason, authorizationErr.MetadataJSON)
+			// best-effort: the denial is already being returned to the caller
+			_ = s.authorizer.auditAuthorizationDenialWithMetadata(
+				ctx,
+				guildContext,
+				authorizationErr.Capability,
+				AuditSourceFromContext(ctx),
+				authorizationErr.Reason,
+				authorizationErr.MetadataJSON,
+			)
 		}
-		if errors.Is(err, ErrCaseValidation) || errors.Is(err, ErrCasePermissionDenied) || errors.Is(err, ErrCaseTemplateNotAvailable) || errors.Is(err, errCasePreflightStale) {
+		if errors.Is(err, ErrCaseValidation) ||
+			errors.Is(err, ErrCasePermissionDenied) ||
+			errors.Is(err, ErrCaseTemplateNotAvailable) ||
+			errors.Is(err, errCasePreflightStale) {
+			// best-effort: the rejection is already being returned to the caller
 			_ = s.auditWithAttribution(ctx, guildContext, attribution, "case.create", "case", "unknown", model.AuditResultFailure, err.Error())
 		}
 		if errors.Is(err, errCasePreflightStale) {
@@ -171,8 +215,16 @@ func (s *CaseService) createWithAttribution(ctx context.Context, guildContext *G
 	return &response, nil
 }
 
-// preflightCreate performs live authorization and evidence capture before the atomic case transaction.
-func (s *CaseService) preflightCreate(ctx context.Context, guildContext *GuildStaffContext, input CaseInput, attribution caseCreateAttribution) (*caseCreatePreflight, error) {
+// preflightCreate performs the work that must not run under the guild lock:
+// template lookup, escalation selection, live Discord authorization, context
+// validation, and evidence capture. Its result is verified again inside the
+// transaction and rejected with errCasePreflightStale if anything moved.
+func (s *CaseService) preflightCreate(
+	ctx context.Context,
+	guildContext *GuildStaffContext,
+	input CaseInput,
+	attribution caseCreateAttribution,
+) (*caseCreatePreflight, error) {
 	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil || !guildContext.Can(model.PermissionActionCaseCreate) {
 		return nil, ErrCasePermissionDenied
 	}
@@ -214,7 +266,13 @@ func (s *CaseService) preflightCreate(ctx context.Context, guildContext *GuildSt
 	if strings.TrimSpace(input.ContextURL) != "" {
 		links = append(links, input.ContextURL)
 	}
-	result := &caseCreatePreflight{TemplateID: template.Template.ID, TemplateVersion: template.Template.Version, SelectedLevelID: selected.Level.ID, ActionType: actionType, ContextValuesJSON: valuesJSON}
+	result := &caseCreatePreflight{
+		TemplateID:        template.Template.ID,
+		TemplateVersion:   template.Template.Version,
+		SelectedLevelID:   selected.Level.ID,
+		ActionType:        actionType,
+		ContextValuesJSON: valuesJSON,
+	}
 	if len(links) > 0 || len(input.Attachments) > 0 {
 		settings, settingsErr := s.store.GetGuildSettings(ctx, guildContext.Guild.ID)
 		if settingsErr != nil {
@@ -230,7 +288,8 @@ func (s *CaseService) preflightCreate(ctx context.Context, guildContext *GuildSt
 		} else if actorID == "" {
 			return nil, validationCaseError("evidence actor is required")
 		}
-		captured, captureErr := s.evidence.capture(ctx, guildContext.Guild.DiscordGuildID, actorID, targetID, channelID, links)
+		evidence := s.evidenceCapture()
+		captured, captureErr := evidence.capture(ctx, guildContext.Guild.DiscordGuildID, actorID, targetID, channelID, links)
 		if captureErr != nil {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
@@ -238,14 +297,19 @@ func (s *CaseService) preflightCreate(ctx context.Context, guildContext *GuildSt
 			warning := "Evidence could not be saved. Add it to the case later."
 			slog.WarnContext(ctx, "Case evidence capture failed", "guild_id", guildContext.Guild.ID)
 			result.Captured = CapturedEvidence{
-				Snapshots: []model.CaseEvidenceSnapshot{{CaptureOutcome: "unavailable", CaptureWarning: warning, MessageCreatedAt: time.Now().UTC(), EmbedsJSON: "[]"}},
-				Warnings:  []string{warning},
+				Snapshots: []model.CaseEvidenceSnapshot{{
+					CaptureOutcome:   "unavailable",
+					CaptureWarning:   warning,
+					MessageCreatedAt: time.Now().UTC(),
+					EmbedsJSON:       "[]",
+				}},
+				Warnings: []string{warning},
 			}
 		}
 		if captured != nil {
 			result.Captured = *captured
 		}
-		uploads, uploadErr := s.evidence.CaptureUploads(ctx, guildContext.Guild.DiscordGuildID, actorID, channelID, input.Attachments)
+		uploads, uploadErr := evidence.CaptureUploads(ctx, guildContext.Guild.DiscordGuildID, actorID, channelID, input.Attachments)
 		if uploadErr != nil {
 			return nil, uploadErr
 		}
@@ -257,20 +321,24 @@ func (s *CaseService) preflightCreate(ctx context.Context, guildContext *GuildSt
 }
 
 // Void preserves the case and correction reason while removing it from future escalation.
-func (s *CaseService) Void(ctx context.Context, guildContext *GuildStaffContext, caseRef, reason string, replacementCaseID *string) (response *CaseResponse, err error) {
+// Any failure after the guild context is known is audited before it is returned.
+func (s *CaseService) Void(
+	ctx context.Context,
+	guildContext *GuildStaffContext,
+	caseRef, reason string,
+	replacementCaseID *string,
+) (response *CaseResponse, err error) {
 	defer func() {
-		if err == nil || s == nil || s.store == nil || guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
+		if err == nil || guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
 			return
 		}
 		result := model.AuditResultFailure
 		if errors.Is(err, ErrCasePermissionDenied) || errors.Is(err, ErrAuthorizationDenied) {
 			result = model.AuditResultDenied
 		}
+		// best-effort: the failure is already being returned to the caller
 		_ = s.audit(ctx, guildContext, string(model.AuditActionCaseVoid), "case", strings.TrimSpace(caseRef), result, err.Error())
 	}()
-	if s == nil || s.store == nil {
-		return nil, errors.New("case service is not configured")
-	}
 	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
 		return nil, validationCaseError("missing guild context")
 	}
@@ -291,7 +359,14 @@ func (s *CaseService) Void(ctx context.Context, guildContext *GuildStaffContext,
 	if item == nil {
 		return nil, ErrCaseNotFound
 	}
-	voided, err := s.store.VoidCase(ctx, model.VoidCaseParams{GuildID: guildContext.Guild.ID, CaseID: item.ID, ActorDiscordUserID: guildContext.Staff.DiscordUserID, Reason: reason, ReplacementCaseID: replacementCaseID, Audit: s.auditEntry(ctx, guildContext, "case.void", "case", item.ID, model.AuditResultSuccess, "")})
+	voided, err := s.store.VoidCase(ctx, model.VoidCaseParams{
+		GuildID:            guildContext.Guild.ID,
+		CaseID:             item.ID,
+		ActorDiscordUserID: guildContext.Staff.DiscordUserID,
+		Reason:             reason,
+		ReplacementCaseID:  replacementCaseID,
+		Audit:              s.auditEntry(ctx, guildContext, "case.void", "case", item.ID, model.AuditResultSuccess, ""),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -310,11 +385,9 @@ func (s *CaseService) Void(ctx context.Context, guildContext *GuildStaffContext,
 	return &result, nil
 }
 
-// requireCaseRead checks the service dependency and current guild read capability before loading case data.
+// requireCaseRead rejects a missing guild context or a staff member without the
+// case read permission before any case data is loaded.
 func (s *CaseService) requireCaseRead(guildContext *GuildStaffContext) error {
-	if s == nil || s.store == nil {
-		return errors.New("case service is not configured")
-	}
 	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
 		return validationCaseError("missing guild context")
 	}

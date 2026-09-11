@@ -20,7 +20,7 @@ func TestContextEditLeavesModerationUntouched(t *testing.T) {
 	input := validTemplateInput("spam")
 	input.Levels = []quack.TemplateLevelInput{{Name: "Ban", Position: 1, IsDefault: true, Actions: []quack.TemplateActionInput{{ActionType: model.ActionBanUser}}}}
 	template := createAppTemplate(t, ctx, repository, admin, input)
-	service := quack.NewCaseService(repository)
+	service := quack.NewCaseService(repository, nil)
 	created, err := service.Create(ctx, moderator, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: "member"})
 	if err != nil {
 		t.Fatal(err)
@@ -119,7 +119,7 @@ func TestContextMessageLinkCaptureIsOptionalAndIdempotent(t *testing.T) {
 			if scenario == "wrong-author" {
 				client.message.AuthorDiscordUserID = "other"
 			}
-			service := quack.NewCaseService(repository).WithEvidenceCapture(quack.NewEvidenceService(client, repository))
+			service := quack.NewCaseService(repository, nil).WithEvidenceCapture(quack.NewEvidenceService(client, repository))
 			created, err := service.Create(ctx, moderator, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: "member"})
 			if err != nil {
 				t.Fatal(err)

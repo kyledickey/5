@@ -29,9 +29,6 @@ func (currentSchema) TableName() string { return "quack_current_schema" }
 // or reconciles a database already initialized this way. It never silently adopts
 // a historical database; callers must explicitly preserve or reset that data.
 func (s *Store) InitializeSchema() error {
-	if s == nil || s.db == nil {
-		return errors.New("database not connected")
-	}
 	return withMigrationLock(s.db, func() error {
 		db := withMySQLTableOptions(s.db)
 		if !db.Migrator().HasTable(&currentSchema{}) {

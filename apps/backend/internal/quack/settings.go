@@ -22,7 +22,10 @@ var (
 	ErrGuildSettingsNotFound = errors.New("guild settings not found")
 )
 
-// GuildSettingsService owns authorized guild configuration, one-time notice acknowledgement, and immutable audit evidence.
+// GuildSettingsService owns authorized guild configuration, one-time notice
+// acknowledgement, and immutable audit evidence. channels and modules are
+// optional collaborators; without them the corresponding writes are rejected
+// with ErrGuildSettingsValidation rather than saved unverified.
 type GuildSettingsService struct {
 	store    SettingsRepository
 	channels StaffChannelValidator
@@ -85,7 +88,8 @@ type GuildSettingsResponse struct {
 	StarterPolicyNoticeAcknowledgedAt *time.Time `json:"starter_policy_notice_acknowledged_at,omitempty"`
 }
 
-// NewGuildSettingsService binds guild configuration to audited persistence.
+// NewGuildSettingsService returns a service over store with no channel or
+// module validators; install them with the With* methods.
 func NewGuildSettingsService(store SettingsRepository) *GuildSettingsService {
 	return &GuildSettingsService{store: store}
 }
@@ -93,51 +97,55 @@ func NewGuildSettingsService(store SettingsRepository) *GuildSettingsService {
 // Get returns guild settings to current Manage Guild authorities.
 func (s *GuildSettingsService) Get(ctx context.Context, guildContext *GuildStaffContext) (*GuildSettingsResponse, error) {
 	ctx = ensureTraceContext(ctx)
-	if s == nil || s.store == nil || guildContext == nil || guildContext.Guild == nil {
-		return nil, errors.New("guild settings service is not configured")
+	if guildContext == nil || guildContext.Guild == nil {
+		return nil, errors.New("missing guild context")
 	}
+	const action = string(model.AuditActionSettingsRead)
 	if !guildContext.Can(model.PermissionActionGuildSettingsRead) {
-		_ = s.audit(ctx, guildContext, string(model.AuditActionSettingsRead), model.AuditResultDenied, ErrGuildSettingsPermissionDenied.Error())
+		_ = s.audit(ctx, guildContext, action, model.AuditResultDenied, ErrGuildSettingsPermissionDenied.Error()) // best-effort: denial already returned
 		return nil, ErrGuildSettingsPermissionDenied
 	}
 	settings, err := s.store.GetGuildSettings(ctx, guildContext.Guild.ID)
 	if err != nil {
-		_ = s.audit(ctx, guildContext, string(model.AuditActionSettingsRead), model.AuditResultFailure, "query_failed")
+		_ = s.audit(ctx, guildContext, action, model.AuditResultFailure, "query_failed") // best-effort: storage error already returned
 		return nil, err
 	}
 	if settings == nil {
-		_ = s.audit(ctx, guildContext, string(model.AuditActionSettingsRead), model.AuditResultFailure, "not_found")
+		_ = s.audit(ctx, guildContext, action, model.AuditResultFailure, "not_found") // best-effort: not-found already returned
 		return nil, ErrGuildSettingsNotFound
 	}
 	response := guildSettingsResponse(*settings)
-	if err := s.audit(ctx, guildContext, string(model.AuditActionSettingsRead), model.AuditResultSuccess, ""); err != nil {
+	if err := s.audit(ctx, guildContext, action, model.AuditResultSuccess, ""); err != nil {
 		return nil, err
 	}
 	return &response, nil
 }
 
 // Update validates a partial settings write, enforces current Manage Guild authority, and records success, failure, or denial.
-func (s *GuildSettingsService) Update(ctx context.Context, guildContext *GuildStaffContext, input GuildSettingsInput) (*GuildSettingsResponse, error) {
+func (s *GuildSettingsService) Update(
+	ctx context.Context, guildContext *GuildStaffContext, input GuildSettingsInput,
+) (*GuildSettingsResponse, error) {
 	ctx = ensureTraceContext(ctx)
-	if s == nil || s.store == nil || guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
-		return nil, errors.New("guild settings service is not configured")
+	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
+		return nil, errors.New("missing guild context")
 	}
+	const action = "guild_settings.update"
 	if !guildContext.Can(model.PermissionActionGuildSettingsWrite) {
-		_ = s.audit(ctx, guildContext, "guild_settings.update", model.AuditResultDenied, ErrGuildSettingsPermissionDenied.Error())
+		_ = s.audit(ctx, guildContext, action, model.AuditResultDenied, ErrGuildSettingsPermissionDenied.Error()) // best-effort: denial already returned
 		return nil, ErrGuildSettingsPermissionDenied
 	}
 
 	settings, err := s.store.GetGuildSettings(ctx, guildContext.Guild.ID)
 	if err != nil {
-		_ = s.audit(ctx, guildContext, "guild_settings.update", model.AuditResultFailure, err.Error())
+		_ = s.audit(ctx, guildContext, action, model.AuditResultFailure, err.Error()) // best-effort: storage error already returned
 		return nil, err
 	}
 	if settings == nil {
-		_ = s.audit(ctx, guildContext, "guild_settings.update", model.AuditResultFailure, ErrGuildSettingsNotFound.Error())
+		_ = s.audit(ctx, guildContext, action, model.AuditResultFailure, ErrGuildSettingsNotFound.Error()) // best-effort: not-found already returned
 		return nil, ErrGuildSettingsNotFound
 	}
 	if err := applyGuildSettingsInput(settings, input); err != nil {
-		_ = s.audit(ctx, guildContext, "guild_settings.update", model.AuditResultFailure, err.Error())
+		_ = s.audit(ctx, guildContext, action, model.AuditResultFailure, err.Error()) // best-effort: validation error already returned
 		return nil, err
 	}
 
@@ -158,10 +166,15 @@ func (s *GuildSettingsService) Update(ctx context.Context, guildContext *GuildSt
 		}
 	}
 	var toggles []model.GuildModuleToggle
-	for _, requested := range []struct {
+	requestedToggles := []struct {
 		id    string
 		value *bool
-	}{{"tickets", input.TicketsEnabled}, {"general_logging", input.GeneralLoggingEnabled}, {"honeypots", input.HoneypotEnabled}} {
+	}{
+		{"tickets", input.TicketsEnabled},
+		{"general_logging", input.GeneralLoggingEnabled},
+		{"honeypots", input.HoneypotEnabled},
+	}
+	for _, requested := range requestedToggles {
 		if requested.value == nil {
 			continue
 		}
@@ -169,12 +182,12 @@ func (s *GuildSettingsService) Update(ctx context.Context, guildContext *GuildSt
 		if toggle.Enabled {
 			if s.modules == nil {
 				err := fmt.Errorf("%w: module validation unavailable; configure this module with /setup first", ErrGuildSettingsValidation)
-				_ = s.audit(ctx, guildContext, "guild_settings.update", model.AuditResultFailure, err.Error())
+				_ = s.audit(ctx, guildContext, action, model.AuditResultFailure, err.Error()) // best-effort: validation error already returned
 				return nil, err
 			}
 			toggle.ExpectedConfigJSON, err = s.modules.ValidateGuildModuleEnablement(ctx, guildContext, requested.id)
 			if err != nil {
-				_ = s.audit(ctx, guildContext, "guild_settings.update", model.AuditResultFailure, err.Error())
+				_ = s.audit(ctx, guildContext, action, model.AuditResultFailure, err.Error()) // best-effort: validation error already returned
 				return nil, fmt.Errorf("%w: %s: %v", ErrGuildSettingsValidation, requested.id, err)
 			}
 		}
@@ -183,10 +196,10 @@ func (s *GuildSettingsService) Update(ctx context.Context, guildContext *GuildSt
 	updated, err := s.store.UpdateGuildSettings(ctx, model.UpdateGuildSettingsParams{
 		Settings:      *settings,
 		ModuleToggles: toggles,
-		Audit:         s.auditEntry(ctx, guildContext, "guild_settings.update", model.AuditResultSuccess, ""),
+		Audit:         s.auditEntry(ctx, guildContext, action, model.AuditResultSuccess, ""),
 	})
 	if err != nil {
-		_ = s.audit(ctx, guildContext, "guild_settings.update", model.AuditResultFailure, err.Error())
+		_ = s.audit(ctx, guildContext, action, model.AuditResultFailure, err.Error()) // best-effort: storage error already returned
 		var configurationErr *model.GuildModuleConfigurationError
 		if errors.As(err, &configurationErr) {
 			return nil, fmt.Errorf("%w: %s", ErrGuildSettingsValidation, configurationErr.Error())
@@ -200,11 +213,12 @@ func (s *GuildSettingsService) Update(ctx context.Context, guildContext *GuildSt
 // RejectUpdatePayload audits a transport-level settings write rejection while preserving authorization precedence.
 func (s *GuildSettingsService) RejectUpdatePayload(ctx context.Context, guildContext *GuildStaffContext, payloadErr error) error {
 	ctx = ensureTraceContext(ctx)
-	if s == nil || s.store == nil || guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
-		return errors.New("guild settings service is not configured")
+	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
+		return errors.New("missing guild context")
 	}
+	const action = "guild_settings.update"
 	if !guildContext.Can(model.PermissionActionGuildSettingsWrite) {
-		_ = s.audit(ctx, guildContext, "guild_settings.update", model.AuditResultDenied, ErrGuildSettingsPermissionDenied.Error())
+		_ = s.audit(ctx, guildContext, action, model.AuditResultDenied, ErrGuildSettingsPermissionDenied.Error()) // best-effort: denial already returned
 		return ErrGuildSettingsPermissionDenied
 	}
 	reason := "invalid guild settings payload"
@@ -212,18 +226,21 @@ func (s *GuildSettingsService) RejectUpdatePayload(ctx context.Context, guildCon
 		reason = payloadErr.Error()
 	}
 	err := fmt.Errorf("%w: %s", ErrGuildSettingsValidation, reason)
-	_ = s.audit(ctx, guildContext, "guild_settings.update", model.AuditResultFailure, err.Error())
+	_ = s.audit(ctx, guildContext, action, model.AuditResultFailure, err.Error()) // best-effort: validation error already returned
 	return err
 }
 
 // AcknowledgeStarterPolicyNotice explicitly completes the one-time review notice without changing starter-template availability.
-func (s *GuildSettingsService) AcknowledgeStarterPolicyNotice(ctx context.Context, guildContext *GuildStaffContext) (*GuildSettingsResponse, error) {
+func (s *GuildSettingsService) AcknowledgeStarterPolicyNotice(
+	ctx context.Context, guildContext *GuildStaffContext,
+) (*GuildSettingsResponse, error) {
 	ctx = ensureTraceContext(ctx)
-	if s == nil || s.store == nil || guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
-		return nil, errors.New("guild settings service is not configured")
+	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
+		return nil, errors.New("missing guild context")
 	}
+	const action = "guild_settings.starter_policy_notice.acknowledge"
 	if !guildContext.Can(model.PermissionActionGuildSettingsWrite) {
-		_ = s.audit(ctx, guildContext, "guild_settings.starter_policy_notice.acknowledge", model.AuditResultDenied, ErrGuildSettingsPermissionDenied.Error())
+		_ = s.audit(ctx, guildContext, action, model.AuditResultDenied, ErrGuildSettingsPermissionDenied.Error()) // best-effort: denial already returned
 		return nil, ErrGuildSettingsPermissionDenied
 	}
 	settings, err := s.store.GetGuildSettings(ctx, guildContext.Guild.ID)
@@ -240,10 +257,10 @@ func (s *GuildSettingsService) AcknowledgeStarterPolicyNotice(ctx context.Contex
 	}
 	updated, err := s.store.UpdateGuildSettings(ctx, model.UpdateGuildSettingsParams{
 		Settings: *settings,
-		Audit:    s.auditEntry(ctx, guildContext, "guild_settings.starter_policy_notice.acknowledge", model.AuditResultSuccess, ""),
+		Audit:    s.auditEntry(ctx, guildContext, action, model.AuditResultSuccess, ""),
 	})
 	if err != nil {
-		_ = s.audit(ctx, guildContext, "guild_settings.starter_policy_notice.acknowledge", model.AuditResultFailure, err.Error())
+		_ = s.audit(ctx, guildContext, action, model.AuditResultFailure, err.Error()) // best-effort: storage error already returned
 		return nil, err
 	}
 	response := guildSettingsResponse(*updated)
@@ -286,7 +303,9 @@ func applyGuildSettingsInput(settings *model.GuildSettings, input GuildSettingsI
 	if input.NotificationIntroduction != nil {
 		value := strings.TrimSpace(*input.NotificationIntroduction)
 		if len(value) > maxGuildNotificationBrandingLength {
-			return fmt.Errorf("%w: notification introduction exceeds %d characters", ErrGuildSettingsValidation, maxGuildNotificationBrandingLength)
+			return fmt.Errorf(
+				"%w: notification introduction exceeds %d characters", ErrGuildSettingsValidation, maxGuildNotificationBrandingLength,
+			)
 		}
 		settings.NotificationIntroduction = value
 	}
@@ -317,7 +336,9 @@ func normalizeDiscordChannelReference(raw string) (string, error) {
 }
 
 // audit appends immutable settings evidence when validation or authorization prevents the atomic write path.
-func (s *GuildSettingsService) audit(ctx context.Context, guildContext *GuildStaffContext, action string, result model.AuditResult, failureReason string) error {
+func (s *GuildSettingsService) audit(
+	ctx context.Context, guildContext *GuildStaffContext, action string, result model.AuditResult, failureReason string,
+) error {
 	entry := s.auditEntry(ctx, guildContext, action, result, failureReason)
 	if entry == nil {
 		return nil
@@ -325,32 +346,47 @@ func (s *GuildSettingsService) audit(ctx context.Context, guildContext *GuildSta
 	return recordAudit(ctx, s.store, entry)
 }
 
-// auditEntry constructs a settings audit row with request tracing and current Discord permission evidence.
-func (s *GuildSettingsService) auditEntry(ctx context.Context, guildContext *GuildStaffContext, action string, result model.AuditResult, failureReason string) *model.AuditLogEntry {
+// auditEntry constructs a settings audit row with request tracing and current
+// Discord permission evidence. It returns nil when the context has no staff row
+// to attribute the entry to.
+func (s *GuildSettingsService) auditEntry(
+	ctx context.Context, guildContext *GuildStaffContext, action string, result model.AuditResult, failureReason string,
+) *model.AuditLogEntry {
 	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
 		return nil
 	}
 	requestID, correlationID := TraceIDsFromContext(ctx)
 	return &model.AuditLogEntry{
-		GuildID: guildContext.Guild.ID, ActorDiscordUserID: guildContext.Staff.DiscordUserID,
-		ActorPermissionBits: guildContext.PermissionBits, Source: AuditSourceFromContext(ctx),
-		Action: action, ResourceType: "guild_settings", Result: result, FailureReason: failureReason,
-		RequestID: requestID, CorrelationID: correlationID, MetadataJSON: "{}",
+		GuildID:             guildContext.Guild.ID,
+		ActorDiscordUserID:  guildContext.Staff.DiscordUserID,
+		ActorPermissionBits: guildContext.PermissionBits,
+		Source:              AuditSourceFromContext(ctx),
+		Action:              action,
+		ResourceType:        "guild_settings",
+		Result:              result,
+		FailureReason:       failureReason,
+		RequestID:           requestID,
+		CorrelationID:       correlationID,
+		MetadataJSON:        "{}",
 	}
 }
 
 // guildSettingsResponse maps durable state into the dashboard contract without exposing storage details.
 func guildSettingsResponse(settings model.GuildSettings) GuildSettingsResponse {
 	return GuildSettingsResponse{
-		ID: settings.ID, GuildID: settings.GuildID,
-		AppealQueueChannelDiscordID:     settings.AppealQueueChannelDiscordID,
-		AppealRejoinURL:                 settings.AppealRejoinURL,
-		AppealReviewReasonRequired:      settings.AppealReviewReasonRequired,
-		AuditMirrorChannelDiscordID:     settings.AuditMirrorChannelDiscordID,
-		ManagedEvidenceChannelDiscordID: settings.ManagedEvidenceChannelDiscordID,
-		NotificationIntroduction:        settings.NotificationIntroduction, NotificationFooter: settings.NotificationFooter,
-		TicketsEnabled: settings.TicketsEnabled, GeneralLoggingEnabled: settings.GeneralLoggingEnabled,
-		HoneypotEnabled: settings.HoneypotEnabled, StarterPolicyTemplateID: settings.StarterPolicyTemplateID,
+		ID:                                settings.ID,
+		GuildID:                           settings.GuildID,
+		AppealQueueChannelDiscordID:       settings.AppealQueueChannelDiscordID,
+		AppealRejoinURL:                   settings.AppealRejoinURL,
+		AppealReviewReasonRequired:        settings.AppealReviewReasonRequired,
+		AuditMirrorChannelDiscordID:       settings.AuditMirrorChannelDiscordID,
+		ManagedEvidenceChannelDiscordID:   settings.ManagedEvidenceChannelDiscordID,
+		NotificationIntroduction:          settings.NotificationIntroduction,
+		NotificationFooter:                settings.NotificationFooter,
+		TicketsEnabled:                    settings.TicketsEnabled,
+		GeneralLoggingEnabled:             settings.GeneralLoggingEnabled,
+		HoneypotEnabled:                   settings.HoneypotEnabled,
+		StarterPolicyTemplateID:           settings.StarterPolicyTemplateID,
 		StarterPolicyReviewRequired:       settings.StarterPolicyNoticePending,
 		StarterPolicyNoticeAcknowledgedAt: settings.StarterPolicyNoticeAcknowledgedAt,
 	}

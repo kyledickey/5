@@ -9,8 +9,15 @@ import (
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
-// selectTemplateLevel chooses the highest escalation whose configured case-count threshold is met, falling back to the default level.
-func (s *CaseService) selectTemplateLevel(ctx context.Context, guildID, targetDiscordUserID string, template *model.ExpandedCaseTemplate) (*selectedTemplateLevel, error) {
+// selectTemplateLevel chooses the highest escalation whose configured
+// case-count threshold is met by the target's matching history (including the
+// case being created), falling back to the default level. Templates whose
+// levels carry more than one action or a non-positive trigger are rejected.
+func (s *CaseService) selectTemplateLevel(
+	ctx context.Context,
+	guildID, targetDiscordUserID string,
+	template *model.ExpandedCaseTemplate,
+) (*selectedTemplateLevel, error) {
 	if template == nil {
 		return nil, validationCaseError("template is required")
 	}
@@ -62,8 +69,14 @@ func (s *CaseService) selectTemplateLevel(ctx context.Context, guildID, targetDi
 	return fallback, nil
 }
 
-// matchingTemplateCaseCount returns the relevant historical count plus the case currently being created, matching the user-facing meaning of a trigger count.
-func (s *CaseService) matchingTemplateCaseCount(ctx context.Context, guildID, targetDiscordUserID string, template model.CaseTemplate) (int64, error) {
+// matchingTemplateCaseCount returns the target's valid prior cases for this
+// template (within the decay window when one is configured) plus one for the
+// case currently being created, matching the user-facing meaning of a trigger count.
+func (s *CaseService) matchingTemplateCaseCount(
+	ctx context.Context,
+	guildID, targetDiscordUserID string,
+	template model.CaseTemplate,
+) (int64, error) {
 	var since *time.Time
 	if template.CaseDecayDays > 0 {
 		cutoff := time.Now().UTC().Add(-time.Duration(template.CaseDecayDays) * 24 * time.Hour)
@@ -81,8 +94,16 @@ func (s *CaseService) matchingTemplateCaseCount(ctx context.Context, guildID, ta
 	return priorCount + 1, nil
 }
 
-// buildTemplateSnapshot builds template snapshot from validated domain state.
-func buildTemplateSnapshot(template model.CaseTemplate, fields []model.CaseTemplateContextField, valuesJSON string, selectedLevel selectedTemplateLevel) (string, error) {
+// buildTemplateSnapshot serializes the immutable policy record stored on a
+// case: the template identity and reason, the selected level with the count
+// that chose it, the level's action settings, and the context schema and values.
+// Later template edits never change what a historical case displays.
+func buildTemplateSnapshot(
+	template model.CaseTemplate,
+	fields []model.CaseTemplateContextField,
+	valuesJSON string,
+	selectedLevel selectedTemplateLevel,
+) (string, error) {
 	snapshot := templateSnapshot{
 		Template: templateSnapshotTemplate{
 			ID:             template.ID,
@@ -100,9 +121,18 @@ func buildTemplateSnapshot(template model.CaseTemplate, fields []model.CaseTempl
 		Actions:       make([]templateSnapshotAction, 0, len(selectedLevel.Actions)),
 		ContextFields: make([]TemplateContextFieldResponse, 0, len(fields)),
 	}
+	// valuesJSON was produced by validateCaseContextValues, so it always decodes;
+	// a malformed value would only leave ContextValues empty in the snapshot.
 	_ = json.Unmarshal([]byte(valuesJSON), &snapshot.ContextValues)
 	for _, field := range fields {
-		snapshot.ContextFields = append(snapshot.ContextFields, TemplateContextFieldResponse{ID: field.ID, Key: field.Key, Label: field.Label, FieldType: field.FieldType, Position: field.Position, Required: field.Required})
+		snapshot.ContextFields = append(snapshot.ContextFields, TemplateContextFieldResponse{
+			ID:        field.ID,
+			Key:       field.Key,
+			Label:     field.Label,
+			FieldType: field.FieldType,
+			Position:  field.Position,
+			Required:  field.Required,
+		})
 	}
 
 	for _, action := range selectedLevel.Actions {

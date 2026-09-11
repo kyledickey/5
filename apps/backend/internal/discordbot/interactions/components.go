@@ -7,15 +7,19 @@ import (
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 )
 
+// ErrComponentHandlerNotFound is reserved for lookups against a missing registry;
+// an unknown custom ID is reported through the boolean result instead.
 var ErrComponentHandlerNotFound = errors.New("component handler not found")
 
-// ComponentRegistry maps custom-ID namespaces to component and modal handlers without global registration.
+// ComponentRegistry maps "namespace:action" keys to button/select handlers and,
+// separately, to modal-submit handlers. Registration happens during startup
+// before the gateway opens; lookups afterwards are read-only, so no lock is needed.
 type ComponentRegistry struct {
 	components map[string]ui.Handler
 	modals     map[string]ui.Handler
 }
 
-// NewComponentRegistry constructs component registry with required dependencies explicit so callers control lifecycle and substitution.
+// NewComponentRegistry returns an empty registry.
 func NewComponentRegistry() *ComponentRegistry {
 	return &ComponentRegistry{
 		components: map[string]ui.Handler{},
@@ -23,31 +27,31 @@ func NewComponentRegistry() *ComponentRegistry {
 	}
 }
 
-// RegisterComponent explicitly wires register component so runtime behavior does not depend on init-time registration.
+// RegisterComponent binds a button or select handler to namespace:action.
+// Registering the same key twice is an error so two features cannot silently
+// compete for one custom ID.
 func (r *ComponentRegistry) RegisterComponent(namespace, action string, handler ui.Handler) error {
 	return r.register(r.components, namespace, action, handler)
 }
 
-// RegisterModal explicitly wires register modal so runtime behavior does not depend on init-time registration.
+// RegisterModal binds a modal-submit handler to namespace:action, in a keyspace
+// separate from components so a form and its opening button may share a name.
 func (r *ComponentRegistry) RegisterModal(namespace, action string, handler ui.Handler) error {
 	return r.register(r.modals, namespace, action, handler)
 }
 
-// LookupComponent encapsulates the lookup component rule so callers share one consistent package implementation.
+// LookupComponent decodes a component custom ID and returns its handler. The
+// boolean is false for an unregistered key; the error reports a malformed ID.
 func (r *ComponentRegistry) LookupComponent(customID string) (ui.Handler, bool, error) {
 	return r.lookup(r.components, customID)
 }
 
-// LookupModal encapsulates the lookup modal rule so callers share one consistent package implementation.
+// LookupModal is LookupComponent for modal submissions.
 func (r *ComponentRegistry) LookupModal(customID string) (ui.Handler, bool, error) {
 	return r.lookup(r.modals, customID)
 }
 
-// register encapsulates the register rule so callers share one consistent package implementation.
 func (r *ComponentRegistry) register(target map[string]ui.Handler, namespace, action string, handler ui.Handler) error {
-	if r == nil {
-		return errors.New("component registry is not configured")
-	}
 	if handler == nil {
 		return errors.New("component handler is required")
 	}
@@ -62,11 +66,7 @@ func (r *ComponentRegistry) register(target map[string]ui.Handler, namespace, ac
 	return nil
 }
 
-// lookup encapsulates the lookup rule so callers share one consistent package implementation.
 func (r *ComponentRegistry) lookup(source map[string]ui.Handler, customID string) (ui.Handler, bool, error) {
-	if r == nil {
-		return nil, false, ErrComponentHandlerNotFound
-	}
 	parsed, err := ui.DecodeCustomID(customID)
 	if err != nil {
 		return nil, false, err

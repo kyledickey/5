@@ -15,7 +15,8 @@ func TestTextTransportsPreserveLongContentAndControls(t *testing.T) {
 	body := Conversation("case", "Case for <@123>.", strings.Repeat("🦆", 1100), "Next steps.", "Case #12", true)
 	body.Components = []discordgo.MessageComponent{Row(Button("case:void:v1:case", "Void case", discordgo.SecondaryButton, false))}
 	prepared := body.ForApplication("819019613371236432")
-	if len(utf16.Encode([]rune(prepared.Content))) > 2000 || !strings.Contains(prepared.Content, "<:quack_case:") || len(prepared.Files) != 1 || len(prepared.Components) != 1 {
+	if len(utf16.Encode([]rune(prepared.Content))) > 2000 || !strings.Contains(prepared.Content, "<:quack_case:") ||
+		len(prepared.Files) != 1 || len(prepared.Components) != 1 {
 		t.Fatalf("invalid message: %+v", prepared)
 	}
 	full, err := io.ReadAll(prepared.Files[0].Reader)
@@ -26,11 +27,13 @@ func TestTextTransportsPreserveLongContentAndControls(t *testing.T) {
 		t.Fatal("long content lost")
 	}
 	data := prepared.ResponseData()
-	if len(data.Files) != 1 || data.Flags&discordgo.MessageFlagsEphemeral == 0 || data.AllowedMentions == nil || len(data.AllowedMentions.Parse) != 0 {
+	if len(data.Files) != 1 || data.Flags&discordgo.MessageFlagsEphemeral == 0 ||
+		data.AllowedMentions == nil || len(data.AllowedMentions.Parse) != 0 {
 		t.Fatal("initial response lost attachments or privacy")
 	}
 	sent := body.SendParams("968198214450831370")
-	if len(sent.Files) != 1 || sent.AllowedMentions == nil || len(sent.AllowedMentions.Parse) != 0 || sent.Flags&discordgo.MessageFlagsSuppressEmbeds == 0 {
+	if len(sent.Files) != 1 || sent.AllowedMentions == nil || len(sent.AllowedMentions.Parse) != 0 ||
+		sent.Flags&discordgo.MessageFlagsSuppressEmbeds == 0 {
 		t.Fatal("channel send lost safe text presentation")
 	}
 	edit := EditMessage(Notice("Done.", true)).ForApplication("819019613371236432").WebhookEdit()
@@ -60,7 +63,8 @@ func TestPrepareResponseLeavesFormsUntouched(t *testing.T) {
 	}
 	response := Error("Try again.")
 	prepared := PrepareResponse(response, "819019613371236432")
-	if !strings.Contains(prepared.Data.Content, "<:quack_error:") || prepared.Data.Flags&discordgo.MessageFlagsEphemeral == 0 || !strings.Contains(response.Data.Content, "{{quack:") {
+	if !strings.Contains(prepared.Data.Content, "<:quack_error:") || prepared.Data.Flags&discordgo.MessageFlagsEphemeral == 0 ||
+		!strings.Contains(response.Data.Content, "{{quack:") {
 		t.Fatal("response resolution mutated the source or lost visibility")
 	}
 }

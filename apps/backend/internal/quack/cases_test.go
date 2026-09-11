@@ -20,7 +20,7 @@ func TestCaseServiceCreateFromTemplate(t *testing.T) {
 	adminContext := templateGuildContext(t, store, "guild-1", "admin-1", uint64(discordgo.PermissionManageGuild))
 	modContext := templateGuildContext(t, store, "guild-1", "mod-1", uint64(discordgo.PermissionModerateMembers))
 	template := createAppTemplate(t, ctx, store, adminContext, validTemplateInput("spam"))
-	service := quack.NewCaseService(store)
+	service := quack.NewCaseService(store, nil)
 
 	created, err := service.Create(ctx, modContext, quack.CaseInput{
 		TemplateID:          template.ID,
@@ -82,7 +82,7 @@ func TestCaseServiceRejectsUnavailableTemplates(t *testing.T) {
 	adminContext := templateGuildContext(t, store, "guild-1", "admin-1", uint64(discordgo.PermissionManageGuild))
 	modContext := templateGuildContext(t, store, "guild-1", "mod-1", uint64(discordgo.PermissionModerateMembers))
 	templateService := quack.NewTemplateService(store)
-	caseService := quack.NewCaseService(store)
+	caseService := quack.NewCaseService(store, nil)
 
 	archivedTemplate := createAppTemplate(t, ctx, store, adminContext, validTemplateInput("archived"))
 	if _, err := templateService.Archive(ctx, adminContext, archivedTemplate.ID); err != nil {
@@ -116,7 +116,7 @@ func TestCaseServiceValidationFailures(t *testing.T) {
 	adminContext := templateGuildContext(t, store, "guild-1", "admin-1", uint64(discordgo.PermissionManageGuild))
 	modContext := templateGuildContext(t, store, "guild-1", "mod-1", uint64(discordgo.PermissionModerateMembers))
 	template := createAppTemplate(t, ctx, store, adminContext, validTemplateInput("spam"))
-	service := quack.NewCaseService(store)
+	service := quack.NewCaseService(store, nil)
 
 	tests := []struct {
 		name  string
@@ -160,7 +160,7 @@ func TestCaseServiceRejectsEmptyFinalReason(t *testing.T) {
 		t.Fatalf("create template: %v", err)
 	}
 
-	_, err = quack.NewCaseService(store).Create(ctx, guildContext, quack.CaseInput{
+	_, err = quack.NewCaseService(store, nil).Create(ctx, guildContext, quack.CaseInput{
 		TemplateID:          created.Template.ID,
 		TargetDiscordUserID: "target-1",
 	})
@@ -174,7 +174,7 @@ func TestCaseServiceCreatesActionlessWarningCase(t *testing.T) {
 	store := newMigratedStore(t)
 	adminContext := templateGuildContext(t, store, "guild-1", "admin-1", uint64(discordgo.PermissionManageGuild))
 	modContext := templateGuildContext(t, store, "guild-1", "mod-1", uint64(discordgo.PermissionModerateMembers))
-	service := quack.NewCaseService(store)
+	service := quack.NewCaseService(store, nil)
 
 	input := validTemplateInput("silent-warning")
 	input.Levels[0].NotifyUser = false
@@ -208,7 +208,7 @@ func TestCaseServicePermissionFailures(t *testing.T) {
 	store := newMigratedStore(t)
 	adminContext := templateGuildContext(t, store, "guild-1", "admin-1", uint64(discordgo.PermissionManageGuild))
 	modContext := templateGuildContext(t, store, "guild-1", "mod-1", uint64(discordgo.PermissionModerateMembers))
-	service := quack.NewCaseService(store)
+	service := quack.NewCaseService(store, nil)
 
 	noCreateContext := *modContext
 	noCreateContext.Permissions = map[model.PermissionAction]bool{model.PermissionActionCaseCreate: false}
@@ -224,7 +224,7 @@ func TestCaseServiceSelectsEscalationLevelFromSameTemplateHistory(t *testing.T) 
 	store := newMigratedStore(t)
 	adminContext := templateGuildContext(t, store, "guild-1", "admin-1", uint64(discordgo.PermissionManageGuild))
 	modContext := templateGuildContext(t, store, "guild-1", "mod-1", uint64(discordgo.PermissionModerateMembers))
-	service := quack.NewCaseService(store)
+	service := quack.NewCaseService(store, nil)
 
 	template := createAppTemplate(t, ctx, store, adminContext, validTemplateInput("spam"))
 	for i := 0; i < 2; i++ {
@@ -301,7 +301,7 @@ func TestCaseServiceHighestMatchingLevelWins(t *testing.T) {
 	store := newMigratedStore(t)
 	adminContext := templateGuildContext(t, store, "guild-1", "admin-1", uint64(discordgo.PermissionManageGuild))
 	modContext := templateGuildContext(t, store, "guild-1", "mod-1", uint64(discordgo.PermissionModerateMembers))
-	service := quack.NewCaseService(store)
+	service := quack.NewCaseService(store, nil)
 
 	input := validTemplateInput("spam")
 	input.Levels = append(input.Levels, quack.TemplateLevelInput{
@@ -330,7 +330,7 @@ func TestCaseServiceEscalationUsesAllTimeMatchingHistory(t *testing.T) {
 	store := newMigratedStore(t)
 	adminContext := templateGuildContext(t, store, "guild-1", "admin-1", uint64(discordgo.PermissionManageGuild))
 	modContext := templateGuildContext(t, store, "guild-1", "mod-1", uint64(discordgo.PermissionModerateMembers))
-	service := quack.NewCaseService(store)
+	service := quack.NewCaseService(store, nil)
 
 	input := validTemplateInput("spam")
 	input.Levels[1].TriggerCaseCount = 2
@@ -367,7 +367,7 @@ func TestCaseServiceVoidedCasesDoNotCount(t *testing.T) {
 	store := newMigratedStore(t)
 	adminContext := templateGuildContext(t, store, "guild-1", "admin-1", uint64(discordgo.PermissionManageGuild))
 	modContext := templateGuildContext(t, store, "guild-1", "mod-1", uint64(discordgo.PermissionModerateMembers))
-	service := quack.NewCaseService(store)
+	service := quack.NewCaseService(store, nil)
 
 	input := validTemplateInput("spam")
 	input.Levels[1].TriggerCaseCount = 2
@@ -395,7 +395,7 @@ func TestCaseServiceDashboardReads(t *testing.T) {
 	store := newMigratedStore(t)
 	adminContext := templateGuildContext(t, store, "guild-1", "admin-1", uint64(discordgo.PermissionManageGuild))
 	modContext := templateGuildContext(t, store, "guild-1", "mod-1", uint64(discordgo.PermissionModerateMembers))
-	service := quack.NewCaseService(store)
+	service := quack.NewCaseService(store, nil)
 	template := createAppTemplate(t, ctx, store, adminContext, validTemplateInput("spam"))
 
 	first, err := service.Create(ctx, modContext, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: "target-1"})
@@ -450,7 +450,7 @@ func TestCaseServiceReadValidationAndPermissions(t *testing.T) {
 	store := newMigratedStore(t)
 	adminContext := templateGuildContext(t, store, "guild-1", "admin-1", uint64(discordgo.PermissionManageGuild))
 	modContext := templateGuildContext(t, store, "guild-1", "mod-1", uint64(discordgo.PermissionModerateMembers))
-	service := quack.NewCaseService(store)
+	service := quack.NewCaseService(store, nil)
 	template := createAppTemplate(t, ctx, store, adminContext, validTemplateInput("spam"))
 	if _, err := service.Create(ctx, modContext, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: "target-1"}); err != nil {
 		t.Fatalf("create case: %v", err)
@@ -484,7 +484,7 @@ func TestCaseServiceTraceIDsPropagateToCaseActionsAndAudit(t *testing.T) {
 	modContext := templateGuildContext(t, store, "guild-1", "mod-1", uint64(discordgo.PermissionModerateMembers))
 	template := createAppTemplate(t, ctx, store, adminContext, validTemplateInput("trace-spam"))
 
-	created, err := quack.NewCaseService(store).Create(ctx, modContext, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: "target-1"})
+	created, err := quack.NewCaseService(store, nil).Create(ctx, modContext, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: "target-1"})
 	if err != nil {
 		t.Fatalf("create traced case: %v", err)
 	}
@@ -543,7 +543,7 @@ func TestCaseDecayChangesFutureCountsWithoutErasingHistory(t *testing.T) {
 	repository := newMigratedStore(t)
 	admin := templateGuildContext(t, repository, "guild-1", "admin", uint64(discordgo.PermissionManageGuild))
 	moderator := templateGuildContext(t, repository, "guild-1", "moderator", uint64(discordgo.PermissionModerateMembers))
-	templates, cases := quack.NewTemplateService(repository), quack.NewCaseService(repository)
+	templates, cases := quack.NewTemplateService(repository), quack.NewCaseService(repository, nil)
 	input := validTemplateInput("decay")
 	input.CaseDecayDays = 30
 	template, err := templates.Create(ctx, admin, input)

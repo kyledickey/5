@@ -13,7 +13,9 @@ import (
 )
 
 var (
-	ErrAuditValidation       = errors.New("audit validation failed")
+	// ErrAuditValidation reports an unparseable or contradictory audit filter.
+	ErrAuditValidation = errors.New("audit validation failed")
+	// ErrAuditPermissionDenied reports that the caller lacks audit.read authority.
 	ErrAuditPermissionDenied = errors.New("audit permission denied")
 )
 
@@ -22,7 +24,10 @@ type AuditService struct {
 	store AuditRepository
 }
 
-// AuditListInput groups the validated inputs needed for audit list input.
+// AuditListInput carries the raw query filters for AuditService.List. Values
+// are strings straight from the transport; the service trims and validates
+// them. ReadSource records which transport performed the read for the read's
+// own audit attribution and defaults to the API source.
 type AuditListInput struct {
 	Limit               string
 	Offset              string
@@ -40,7 +45,8 @@ type AuditListInput struct {
 	BeforeID            string
 }
 
-// AuditListResponse is the transport-neutral representation returned for audit list response.
+// AuditListResponse is one page of audit entries. NextCursor is set when the
+// page was full and can be passed back as BeforeID for keyset pagination.
 type AuditListResponse struct {
 	Entries    []AuditEntryResponse `json:"entries"`
 	Total      int64                `json:"total"`
@@ -49,7 +55,8 @@ type AuditListResponse struct {
 	NextCursor string               `json:"next_cursor,omitempty"`
 }
 
-// AuditEntryResponse is the transport-neutral representation returned for audit entry response.
+// AuditEntryResponse is one audit row for transport, with the stored metadata
+// JSON decoded into a generic value and permission bits rendered as a string.
 type AuditEntryResponse struct {
 	ID                  string            `json:"id"`
 	CreatedAt           time.Time         `json:"created_at"`
@@ -68,21 +75,20 @@ type AuditEntryResponse struct {
 	Metadata            any               `json:"metadata"`
 }
 
-// NewAuditService binds authorized audit searches to append-only history.
+// NewAuditService returns a service over store; it has no optional collaborators.
 func NewAuditService(store AuditRepository) *AuditService {
 	return &AuditService{store: store}
 }
 
-// List returns list subject to authorization, ordering, and filtering constraints.
+// List returns filtered audit entries for staff with audit.read. Every filter is
+// validated before the query runs; limit is capped at 100 and offset cannot be
+// combined with a BeforeID cursor. Case and member filters must be exact ids.
 func (s *AuditService) List(ctx context.Context, guildContext *GuildStaffContext, input AuditListInput) (*AuditListResponse, error) {
-	if s == nil || s.store == nil {
-		return nil, errors.New("audit service is not configured")
-	}
 	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
 		return nil, validationAuditError("missing guild context")
 	}
 	if !guildContext.Can(model.PermissionActionAuditRead) {
-		_ = s.recordRead(ctx, guildContext, input, model.AuditResultDenied, "permission_denied")
+		_ = s.recordRead(ctx, guildContext, input, model.AuditResultDenied, "permission_denied") // best-effort: denial already returned
 		return nil, ErrAuditPermissionDenied
 	}
 
@@ -134,7 +140,7 @@ func (s *AuditService) List(ctx context.Context, guildContext *GuildStaffContext
 		Offset:              offset,
 	})
 	if err != nil {
-		_ = s.recordRead(ctx, guildContext, input, model.AuditResultFailure, "query_failed")
+		_ = s.recordRead(ctx, guildContext, input, model.AuditResultFailure, "query_failed") // best-effort: storage error already returned
 		return nil, err
 	}
 
@@ -176,8 +182,12 @@ func (s *AuditService) List(ctx context.Context, guildContext *GuildStaffContext
 	return response, nil
 }
 
-// recordRead appends permission-sensitive audit access without copying result data into metadata.
-func (s *AuditService) recordRead(ctx context.Context, guildContext *GuildStaffContext, input AuditListInput, result model.AuditResult, failure string) error {
+// recordRead passes the read outcome through recordAudit, which logs it unless
+// audit.read is an important audit action. Metadata records only which filters
+// were used, never the filter values or the results.
+func (s *AuditService) recordRead(
+	ctx context.Context, guildContext *GuildStaffContext, input AuditListInput, result model.AuditResult, failure string,
+) error {
 	if guildContext == nil || guildContext.Guild == nil {
 		return nil
 	}
@@ -201,9 +211,24 @@ func (s *AuditService) recordRead(ctx context.Context, guildContext *GuildStaffC
 	if !validAuditSource(readSource) || readSource == "" {
 		readSource = model.AuditSourceAPI
 	}
-	return recordAudit(ctx, s.store, &model.AuditLogEntry{GuildID: guildContext.Guild.ID, ActorDiscordUserID: actorID, ActorPermissionBits: permissionBits, Source: readSource, Action: string(model.AuditActionAuditRead), ResourceType: "audit_log", ResourceID: "list", Result: result, FailureReason: failure, RequestID: requestID, CorrelationID: correlationID, MetadataJSON: string(metadata)})
+	return recordAudit(ctx, s.store, &model.AuditLogEntry{
+		GuildID:             guildContext.Guild.ID,
+		ActorDiscordUserID:  actorID,
+		ActorPermissionBits: permissionBits,
+		Source:              readSource,
+		Action:              string(model.AuditActionAuditRead),
+		ResourceType:        "audit_log",
+		ResourceID:          "list",
+		Result:              result,
+		FailureReason:       failure,
+		RequestID:           requestID,
+		CorrelationID:       correlationID,
+		MetadataJSON:        string(metadata),
+	})
 }
 
+// normalizeAuditTime parses an RFC3339 filter bound and returns it as UTC
+// RFC3339Nano for the store; empty input stays empty.
 func normalizeAuditTime(value string) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -218,14 +243,15 @@ func normalizeAuditTime(value string) (string, error) {
 
 func validAuditSource(source model.AuditSource) bool {
 	switch source {
-	case model.AuditSourceAPI, model.AuditSourceWeb, model.AuditSourceDiscord, model.AuditSourceSystem, model.AuditSourceImport, model.AuditSourceHoneypot:
+	case model.AuditSourceAPI, model.AuditSourceWeb, model.AuditSourceDiscord,
+		model.AuditSourceSystem, model.AuditSourceImport, model.AuditSourceHoneypot:
 		return true
 	default:
 		return false
 	}
 }
 
-// auditPagination records audit pagination so moderation changes remain attributable.
+// auditPagination parses limit (default 50, capped at 100) and offset (default 0).
 func auditPagination(limitValue, offsetValue string) (int, int, error) {
 	limit := 50
 	if strings.TrimSpace(limitValue) != "" {
@@ -251,7 +277,6 @@ func auditPagination(limitValue, offsetValue string) (int, int, error) {
 	return limit, offset, nil
 }
 
-// validAuditResult checks valid audit result before state is read or changed.
 func validAuditResult(result model.AuditResult) bool {
 	switch result {
 	case model.AuditResultSuccess, model.AuditResultFailure, model.AuditResultDenied:
@@ -261,7 +286,7 @@ func validAuditResult(result model.AuditResult) bool {
 	}
 }
 
-// validationAuditError checks validation audit error before state is read or changed.
+// validationAuditError wraps a safe message in ErrAuditValidation.
 func validationAuditError(message string) error {
 	return fmt.Errorf("%w: %s", ErrAuditValidation, message)
 }

@@ -17,8 +17,12 @@ type normalizedTemplate struct {
 	levels        []model.ExpandedCaseTemplateLevel
 }
 
-// validate checks validate before state is read or changed.
-func (s *TemplateService) validate(ctx context.Context, guildContext *GuildStaffContext, templateID string, input TemplateInput) (*normalizedTemplate, error) {
+// validate normalizes input into a persistable template attributed to the
+// context's staff member. templateID is the template being edited ("" on
+// create) so its own slug does not count as a duplicate.
+func (s *TemplateService) validate(
+	ctx context.Context, guildContext *GuildStaffContext, templateID string, input TemplateInput,
+) (*normalizedTemplate, error) {
 	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
 		return nil, validationError("missing guild context")
 	}
@@ -106,7 +110,13 @@ func normalizeContextFields(inputs []TemplateContextFieldInput) ([]model.CaseTem
 			return nil, validationError("context field positions must be unique")
 		}
 		positions[position] = struct{}{}
-		fields = append(fields, model.CaseTemplateContextField{Key: key, Label: label, FieldType: input.FieldType, Position: position, Required: input.Required})
+		fields = append(fields, model.CaseTemplateContextField{
+			Key:       key,
+			Label:     label,
+			FieldType: input.FieldType,
+			Position:  position,
+			Required:  input.Required,
+		})
 	}
 	return fields, nil
 }
@@ -114,7 +124,8 @@ func normalizeContextFields(inputs []TemplateContextFieldInput) ([]model.CaseTem
 // validContextFieldType reports whether a field uses one of the five v5 value shapes.
 func validContextFieldType(value model.ContextFieldType) bool {
 	switch value {
-	case model.ContextFieldShortText, model.ContextFieldLongText, model.ContextFieldBoolean, model.ContextFieldNumber, model.ContextFieldMessageLink:
+	case model.ContextFieldShortText, model.ContextFieldLongText, model.ContextFieldBoolean,
+		model.ContextFieldNumber, model.ContextFieldMessageLink:
 		return true
 	default:
 		return false

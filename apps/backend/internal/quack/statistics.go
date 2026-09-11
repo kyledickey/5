@@ -11,11 +11,14 @@ import (
 )
 
 var (
-	ErrStatisticsValidation       = errors.New("statistics validation failed")
+	// ErrStatisticsValidation reports a malformed or oversized time window.
+	ErrStatisticsValidation = errors.New("statistics validation failed")
+	// ErrStatisticsPermissionDenied reports that the caller lacks audit.read authority.
 	ErrStatisticsPermissionDenied = errors.New("statistics permission denied")
 )
 
-// StatisticsInput defines an inclusive start and exclusive end for derived staff statistics.
+// StatisticsInput is the requested window as RFC3339 strings: From is
+// inclusive, To exclusive. Either may be empty; see statisticsRange.
 type StatisticsInput struct {
 	From string
 	To   string
@@ -31,16 +34,16 @@ type StaffStatisticsService struct {
 	store StatisticsRepository
 }
 
-// NewStaffStatisticsService constructs the derived statistics capability over the existing source-of-truth repository.
+// NewStaffStatisticsService returns a service that derives every number from
+// store on each call; nothing is cached or written.
 func NewStaffStatisticsService(store StatisticsRepository) *StaffStatisticsService {
 	return &StaffStatisticsService{store: store}
 }
 
 // Get returns a guild-scoped derived snapshot for an authorized moderator.
-func (s *StaffStatisticsService) Get(ctx context.Context, guildContext *GuildStaffContext, input StatisticsInput) (*model.StaffStatistics, error) {
-	if s == nil || s.store == nil {
-		return nil, errors.New("statistics service is not configured")
-	}
+func (s *StaffStatisticsService) Get(
+	ctx context.Context, guildContext *GuildStaffContext, input StatisticsInput,
+) (*model.StaffStatistics, error) {
 	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil || !guildContext.Can(model.PermissionActionAuditRead) {
 		return nil, ErrStatisticsPermissionDenied
 	}

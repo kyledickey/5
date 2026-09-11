@@ -12,6 +12,8 @@ import (
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
+// TestDispatcherSendsImmediateCommandResponse proves an Immediate result is sent
+// once and schedules no edits.
 func TestDispatcherSendsImmediateCommandResponse(t *testing.T) {
 	client := &fakeClient{}
 	dispatcher := &interactions.Dispatcher{
@@ -36,17 +38,23 @@ func TestDispatcherSendsImmediateCommandResponse(t *testing.T) {
 	}
 }
 
+// TestDispatcherAddsDiscordTraceContext proves both the handler and its async
+// task see request and correlation IDs derived from the interaction ID.
 func TestDispatcherAddsDiscordTraceContext(t *testing.T) {
 	client := &fakeClient{done: make(chan struct{}, 1)}
 	dispatcher := &interactions.Dispatcher{
 		Commands: fakeCommands{
 			"trace": func(ctx ui.Context) ui.HandlerResult {
-				if quack.RequestIDFromContext(ctx.Context) != "discord:interaction-1" || quack.CorrelationIDFromContext(ctx.Context) != "discord:interaction-1" {
-					t.Fatalf("expected discord trace context, got request=%q correlation=%q", quack.RequestIDFromContext(ctx.Context), quack.CorrelationIDFromContext(ctx.Context))
+				if quack.RequestIDFromContext(ctx.Context) != "discord:interaction-1" ||
+					quack.CorrelationIDFromContext(ctx.Context) != "discord:interaction-1" {
+					t.Fatalf("expected discord trace context, got request=%q correlation=%q",
+						quack.RequestIDFromContext(ctx.Context), quack.CorrelationIDFromContext(ctx.Context))
 				}
 				return ui.Async(ui.DeferPublic(), func(ctx context.Context, responder ui.Responder) error {
-					if quack.RequestIDFromContext(ctx) != "discord:interaction-1" || quack.CorrelationIDFromContext(ctx) != "discord:interaction-1" {
-						t.Fatalf("expected async discord trace context, got request=%q correlation=%q", quack.RequestIDFromContext(ctx), quack.CorrelationIDFromContext(ctx))
+					if quack.RequestIDFromContext(ctx) != "discord:interaction-1" ||
+						quack.CorrelationIDFromContext(ctx) != "discord:interaction-1" {
+						t.Fatalf("expected async discord trace context, got request=%q correlation=%q",
+							quack.RequestIDFromContext(ctx), quack.CorrelationIDFromContext(ctx))
 					}
 					_, err := responder.EditOriginal(ui.EditMessage(ui.Content("traced", false)))
 					return err
@@ -60,6 +68,8 @@ func TestDispatcherAddsDiscordTraceContext(t *testing.T) {
 	client.wait(t)
 }
 
+// TestDispatcherDefersThenEditsAsyncCommand proves an Async result sends the
+// deferred acknowledgement and then the task's edit.
 func TestDispatcherDefersThenEditsAsyncCommand(t *testing.T) {
 	client := &fakeClient{done: make(chan struct{}, 1)}
 	dispatcher := &interactions.Dispatcher{
@@ -85,6 +95,8 @@ func TestDispatcherDefersThenEditsAsyncCommand(t *testing.T) {
 	}
 }
 
+// TestDispatcherConvertsAsyncErrorsToErrorEdit proves a task error after a public
+// defer deletes the placeholder and sends one private followup.
 func TestDispatcherConvertsAsyncErrorsToErrorEdit(t *testing.T) {
 	client := &fakeClient{done: make(chan struct{}, 1)}
 	dispatcher := &interactions.Dispatcher{
@@ -101,11 +113,15 @@ func TestDispatcherConvertsAsyncErrorsToErrorEdit(t *testing.T) {
 	dispatcher.Handle(nil, commandInteraction("slow", discordgo.InteractionApplicationCommand))
 	client.wait(t)
 
-	if len(client.edits) != 0 || client.deleted != 1 || len(client.followups) != 1 || client.followups[0].Flags&discordgo.MessageFlagsEphemeral == 0 || client.followups[0].Content != "I couldn’t finish that. Try again in a moment." {
+	if len(client.edits) != 0 || client.deleted != 1 || len(client.followups) != 1 ||
+		client.followups[0].Flags&discordgo.MessageFlagsEphemeral == 0 ||
+		client.followups[0].Content != "I couldn’t finish that. Try again in a moment." {
 		t.Fatalf("expected a private error after removing the public defer: %+v", client)
 	}
 }
 
+// TestDispatcherRoutesComponentsAndModals proves custom IDs reach the handlers
+// registered for their namespace and action.
 func TestDispatcherRoutesComponentsAndModals(t *testing.T) {
 	client := &fakeClient{}
 	registry := interactions.NewComponentRegistry()
@@ -135,6 +151,7 @@ func TestDispatcherRoutesComponentsAndModals(t *testing.T) {
 	}
 }
 
+// fakeCommands is an in-memory CommandLookup keyed by command name.
 type fakeCommands map[string]ui.Handler
 
 func (f fakeCommands) LookupCommand(name string) (ui.Handler, bool) {
@@ -142,6 +159,9 @@ func (f fakeCommands) LookupCommand(name string) (ui.Handler, bool) {
 	return handler, ok
 }
 
+// fakeClient records every Discord call the dispatcher makes and, when done is
+// set, signals after each edit or followup so tests can wait for async tasks.
+// It is not safe for concurrent use; the race test uses a real session instead.
 type fakeClient struct {
 	responses []*discordgo.InteractionResponse
 	edits     []*discordgo.WebhookEdit
@@ -181,6 +201,7 @@ func (f *fakeClient) InteractionResponseDelete(interaction *discordgo.Interactio
 	return nil
 }
 
+// wait blocks until the async task under test has edited or followed up.
 func (f *fakeClient) wait(t *testing.T) {
 	t.Helper()
 	select {
@@ -190,6 +211,7 @@ func (f *fakeClient) wait(t *testing.T) {
 	}
 }
 
+// commandInteraction builds a guild slash-command interaction for name.
 func commandInteraction(name string, interactionType discordgo.InteractionType) *discordgo.InteractionCreate {
 	return &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{
 		ID:      "interaction-1",
@@ -201,6 +223,7 @@ func commandInteraction(name string, interactionType discordgo.InteractionType) 
 	}}
 }
 
+// componentInteraction builds a guild button click carrying customID.
 func componentInteraction(customID string) *discordgo.InteractionCreate {
 	return &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{
 		ID:      "interaction-1",
@@ -212,6 +235,7 @@ func componentInteraction(customID string) *discordgo.InteractionCreate {
 	}}
 }
 
+// modalInteraction builds a guild modal submission carrying customID.
 func modalInteraction(customID string) *discordgo.InteractionCreate {
 	return &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{
 		ID:      "interaction-2",
@@ -261,7 +285,8 @@ func TestPermissionFailuresExplainDenialPrivately(t *testing.T) {
 		client.wait(t)
 		const want = "You do not have permission to use this control."
 		if update {
-			if len(client.edits) != 0 || len(client.followups) != 1 || client.followups[0].Content != want || client.followups[0].Flags&discordgo.MessageFlagsEphemeral == 0 {
+			if len(client.edits) != 0 || len(client.followups) != 1 || client.followups[0].Content != want ||
+				client.followups[0].Flags&discordgo.MessageFlagsEphemeral == 0 {
 				t.Fatal("denial must be a private followup")
 			}
 		} else if len(client.edits) != 1 || client.edits[0].Content == nil || *client.edits[0].Content != want {

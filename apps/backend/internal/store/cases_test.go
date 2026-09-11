@@ -14,7 +14,7 @@ func TestCreateCasePersistsCaseEventActionsAndAudit(t *testing.T) {
 	store, guildID := templateTestStore(t)
 	template := createCaseStorageTemplate(t, store, guildID)
 
-	created, err := store.CreateCase(ctx, storage.CreateCaseParams{
+	created, err := store.CreateCase(ctx, model.CreateCaseParams{
 		Case: caseModel(guildID, &template.Template.ID),
 		Event: model.CaseEvent{
 			EventType:          model.CaseEventCreated,
@@ -75,7 +75,7 @@ func TestCreateCasePersistsCaseEventActionsAndAudit(t *testing.T) {
 func TestCreateCaseAllocatesCaseNumbersPerGuild(t *testing.T) {
 	ctx := context.Background()
 	store, guildID := templateTestStore(t)
-	guildTwo, err := store.UpsertGuild(ctx, storage.UpsertGuildParams{
+	guildTwo, err := store.UpsertGuild(ctx, model.UpsertGuildParams{
 		DiscordGuildID:     "guild-2",
 		Name:               "Guild Two",
 		OwnerDiscordUserID: "owner-2",
@@ -84,15 +84,15 @@ func TestCreateCaseAllocatesCaseNumbersPerGuild(t *testing.T) {
 		t.Fatalf("upsert second guild: %v", err)
 	}
 
-	first, err := store.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent()})
+	first, err := store.CreateCase(ctx, model.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent()})
 	if err != nil {
 		t.Fatalf("create first case: %v", err)
 	}
-	second, err := store.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent()})
+	second, err := store.CreateCase(ctx, model.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent()})
 	if err != nil {
 		t.Fatalf("create second case: %v", err)
 	}
-	otherGuild, err := store.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildTwo.ID, nil), Event: caseEvent()})
+	otherGuild, err := store.CreateCase(ctx, model.CreateCaseParams{Case: caseModel(guildTwo.ID, nil), Event: caseEvent()})
 	if err != nil {
 		t.Fatalf("create other guild case: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestCountTemplateCasesForTargetFiltersHistory(t *testing.T) {
 	ctx := context.Background()
 	store, guildID := templateTestStore(t)
 	template := createCaseStorageTemplate(t, store, guildID)
-	otherTemplate, err := store.CreateCaseTemplate(ctx, storage.CreateCaseTemplateParams{
+	otherTemplate, err := store.CreateCaseTemplate(ctx, model.CreateCaseTemplateParams{
 		Template: templateModel(guildID, "other"),
 		Levels:   templateLevels(),
 	})
@@ -114,11 +114,11 @@ func TestCountTemplateCasesForTargetFiltersHistory(t *testing.T) {
 		t.Fatalf("create other template: %v", err)
 	}
 
-	matching, err := store.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, &template.Template.ID), Event: caseEvent()})
+	matching, err := store.CreateCase(ctx, model.CreateCaseParams{Case: caseModel(guildID, &template.Template.ID), Event: caseEvent()})
 	if err != nil {
 		t.Fatalf("create matching case: %v", err)
 	}
-	oldMatching, err := store.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, &template.Template.ID), Event: caseEvent()})
+	oldMatching, err := store.CreateCase(ctx, model.CreateCaseParams{Case: caseModel(guildID, &template.Template.ID), Event: caseEvent()})
 	if err != nil {
 		t.Fatalf("create old matching case: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestCountTemplateCasesForTargetFiltersHistory(t *testing.T) {
 		t.Fatalf("age matching case: %v", err)
 	}
 
-	voided, err := store.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, &template.Template.ID), Event: caseEvent()})
+	voided, err := store.CreateCase(ctx, model.CreateCaseParams{Case: caseModel(guildID, &template.Template.ID), Event: caseEvent()})
 	if err != nil {
 		t.Fatalf("create voided case: %v", err)
 	}
@@ -137,14 +137,14 @@ func TestCountTemplateCasesForTargetFiltersHistory(t *testing.T) {
 
 	otherTarget := caseModel(guildID, &template.Template.ID)
 	otherTarget.TargetDiscordUserID = "target-2"
-	if _, err := store.CreateCase(ctx, storage.CreateCaseParams{Case: otherTarget, Event: caseEvent()}); err != nil {
+	if _, err := store.CreateCase(ctx, model.CreateCaseParams{Case: otherTarget, Event: caseEvent()}); err != nil {
 		t.Fatalf("create other target case: %v", err)
 	}
-	if _, err := store.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, &otherTemplate.Template.ID), Event: caseEvent()}); err != nil {
+	if _, err := store.CreateCase(ctx, model.CreateCaseParams{Case: caseModel(guildID, &otherTemplate.Template.ID), Event: caseEvent()}); err != nil {
 		t.Fatalf("create other template case: %v", err)
 	}
 
-	count, err := store.CountTemplateCasesForTarget(ctx, storage.CountTemplateCasesForTargetParams{
+	count, err := store.CountTemplateCasesForTarget(ctx, model.CountTemplateCasesForTargetParams{
 		GuildID:             guildID,
 		TemplateID:          template.Template.ID,
 		TargetDiscordUserID: "target-1",
@@ -162,7 +162,7 @@ func TestListCasesFilteredAndGetCaseByReference(t *testing.T) {
 	ctx := context.Background()
 	store, guildID := templateTestStore(t)
 	template := createCaseStorageTemplate(t, store, guildID)
-	otherGuild, err := store.UpsertGuild(ctx, storage.UpsertGuildParams{
+	otherGuild, err := store.UpsertGuild(ctx, model.UpsertGuildParams{
 		DiscordGuildID:     "guild-2",
 		Name:               "Guild Two",
 		OwnerDiscordUserID: "owner-2",
@@ -172,7 +172,7 @@ func TestListCasesFilteredAndGetCaseByReference(t *testing.T) {
 	}
 
 	firstCase := caseModel(guildID, &template.Template.ID)
-	first, err := store.CreateCase(ctx, storage.CreateCaseParams{Case: firstCase, Event: caseEvent()})
+	first, err := store.CreateCase(ctx, model.CreateCaseParams{Case: firstCase, Event: caseEvent()})
 	if err != nil {
 		t.Fatalf("create first case: %v", err)
 	}
@@ -180,15 +180,15 @@ func TestListCasesFilteredAndGetCaseByReference(t *testing.T) {
 	secondCase.TargetDiscordUserID = "target-2"
 	secondCase.ModeratorDiscordUserID = "moderator-2"
 	secondCase.Validity = model.CaseValidityVoided
-	second, err := store.CreateCase(ctx, storage.CreateCaseParams{Case: secondCase, Event: caseEvent()})
+	second, err := store.CreateCase(ctx, model.CreateCaseParams{Case: secondCase, Event: caseEvent()})
 	if err != nil {
 		t.Fatalf("create second case: %v", err)
 	}
-	if _, err := store.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(otherGuild.ID, &template.Template.ID), Event: caseEvent()}); err != nil {
+	if _, err := store.CreateCase(ctx, model.CreateCaseParams{Case: caseModel(otherGuild.ID, &template.Template.ID), Event: caseEvent()}); err != nil {
 		t.Fatalf("create other guild case: %v", err)
 	}
 
-	list, err := store.ListCasesFiltered(ctx, storage.ListCasesParams{GuildID: guildID, Limit: 10})
+	list, err := store.ListCasesFiltered(ctx, model.ListCasesParams{GuildID: guildID, Limit: 10})
 	if err != nil {
 		t.Fatalf("list filtered cases: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestListCasesFilteredAndGetCaseByReference(t *testing.T) {
 		t.Fatalf("expected newest-first cases for guild only, got %+v", list)
 	}
 
-	list, err = store.ListCasesFiltered(ctx, storage.ListCasesParams{GuildID: guildID, TargetDiscordUserID: "target-2", ModeratorDiscordUserID: "moderator-2", TemplateID: template.Template.ID, Validity: model.CaseValidityVoided, Limit: 10})
+	list, err = store.ListCasesFiltered(ctx, model.ListCasesParams{GuildID: guildID, TargetDiscordUserID: "target-2", ModeratorDiscordUserID: "moderator-2", TemplateID: template.Template.ID, Validity: model.CaseValidityVoided, Limit: 10})
 	if err != nil {
 		t.Fatalf("list filtered cases with filters: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestListCaseActionAttemptsAndTargetSummary(t *testing.T) {
 	ctx := context.Background()
 	store, guildID := templateTestStore(t)
 
-	created, err := store.CreateCase(ctx, storage.CreateCaseParams{
+	created, err := store.CreateCase(ctx, model.CreateCaseParams{
 		Case:  caseModel(guildID, nil),
 		Event: caseEvent(),
 		ActionExecutions: []model.CaseActionExecution{
@@ -242,10 +242,10 @@ func TestListCaseActionAttemptsAndTargetSummary(t *testing.T) {
 		t.Fatalf("create case: %v", err)
 	}
 	action := created.ActionExecutions[0]
-	if _, err := store.ClaimNextCaseAction(ctx, storage.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker-1"}); err != nil {
+	if _, err := store.ClaimNextCaseAction(ctx, model.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker-1"}); err != nil {
 		t.Fatalf("claim action: %v", err)
 	}
-	if err := store.CompleteCaseAction(ctx, storage.CompleteCaseActionParams{
+	if err := store.CompleteCaseAction(ctx, model.CompleteCaseActionParams{
 		ExecutionID:         action.ID,
 		AttemptNumber:       1,
 		WorkerID:            "worker-1",
@@ -277,7 +277,7 @@ func TestListCaseActionAttemptsAndTargetSummary(t *testing.T) {
 func TestListAuditLogEntriesFiltered(t *testing.T) {
 	ctx := context.Background()
 	store, guildID := templateTestStore(t)
-	otherGuild, err := store.UpsertGuild(ctx, storage.UpsertGuildParams{
+	otherGuild, err := store.UpsertGuild(ctx, model.UpsertGuildParams{
 		DiscordGuildID:     "guild-2",
 		Name:               "Guild Two",
 		OwnerDiscordUserID: "owner-2",
@@ -297,7 +297,7 @@ func TestListAuditLogEntriesFiltered(t *testing.T) {
 		}
 	}
 
-	list, err := store.ListAuditLogEntriesFiltered(ctx, storage.ListAuditLogEntriesParams{GuildID: guildID, Limit: 10})
+	list, err := store.ListAuditLogEntriesFiltered(ctx, model.ListAuditLogEntriesParams{GuildID: guildID, Limit: 10})
 	if err != nil {
 		t.Fatalf("list filtered audits: %v", err)
 	}
@@ -305,7 +305,7 @@ func TestListAuditLogEntriesFiltered(t *testing.T) {
 		t.Fatalf("expected newest-first guild audits, got %+v", list)
 	}
 
-	list, err = store.ListAuditLogEntriesFiltered(ctx, storage.ListAuditLogEntriesParams{
+	list, err = store.ListAuditLogEntriesFiltered(ctx, model.ListAuditLogEntriesParams{
 		GuildID:            guildID,
 		ActorDiscordUserID: "actor-1",
 		Action:             "case.create",
@@ -325,7 +325,7 @@ func TestListAuditLogEntriesFiltered(t *testing.T) {
 func TestActionQueueSnapshot(t *testing.T) {
 	ctx := context.Background()
 	store, guildID := templateTestStore(t)
-	otherGuild, err := store.UpsertGuild(ctx, storage.UpsertGuildParams{
+	otherGuild, err := store.UpsertGuild(ctx, model.UpsertGuildParams{
 		DiscordGuildID:     "guild-2",
 		Name:               "Guild Two",
 		OwnerDiscordUserID: "owner-2",
@@ -334,7 +334,7 @@ func TestActionQueueSnapshot(t *testing.T) {
 		t.Fatalf("upsert other guild: %v", err)
 	}
 
-	created, err := store.CreateCase(ctx, storage.CreateCaseParams{
+	created, err := store.CreateCase(ctx, model.CreateCaseParams{
 		Case:  caseModel(guildID, nil),
 		Event: caseEvent(),
 		ActionExecutions: []model.CaseActionExecution{
@@ -345,7 +345,7 @@ func TestActionQueueSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create case: %v", err)
 	}
-	if _, err := store.CreateCase(ctx, storage.CreateCaseParams{
+	if _, err := store.CreateCase(ctx, model.CreateCaseParams{
 		Case:  caseModel(otherGuild.ID, nil),
 		Event: caseEvent(),
 		ActionExecutions: []model.CaseActionExecution{
@@ -378,7 +378,7 @@ func TestCreateCaseRollsBackOnActionFailure(t *testing.T) {
 	ctx := context.Background()
 	store, guildID := templateTestStore(t)
 
-	_, err := store.CreateCase(ctx, storage.CreateCaseParams{
+	_, err := store.CreateCase(ctx, model.CreateCaseParams{
 		Case:  caseModel(guildID, nil),
 		Event: caseEvent(),
 		ActionExecutions: []model.CaseActionExecution{
@@ -418,7 +418,7 @@ func TestCaseActionStateMachineClaimCompleteAndSkip(t *testing.T) {
 	ctx := context.Background()
 	store, guildID := templateTestStore(t)
 
-	created, err := store.CreateCase(ctx, storage.CreateCaseParams{
+	created, err := store.CreateCase(ctx, model.CreateCaseParams{
 		Case:  caseModel(guildID, nil),
 		Event: caseEvent(),
 		ActionExecutions: []model.CaseActionExecution{
@@ -430,7 +430,7 @@ func TestCaseActionStateMachineClaimCompleteAndSkip(t *testing.T) {
 		t.Fatalf("create case: %v", err)
 	}
 
-	claimed, err := store.ClaimNextCaseAction(ctx, storage.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker-1"})
+	claimed, err := store.ClaimNextCaseAction(ctx, model.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker-1"})
 	if err != nil {
 		t.Fatalf("claim action: %v", err)
 	}
@@ -438,7 +438,7 @@ func TestCaseActionStateMachineClaimCompleteAndSkip(t *testing.T) {
 		t.Fatalf("unexpected claimed action: %+v", claimed)
 	}
 
-	if err := store.CompleteCaseAction(ctx, storage.CompleteCaseActionParams{
+	if err := store.CompleteCaseAction(ctx, model.CompleteCaseActionParams{
 		ExecutionID:         claimed.Execution.ID,
 		AttemptNumber:       claimed.Execution.AttemptCount,
 		WorkerID:            "worker-1",
@@ -454,7 +454,7 @@ func TestCaseActionStateMachineClaimCompleteAndSkip(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("complete failed action: %v", err)
 	}
-	if err := store.SkipCaseActions(ctx, storage.SkipCaseActionsParams{
+	if err := store.SkipCaseActions(ctx, model.SkipCaseActionsParams{
 		CaseID:        created.Case.ID,
 		AfterPosition: claimed.Execution.Position,
 		Reason:        "previous action failed",
@@ -498,7 +498,7 @@ func TestCaseActionRetryScheduling(t *testing.T) {
 	ctx := context.Background()
 	store, guildID := templateTestStore(t)
 
-	created, err := store.CreateCase(ctx, storage.CreateCaseParams{
+	created, err := store.CreateCase(ctx, model.CreateCaseParams{
 		Case:  caseModel(guildID, nil),
 		Event: caseEvent(),
 		ActionExecutions: []model.CaseActionExecution{
@@ -509,12 +509,12 @@ func TestCaseActionRetryScheduling(t *testing.T) {
 		t.Fatalf("create case: %v", err)
 	}
 
-	claimed, err := store.ClaimNextCaseAction(ctx, storage.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker-1"})
+	claimed, err := store.ClaimNextCaseAction(ctx, model.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker-1"})
 	if err != nil {
 		t.Fatalf("claim action: %v", err)
 	}
 	nextRetryAt := time.Now().UTC().Add(time.Hour)
-	if err := store.CompleteCaseAction(ctx, storage.CompleteCaseActionParams{
+	if err := store.CompleteCaseAction(ctx, model.CompleteCaseActionParams{
 		ExecutionID:         claimed.Execution.ID,
 		AttemptNumber:       claimed.Execution.AttemptCount,
 		WorkerID:            "worker-1",
@@ -556,11 +556,11 @@ func TestCaseActionRetryScheduling(t *testing.T) {
 func TestListExecutableCaseIDsRotatesBoundedBatchesAcrossGuilds(t *testing.T) {
 	ctx := context.Background()
 	store, guildOneID := templateTestStore(t)
-	guildTwo, err := store.UpsertGuild(ctx, storage.UpsertGuildParams{DiscordGuildID: "fair-guild-2", Name: "Fair Two", OwnerDiscordUserID: "owner-2"})
+	guildTwo, err := store.UpsertGuild(ctx, model.UpsertGuildParams{DiscordGuildID: "fair-guild-2", Name: "Fair Two", OwnerDiscordUserID: "owner-2"})
 	if err != nil {
 		t.Fatalf("upsert second guild: %v", err)
 	}
-	guildThree, err := store.UpsertGuild(ctx, storage.UpsertGuildParams{DiscordGuildID: "fair-guild-3", Name: "Fair Three", OwnerDiscordUserID: "owner-3"})
+	guildThree, err := store.UpsertGuild(ctx, model.UpsertGuildParams{DiscordGuildID: "fair-guild-3", Name: "Fair Three", OwnerDiscordUserID: "owner-3"})
 	if err != nil {
 		t.Fatalf("upsert third guild: %v", err)
 	}
@@ -615,7 +615,7 @@ func TestListExecutableCaseIDsPreservesPriorityWithinGuild(t *testing.T) {
 
 func createExecutableFairnessCase(t *testing.T, store *storage.Store, guildID string, position int, readyAt time.Time) string {
 	t.Helper()
-	created, err := store.CreateCase(context.Background(), storage.CreateCaseParams{
+	created, err := store.CreateCase(context.Background(), model.CreateCaseParams{
 		Case:  caseModel(guildID, nil),
 		Event: caseEvent(),
 		ActionExecutions: []model.CaseActionExecution{{
@@ -631,12 +631,12 @@ func createExecutableFairnessCase(t *testing.T, store *storage.Store, guildID st
 	return created.Case.ID
 }
 
-func createCaseStorageTemplate(t *testing.T, store *storage.Store, guildID string) *storage.ExpandedCaseTemplate {
+func createCaseStorageTemplate(t *testing.T, store *storage.Store, guildID string) *model.ExpandedCaseTemplate {
 	t.Helper()
 
-	created, err := store.CreateCaseTemplate(context.Background(), storage.CreateCaseTemplateParams{
+	created, err := store.CreateCaseTemplate(context.Background(), model.CreateCaseTemplateParams{
 		Template: templateModel(guildID, "spam"),
-		Levels: []storage.ExpandedCaseTemplateLevel{
+		Levels: []model.ExpandedCaseTemplateLevel{
 			{
 				Level: model.CaseTemplateLevel{Position: 1, Name: "Default", IsDefault: true},
 				Actions: []model.CaseTemplateLevelAction{
@@ -683,7 +683,7 @@ func TestCaseCountWindowIncludesBoundary(t *testing.T) {
 	template := createCaseStorageTemplate(t, repository, guildID)
 	cutoff := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
 	for _, at := range []time.Time{cutoff.Add(-time.Second), cutoff, cutoff.Add(time.Second)} {
-		created, err := repository.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, &template.Template.ID), Event: caseEvent()})
+		created, err := repository.CreateCase(ctx, model.CreateCaseParams{Case: caseModel(guildID, &template.Template.ID), Event: caseEvent()})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -691,7 +691,7 @@ func TestCaseCountWindowIncludesBoundary(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	params := storage.CountTemplateCasesForTargetParams{GuildID: guildID, TemplateID: template.Template.ID, TargetDiscordUserID: "target-1", CreatedAtOrAfter: &cutoff}
+	params := model.CountTemplateCasesForTargetParams{GuildID: guildID, TemplateID: template.Template.ID, TargetDiscordUserID: "target-1", CreatedAtOrAfter: &cutoff}
 	count, err := repository.CountTemplateCasesForTarget(ctx, params)
 	if err != nil || count != 2 {
 		t.Fatalf("window count=%d err=%v", count, err)

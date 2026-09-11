@@ -7,8 +7,10 @@ import (
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
-// validateCaseContextValues validates supplied context and returns message links.
-// Context is always optional; an old template marked required cannot block moderation.
+// validateCaseContextValues validates supplied context against the template's
+// fields and returns the stored JSON plus any message links found in
+// message-link fields. Context is always optional; an old template marked
+// required cannot block moderation. Unknown or duplicate keys are rejected.
 func validateCaseContextValues(fields []model.CaseTemplateContextField, inputs []CaseContextValueInput) (string, []string, error) {
 	byKey := make(map[string]json.RawMessage, len(inputs))
 	for _, input := range inputs {
@@ -26,7 +28,13 @@ func validateCaseContextValues(fields []model.CaseTemplateContextField, inputs [
 	for _, field := range fields {
 		raw, provided := byKey[field.Key]
 		if !provided || len(raw) == 0 || string(raw) == "null" {
-			values = append(values, CaseContextValueResponse{Key: field.Key, Label: field.Label, FieldType: field.FieldType, Required: field.Required, Value: nil})
+			values = append(values, CaseContextValueResponse{
+				Key:       field.Key,
+				Label:     field.Label,
+				FieldType: field.FieldType,
+				Required:  field.Required,
+				Value:     nil,
+			})
 			delete(byKey, field.Key)
 			continue
 		}
@@ -69,7 +77,13 @@ func validateCaseContextValues(fields []model.CaseTemplateContextField, inputs [
 		default:
 			return "", nil, validationCaseError("context field type is invalid")
 		}
-		values = append(values, CaseContextValueResponse{Key: field.Key, Label: field.Label, FieldType: field.FieldType, Required: field.Required, Value: value})
+		values = append(values, CaseContextValueResponse{
+			Key:       field.Key,
+			Label:     field.Label,
+			FieldType: field.FieldType,
+			Required:  field.Required,
+			Value:     value,
+		})
 		delete(byKey, field.Key)
 	}
 	if len(byKey) > 0 {
@@ -82,7 +96,8 @@ func validateCaseContextValues(fields []model.CaseTemplateContextField, inputs [
 	return string(body), links, nil
 }
 
-// parseCaseContextValues decodes the current staff-only context values.
+// parseCaseContextValues decodes the current staff-only context values,
+// returning an empty slice (never nil) for malformed JSON.
 func parseCaseContextValues(body string) []CaseContextValueResponse {
 	var values []CaseContextValueResponse
 	if json.Unmarshal([]byte(body), &values) != nil {

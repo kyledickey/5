@@ -3,9 +3,9 @@ package quack
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,7 +13,11 @@ import (
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
-// ActionService claims persisted actions, executes supported moderation behavior, and records retry or terminal outcomes.
+// ActionService is the durable action worker. It claims leased action
+// executions for a case, runs the matching Discord handler, records each
+// attempt with its retry decision, and finally delivers the member
+// notification. discord may be nil (every action then fails as unsupported);
+// authorizer and scheduler are optional and only enable manual retry/reversal.
 type ActionService struct {
 	store            ActionRepository
 	discord          DiscordActionClient
@@ -24,16 +28,20 @@ type ActionService struct {
 }
 
 // WithDashboardBaseURL configures the secure member entry point used by
-// appealable case notifications.
+// appealable case notifications. It returns the receiver for chaining.
 func (s *ActionService) WithDashboardBaseURL(baseURL string) *ActionService {
-	if s != nil {
-		s.dashboardBaseURL = strings.TrimSpace(baseURL)
-	}
+	s.dashboardBaseURL = strings.TrimSpace(baseURL)
 	return s
 }
 
-// NewActionService binds persisted action execution to the supported Discord enforcement handlers.
+// NewActionService wires the worker to persistence and the Discord enforcement
+// client and registers one handler per supported action type. A nil store is a
+// programming error and panics; a nil discord client is allowed for tests and
+// makes every handler report the action as unsupported.
 func NewActionService(store ActionRepository, discord DiscordActionClient) *ActionService {
+	if store == nil {
+		panic("quack: NewActionService requires a non-nil ActionRepository")
+	}
 	return &ActionService{
 		store:   store,
 		discord: discord,
@@ -48,22 +56,24 @@ func NewActionService(store ActionRepository, discord DiscordActionClient) *Acti
 	}
 }
 
-// WithRecoveryControls configures live authorization and scheduling for manual retries and reversals.
+// WithRecoveryControls configures live authorization and scheduling for manual
+// retries and reversals. Either may be nil; without an authorizer those
+// operations return ErrAuthorizationUnavailable, and without a scheduler the
+// requeued work waits for the durable poller.
 func (s *ActionService) WithRecoveryControls(authorizer *GuildService, scheduler CaseWorkScheduler) *ActionService {
-	if s != nil {
-		s.authorizer = authorizer
-		s.scheduler = scheduler
-	}
+	s.authorizer = authorizer
+	s.scheduler = scheduler
 	return s
 }
 
-// ProcessCaseActions processes case actions according to persisted state and retry policy.
+// ProcessCaseActions drains the case's runnable actions one lease at a time:
+// each claim executes and is completed before the next is claimed, so a case
+// never has two attempts in flight. Before a kick or ban it opens the member
+// DM channel, and once no claimable action remains it delivers the pending
+// notification. It returns the first persistence error; handler failures are
+// recorded on the attempt rather than returned.
 func (s *ActionService) ProcessCaseActions(ctx context.Context, caseID string) error {
 	ctx = ensureTraceContext(ctx)
-	if s == nil || s.store == nil {
-		return errors.New("action service is not configured")
-	}
-
 	workerID := actionWorkerID()
 	for {
 		claimed, err := s.store.ClaimNextCaseAction(ctx, model.ClaimCaseActionParams{
@@ -86,7 +96,13 @@ func (s *ActionService) ProcessCaseActions(ctx context.Context, caseID string) e
 	}
 }
 
-// processClaimedAction processes claimed action according to persisted state and retry policy.
+// processClaimedAction runs one leased attempt and records its outcome. It
+// resolves the guild, routes reversals through the provenance guard after
+// re-checking the requesting moderator's live permission, and otherwise calls
+// the handler for the action type. The result is classified as succeeded,
+// retrying (only when the handler says the failure is retryable, the outcome is
+// certain, the execution is marked safe, and retries remain) or failed, then
+// persisted with the attempt payloads, the case event, and the next retry time.
 func (s *ActionService) processClaimedAction(ctx context.Context, workerID string, claimed model.ClaimedCaseAction) error {
 	handler, ok := s.handlers[claimed.Execution.ActionType]
 	if !ok || handler == nil {
@@ -109,6 +125,8 @@ func (s *ActionService) processClaimedAction(ctx context.Context, workerID strin
 		"execution_id", claimed.Execution.ID, "action", claimed.Execution.ActionType,
 		"attempt", claimed.Execution.AttemptCount)
 	logger.InfoContext(ctx, "Action attempt started")
+	isReversalType := claimed.Execution.ActionType == model.ActionRemoveTimeout ||
+		claimed.Execution.ActionType == model.ActionUnbanUser
 	var result actionmods.Result
 	switch {
 	case guildErr != nil:
@@ -116,17 +134,13 @@ func (s *ActionService) processClaimedAction(ctx context.Context, workerID strin
 		result = actionmods.RetryableError("guild_lookup_failed", "Guild information is temporarily unavailable")
 	case discordGuildID == "":
 		result = actionmods.PermanentError("guild_not_found", "The case guild is unavailable")
-	case (claimed.Execution.ActionType == model.ActionRemoveTimeout || claimed.Execution.ActionType == model.ActionUnbanUser) && claimed.Execution.ReversalOfExecutionID == nil:
-		result = actionmods.PermanentError("reversal_provenance_unavailable", "The reversal has no original punishment reference. Review it manually.")
+	case isReversalType && claimed.Execution.ReversalOfExecutionID == nil:
+		result = actionmods.PermanentError(
+			"reversal_provenance_unavailable",
+			"The reversal has no original punishment reference. Review it manually.",
+		)
 	case claimed.Execution.ReversalOfExecutionID != nil:
-		actorID, _ := config["requested_by"].(string)
-		if s.authorizer == nil || actorID == "" {
-			result = actionmods.PermanentError("reversal_authorization_unavailable", "Could not verify permission to undo this punishment. A moderator can retry it.")
-		} else if err := s.authorizer.PreflightReversal(ctx, &GuildStaffContext{Guild: guild, ActorDiscordUserID: actorID}, claimed.Case.TargetDiscordUserID, claimed.Execution.ActionType); err != nil {
-			result = actionmods.PermanentError("reversal_permission_denied", "Could not verify permission to undo this punishment. A moderator with the required permission can retry it.")
-		} else {
-			result = s.executeAction(ctx, actionmods.Func(s.executeGuardedReversal), actionContext)
-		}
+		result = s.executeReversal(ctx, guild, config, actionContext)
 	default:
 		result = s.executeAction(ctx, handler, actionContext)
 	}
@@ -205,7 +219,35 @@ func (s *ActionService) processClaimedAction(ctx context.Context, workerID strin
 	return nil
 }
 
-// executeAction processes action according to persisted state and retry policy.
+// executeReversal re-checks that the moderator recorded in the execution config
+// as requested_by may still undo this punishment, then runs the guarded
+// reversal. Missing authorizer, missing requester, or a failed live check all
+// fail permanently so a moderator with permission can retry explicitly.
+func (s *ActionService) executeReversal(
+	ctx context.Context,
+	guild *model.Guild,
+	config map[string]any,
+	action actionmods.Context,
+) actionmods.Result {
+	actorID, _ := config["requested_by"].(string)
+	if s.authorizer == nil || actorID == "" {
+		return actionmods.PermanentError(
+			"reversal_authorization_unavailable",
+			"Could not verify permission to undo this punishment. A moderator can retry it.",
+		)
+	}
+	staffContext := &GuildStaffContext{Guild: guild, ActorDiscordUserID: actorID}
+	if err := s.authorizer.PreflightReversal(ctx, staffContext, action.Case.TargetDiscordUserID, action.Execution.ActionType); err != nil {
+		return actionmods.PermanentError(
+			"reversal_permission_denied",
+			"Could not verify permission to undo this punishment. A moderator with the required permission can retry it.",
+		)
+	}
+	return s.executeAction(ctx, actionmods.Func(s.executeGuardedReversal), action)
+}
+
+// executeAction runs one handler under a 30 second timeout so a hung Discord
+// request cannot hold the action lease indefinitely.
 func (s *ActionService) executeAction(ctx context.Context, handler actionmods.Executor, action actionmods.Context) actionmods.Result {
 	requestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -253,5 +295,5 @@ func mustMarshalJSONObject(value any) string {
 
 // actionWorkerID identifies the worker invocation recorded on durable action attempts.
 func actionWorkerID() string {
-	return fmt.Sprintf("action-worker:%d", time.Now().UTC().UnixNano())
+	return "action-worker:" + strconv.FormatInt(time.Now().UTC().UnixNano(), 10)
 }

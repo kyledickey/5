@@ -2,8 +2,8 @@
 
 Status: ACTIVE — PARALLEL WAVE P2 IN PROGRESS
 Owner: v5 orchestrator
-Authoritative product definition: [`v5.md`](../../../v5.md)
-Supporting inventory: [`TODO.md`](../../../TODO.md), [`docs/v5-scope-drift.md`](../../v5-scope-drift.md)
+Authoritative product definition: [`v5.md`](../../v5.md)
+Supporting inventory: [`TODO.md`](../../TODO.md), [`docs/planning/v5-scope-drift.md`](../../v5-scope-drift.md)
 
 ## Objective
 

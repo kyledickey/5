@@ -39,7 +39,12 @@ func ContextContainsMessageLinks(text string) bool { return len(contextMessageLi
 // an archived message. Staff can explicitly retry unavailable captures via Add
 // evidence. Authorization and live source-channel checks stay in AddEvidence and
 // EvidenceService; no enforcement path is called here.
-func (s *CaseService) captureContextLinks(ctx context.Context, guild *GuildStaffContext, detail *CaseDetailResponse, text string) *CaseDetailResponse {
+func (s *CaseService) captureContextLinks(
+	ctx context.Context,
+	guild *GuildStaffContext,
+	detail *CaseDetailResponse,
+	text string,
+) *CaseDetailResponse {
 	links := contextMessageLinks(text)
 	if len(links) == 0 {
 		return detail

@@ -11,7 +11,9 @@ import (
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
-// prepareNotification opens a DM channel before an irreversible membership change without coupling preparation failure to enforcement.
+// prepareNotification opens a DM channel before an irreversible membership
+// change (kick or ban) so the member can still be reached afterwards. Failure
+// to prepare is recorded on the notification and never blocks enforcement.
 func (s *ActionService) prepareNotification(ctx context.Context, item model.Case) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -24,6 +26,7 @@ func (s *ActionService) prepareNotification(ctx context.Context, item model.Case
 	}
 	prepared, ok := s.discord.(DiscordPreparedDMClient)
 	if !ok {
+		// best-effort: the missing adapter is recorded for diagnostics; enforcement proceeds regardless
 		_ = s.store.PrepareCaseNotification(ctx, item.ID, "", "prepared DM adapter is unavailable")
 		return
 	}
@@ -74,6 +77,7 @@ func (s *ActionService) processNotification(ctx context.Context, workerID, caseI
 	if reader, ok := s.store.(interface {
 		ListCaseActionAttempts(context.Context, []string) ([]model.CaseActionAttempt, error)
 	}); ok && len(executionIDs) > 0 {
+		// best-effort: without attempts the DM simply omits the timeout expiry
 		attempts, _ = reader.ListCaseActionAttempts(ctx, executionIDs)
 	}
 	request := caseNotificationRequest(*item, guild, settings, actions, attempts)
@@ -87,9 +91,15 @@ func (s *ActionService) processNotification(ctx context.Context, workerID, caseI
 	if client, ok := s.discord.(DiscordCaseNotificationClient); ok {
 		receipt, sendErr = client.SendCaseNotification(ctx, request)
 	} else {
-		sendErr = errors.New("Discord case notification adapter is unavailable")
+		sendErr = errors.New("discord case notification adapter is unavailable")
 	}
-	params := model.CompleteCaseNotificationParams{NotificationID: claimed.ID, LeaseToken: claimed.LeaseToken, WorkerID: workerID, RenderedMessage: receipt.RenderedMessage, PreparedChannelDiscordID: claimed.PreparedChannelDiscordID}
+	params := model.CompleteCaseNotificationParams{
+		NotificationID:           claimed.ID,
+		LeaseToken:               claimed.LeaseToken,
+		WorkerID:                 workerID,
+		RenderedMessage:          receipt.RenderedMessage,
+		PreparedChannelDiscordID: claimed.PreparedChannelDiscordID,
+	}
 	if sendErr != nil {
 		result := actionmods.ResultFromError(sendErr)
 		params.Status = model.NotificationFailed

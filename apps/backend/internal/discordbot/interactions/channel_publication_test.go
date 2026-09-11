@@ -62,9 +62,17 @@ func TestStandalonePublicationTransport(t *testing.T) {
 					status = 500
 					payload = `{"message":"uncertain"}`
 				}
-				return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(payload)), Request: request}, nil
+				return &http.Response{
+					StatusCode: status,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(payload)),
+					Request:    request,
+				}, nil
 			})}
-			responder := responder{client: sessionClient{session: session}, interaction: &discordgo.Interaction{AppID: "application", Token: "PRIVATE INTERACTION TOKEN", ChannelID: "channel"}}
+			responder := responder{
+				client:      sessionClient{session: session},
+				interaction: &discordgo.Interaction{AppID: "application", Token: "PRIVATE INTERACTION TOKEN", ChannelID: "channel"},
+			}
 			if _, err := responder.PublishChannel(context.Background(), ui.Content("private", true)); err == nil || posts != 0 {
 				t.Fatal("ephemeral content accepted")
 			}

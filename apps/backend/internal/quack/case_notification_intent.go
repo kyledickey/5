@@ -36,8 +36,22 @@ type CaseNotificationReceipt struct {
 
 // caseNotificationRequest selects immutable rule facts and actual execution results;
 // Discord wording and escaping belong to the notification adapter.
-func caseNotificationRequest(item model.Case, guild *model.Guild, settings *model.GuildSettings, actions []model.CaseActionExecution, attempts []model.CaseActionAttempt) CaseNotificationRequest {
-	request := CaseNotificationRequest{AppealControl: caseSnapshotAppealable(item.TemplateSnapshotJSON), TargetDiscordUserID: item.TargetDiscordUserID, GuildID: item.GuildID, CaseID: item.ID, Reason: item.Reason, CaseNumber: item.CaseNumber, CreatedAt: item.CreatedAt}
+func caseNotificationRequest(
+	item model.Case,
+	guild *model.Guild,
+	settings *model.GuildSettings,
+	actions []model.CaseActionExecution,
+	attempts []model.CaseActionAttempt,
+) CaseNotificationRequest {
+	request := CaseNotificationRequest{
+		AppealControl:       caseSnapshotAppealable(item.TemplateSnapshotJSON),
+		TargetDiscordUserID: item.TargetDiscordUserID,
+		GuildID:             item.GuildID,
+		CaseID:              item.ID,
+		Reason:              item.Reason,
+		CaseNumber:          item.CaseNumber,
+		CreatedAt:           item.CreatedAt,
+	}
 	if guild != nil {
 		request.GuildName = guild.Name
 	}

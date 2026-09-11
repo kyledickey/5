@@ -15,41 +15,14 @@ import (
 // retiredCaseEventTypes are preserved compatibility rows that must not cross the live v5 event boundary.
 var retiredCaseEventTypes = []string{"note_added", "note_edited", "note_deleted", "status_changed"}
 
-// CreateCaseParams aliases the core create case params contract so Store satisfies the port without maintaining a second data shape.
-type CreateCaseParams = model.CreateCaseParams
-
-// CreatedCase aliases the core created case contract so Store satisfies the port without maintaining a second data shape.
-type CreatedCase = model.CreatedCase
-
-// CountTemplateCasesForTargetParams aliases the core count template cases for target params contract so Store satisfies the port without maintaining a second data shape.
-type CountTemplateCasesForTargetParams = model.CountTemplateCasesForTargetParams
-
-// ListCasesParams aliases the core list cases params contract so Store satisfies the port without maintaining a second data shape.
-type ListCasesParams = model.ListCasesParams
-
-// ListCasesResult aliases the core list cases result contract so Store satisfies the port without maintaining a second data shape.
-type ListCasesResult = model.ListCasesResult
-
-// TargetCaseSummary aliases the core target case summary contract so Store satisfies the port without maintaining a second data shape.
-type TargetCaseSummary = model.TargetCaseSummary
-
-// ClaimedCaseAction aliases the core claimed case action contract so Store satisfies the port without maintaining a second data shape.
-type ClaimedCaseAction = model.ClaimedCaseAction
-
-// ClaimCaseActionParams aliases the core claim case action params contract so Store satisfies the port without maintaining a second data shape.
-type ClaimCaseActionParams = model.ClaimCaseActionParams
-
-// CompleteCaseActionParams aliases the core complete case action params contract so Store satisfies the port without maintaining a second data shape.
-type CompleteCaseActionParams = model.CompleteCaseActionParams
-
-// SkipCaseActionsParams aliases the core skip case actions params contract so Store satisfies the port without maintaining a second data shape.
-type SkipCaseActionsParams = model.SkipCaseActionsParams
-
-// CreateCase creates case while preserving validation, authorization, and persistence invariants.
-func (s *Store) CreateCase(ctx context.Context, params CreateCaseParams) (*CreatedCase, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
+// CreateCase inserts a case and everything decided with it (creation event,
+// queued action executions, evidence, the optional notification, and audit
+// rows) in one transaction. The case number is allocated under a row lock on
+// the guild's latest case; callers wanting cross-request serialization wrap
+// this in WithGuildCaseLock. Missing enum and JSON fields are defaulted here so
+// callers may pass zero values. ReplacesCaseID links the voided predecessor and
+// fails if that case was already replaced.
+func (s *Store) CreateCase(ctx context.Context, params model.CreateCaseParams) (*model.CreatedCase, error) {
 
 	now := time.Now().UTC()
 	caseModel := params.Case
@@ -176,7 +149,10 @@ func (s *Store) CreateCase(ctx context.Context, params CreateCaseParams) (*Creat
 			notification = &copyValue
 		}
 		if caseModel.ReplacesCaseID != nil {
-			result := tx.Model(&model.Case{}).Where("id = ? AND guild_id = ? AND status = ? AND replacement_case_id IS NULL", *caseModel.ReplacesCaseID, caseModel.GuildID, model.CaseValidityVoided).Update("replacement_case_id", caseModel.ID)
+			result := tx.Model(&model.Case{}).
+				Where("id = ? AND guild_id = ? AND status = ? AND replacement_case_id IS NULL",
+					*caseModel.ReplacesCaseID, caseModel.GuildID, model.CaseValidityVoided).
+				Update("replacement_case_id", caseModel.ID)
 			if result.Error != nil {
 				return fmt.Errorf("link replacement case: %w", result.Error)
 			}
@@ -208,19 +184,22 @@ func (s *Store) CreateCase(ctx context.Context, params CreateCaseParams) (*Creat
 		return nil, err
 	}
 
-	return &CreatedCase{
+	return &model.CreatedCase{
 		Case:             caseModel,
 		Event:            event,
 		ActionExecutions: actionExecutions,
-		Evidence:         evidence, Attachments: attachments, Notification: notification,
+		Evidence:         evidence,
+		Attachments:      attachments,
+		Notification:     notification,
 	}, nil
 }
 
-// VoidCase atomically changes only case validity and appends immutable correction history.
+// VoidCase marks a case voided under a row lock, cancels its unstarted
+// enforcement and notification, queues reversals for punishments that already
+// succeeded, and appends the public event and audit row in the same
+// transaction. Voiding again with the same reason is a no-op; a different
+// reason is an error. A missing case returns (nil, nil).
 func (s *Store) VoidCase(ctx context.Context, params model.VoidCaseParams) (*model.Case, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 	now := time.Now().UTC()
 	var item model.Case
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -252,7 +231,18 @@ func (s *Store) VoidCase(ctx context.Context, params model.VoidCaseParams) (*mod
 		if err := queueVoidedCaseReversals(tx, item, now); err != nil {
 			return err
 		}
-		event := model.CaseEvent{CaseID: item.ID, EventType: model.CaseEventVoided, ActorDiscordUserID: params.ActorDiscordUserID, ActorType: "staff", Visibility: model.EventVisibilityPublic, Body: "Case voided", MetadataJSON: marshalJSONObject(map[string]any{"reason": params.Reason, "replacement_case_id": params.ReplacementCaseID})}
+		event := model.CaseEvent{
+			CaseID:             item.ID,
+			EventType:          model.CaseEventVoided,
+			ActorDiscordUserID: params.ActorDiscordUserID,
+			ActorType:          "staff",
+			Visibility:         model.EventVisibilityPublic,
+			Body:               "Case voided",
+			MetadataJSON: marshalJSONObject(map[string]any{
+				"reason":              params.Reason,
+				"replacement_case_id": params.ReplacementCaseID,
+			}),
+		}
 		if err := appendCaseEvent(tx, &event, now); err != nil {
 			return err
 		}
@@ -274,7 +264,9 @@ func (s *Store) VoidCase(ctx context.Context, params model.VoidCaseParams) (*mod
 	return &item, nil
 }
 
-// firstNonEmpty encapsulates the first non empty rule so callers share one consistent package implementation.
+// firstNonEmpty returns the first non-empty value, or "" when all are empty.
+// It picks a correlation ID from the most specific source that has one. The
+// quack package keeps its own copy rather than importing the store for it.
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if value != "" {
@@ -284,7 +276,10 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-// nextCaseNumber encapsulates the next case number rule so callers share one consistent package implementation.
+// nextCaseNumber allocates the next per-guild case number by locking the
+// guild's newest case row. Numbers start at 1 and are never reused, even after
+// a void. Two creators for the same guild serialize on that lock in MySQL;
+// SQLite serializes writers globally.
 func nextCaseNumber(tx *gorm.DB, guildID string) (uint64, error) {
 	var latest model.Case
 	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
@@ -301,7 +296,10 @@ func nextCaseNumber(tx *gorm.DB, guildID string) (uint64, error) {
 	return latest.CaseNumber + 1, nil
 }
 
-// appendCaseEvent encapsulates the append case event rule so callers share one consistent package implementation.
+// appendCaseEvent inserts one timeline row inside the caller's transaction,
+// copying the guild from the case and defaulting visibility, actor type, and
+// metadata. A missing case is silently ignored so callers that already checked
+// existence need no second guard.
 func appendCaseEvent(tx *gorm.DB, event *model.CaseEvent, now time.Time) error {
 	var caseModel model.Case
 	result := tx.Where("id = ?", event.CaseID).Limit(1).Find(&caseModel)
@@ -331,7 +329,10 @@ func appendCaseEvent(tx *gorm.DB, event *model.CaseEvent, now time.Time) error {
 	return nil
 }
 
-// marshalJSONObject serializes marshal jsonobject into its stable external representation.
+// marshalJSONObject encodes value for a JSON column and falls back to "{}" when
+// encoding fails, because every metadata column is NOT NULL and the maps passed
+// here are built from primitives that cannot fail. quack.mustMarshalJSONObject
+// is the same helper kept separate to avoid a store import from the core.
 func marshalJSONObject(value any) string {
 	body, err := json.Marshal(value)
 	if err != nil {

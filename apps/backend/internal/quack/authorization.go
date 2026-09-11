@@ -18,6 +18,8 @@ var (
 	ErrAuthorizationUnavailable = errors.New("live discord authorization unavailable")
 )
 
+// Stable, non-sensitive reason codes carried in AuthorizationError.Reason and
+// recorded as the audit failure reason. Adapters map them to user-facing copy.
 const (
 	authorizationReasonMemberRequired     = "actor_not_in_guild"
 	authorizationReasonPermissionRequired = "permission_required"
@@ -53,15 +55,20 @@ func (e *AuthorizationError) Error() string {
 // Unwrap preserves sentinel matching without exposing Discord adapter failures.
 func (e *AuthorizationError) Unwrap() error { return ErrAuthorizationDenied }
 
-// Authorize checks a successfully refreshed staff context against one shared capability map.
-func (s *GuildService) Authorize(ctx context.Context, guildContext *GuildStaffContext, capability model.PermissionAction, source model.AuditSource) error {
+// Authorize checks a successfully refreshed staff context against one shared
+// capability map. Denials for current non-members and missing capabilities are
+// audited; a nil context is denied without audit because there is no guild to
+// attribute it to.
+func (s *GuildService) Authorize(
+	ctx context.Context, guildContext *GuildStaffContext, capability model.PermissionAction, source model.AuditSource,
+) error {
 	ctx = ensureTraceContext(ctx)
 	if guildContext == nil || guildContext.Guild == nil {
 		return &AuthorizationError{Capability: capability, Reason: authorizationReasonMemberRequired}
 	}
 	if !guildContext.Live.Actor.Present {
 		err := &AuthorizationError{Capability: capability, Reason: authorizationReasonMemberRequired}
-		_ = s.auditAuthorizationDenial(ctx, guildContext, capability, source, err.Reason)
+		_ = s.auditAuthorizationDenial(ctx, guildContext, capability, source, err.Reason) // best-effort: denial is returned regardless
 		return err
 	}
 	if capability != "" && !guildContext.Can(capability) {
@@ -69,16 +76,20 @@ func (s *GuildService) Authorize(ctx context.Context, guildContext *GuildStaffCo
 		if capability == model.PermissionActionCaseCreate {
 			err.RequiredPermission = permissionModerateMembers
 		}
-		_ = s.auditAuthorizationDenial(ctx, guildContext, capability, source, err.Reason)
+		_ = s.auditAuthorizationDenial(ctx, guildContext, capability, source, err.Reason) // best-effort: denial is returned regardless
 		return err
 	}
 	return nil
 }
 
-// PreflightCase refreshes actor, target, bot, guild, permission, and hierarchy state immediately before case persistence.
-func (s *GuildService) PreflightCase(ctx context.Context, guildContext *GuildStaffContext, targetDiscordUserID string, actionType model.ActionType) error {
+// PreflightCase refreshes actor, target, bot, guild, permission, and hierarchy
+// state immediately before case persistence and updates guildContext in place
+// with the fresh snapshot. It requires a Discord client.
+func (s *GuildService) PreflightCase(
+	ctx context.Context, guildContext *GuildStaffContext, targetDiscordUserID string, actionType model.ActionType,
+) error {
 	ctx = ensureTraceContext(ctx)
-	if s == nil || s.store == nil || s.discord == nil || guildContext == nil || guildContext.Guild == nil {
+	if s.discord == nil || guildContext == nil || guildContext.Guild == nil {
 		return ErrAuthorizationUnavailable
 	}
 	actorID := guildContext.ActorDiscordUserID
@@ -92,7 +103,8 @@ func (s *GuildService) PreflightCase(ctx context.Context, guildContext *GuildSta
 	if snapshot.Guild.ID != guildContext.Guild.DiscordGuildID {
 		return caseDenial(actionType, authorizationReasonGuildMismatch)
 	}
-	if snapshot.Actor.DiscordUserID != actorID || snapshot.Target == nil || snapshot.Target.DiscordUserID != strings.TrimSpace(targetDiscordUserID) {
+	if snapshot.Actor.DiscordUserID != actorID || snapshot.Target == nil ||
+		snapshot.Target.DiscordUserID != strings.TrimSpace(targetDiscordUserID) {
 		return caseDenial(actionType, authorizationReasonIdentityMismatch)
 	}
 
@@ -133,7 +145,8 @@ func (s *GuildService) PreflightCase(ctx context.Context, guildContext *GuildSta
 	}
 
 	required := actionPermission(actionType)
-	if required != 0 && !hasDiscordPermission(snapshot.Actor.PermissionBits, required) && snapshot.Actor.DiscordUserID != snapshot.Guild.OwnerID {
+	actorIsOwner := snapshot.Actor.DiscordUserID == snapshot.Guild.OwnerID
+	if required != 0 && !hasDiscordPermission(snapshot.Actor.PermissionBits, required) && !actorIsOwner {
 		return casePermissionDenial(actionType, authorizationReasonPermissionRequired, required)
 	}
 	if required != 0 && !hasDiscordPermission(snapshot.Bot.PermissionBits, required) {
@@ -145,9 +158,11 @@ func (s *GuildService) PreflightCase(ctx context.Context, guildContext *GuildSta
 // PreflightSystemCase refreshes the guild, bot, and target immediately before
 // honeypot persistence. It deliberately omits staff authority while preserving
 // Quack self-protection, live staff exemptions, hierarchy and bot capability.
-func (s *GuildService) PreflightSystemCase(ctx context.Context, guildContext *GuildStaffContext, targetDiscordUserID string, actionType model.ActionType) error {
+func (s *GuildService) PreflightSystemCase(
+	ctx context.Context, guildContext *GuildStaffContext, targetDiscordUserID string, actionType model.ActionType,
+) error {
 	ctx = ensureTraceContext(ctx)
-	if s == nil || s.store == nil || s.discord == nil || guildContext == nil || guildContext.Guild == nil {
+	if s.discord == nil || guildContext == nil || guildContext.Guild == nil {
 		return ErrAuthorizationUnavailable
 	}
 	targetDiscordUserID = strings.TrimSpace(targetDiscordUserID)
@@ -192,11 +207,13 @@ func (s *GuildService) PreflightSystemCase(ctx context.Context, guildContext *Gu
 }
 
 // PreflightReversal refreshes current authority while allowing unban to reference a departed member.
-func (s *GuildService) PreflightReversal(ctx context.Context, guildContext *GuildStaffContext, targetDiscordUserID string, actionType model.ActionType) error {
+func (s *GuildService) PreflightReversal(
+	ctx context.Context, guildContext *GuildStaffContext, targetDiscordUserID string, actionType model.ActionType,
+) error {
 	if actionType != model.ActionRemoveTimeout && actionType != model.ActionUnbanUser {
 		return caseDenial(actionType, "invalid_reversal")
 	}
-	if s == nil || s.store == nil || s.discord == nil || guildContext == nil || guildContext.Guild == nil {
+	if s.discord == nil || guildContext == nil || guildContext.Guild == nil {
 		return ErrAuthorizationUnavailable
 	}
 	actorID := guildContext.ActorDiscordUserID
@@ -265,14 +282,22 @@ func casePermissionDenial(actionType model.ActionType, reason string, required u
 }
 
 // auditAuthorizationDenial appends immutable capability evidence with trace identifiers.
-func (s *GuildService) auditAuthorizationDenial(ctx context.Context, guildContext *GuildStaffContext, capability model.PermissionAction, source model.AuditSource, reason string) error {
+func (s *GuildService) auditAuthorizationDenial(
+	ctx context.Context, guildContext *GuildStaffContext, capability model.PermissionAction, source model.AuditSource, reason string,
+) error {
 	return s.auditAuthorizationDenialWithMetadata(ctx, guildContext, capability, source, reason, "{}")
 }
 
 // auditAuthorizationDenialWithMetadata appends a denial while retaining operation-specific safe metadata.
-func (s *GuildService) auditAuthorizationDenialWithMetadata(ctx context.Context, guildContext *GuildStaffContext, capability model.PermissionAction, source model.AuditSource, reason, metadata string) error {
-	if s == nil || s.store == nil || guildContext == nil || guildContext.Guild == nil {
-		return errors.New("authorization audit is not configured")
+func (s *GuildService) auditAuthorizationDenialWithMetadata(
+	ctx context.Context,
+	guildContext *GuildStaffContext,
+	capability model.PermissionAction,
+	source model.AuditSource,
+	reason, metadata string,
+) error {
+	if guildContext == nil || guildContext.Guild == nil {
+		return errors.New("missing guild context")
 	}
 	requestID, correlationID := TraceIDsFromContext(ctx)
 	actorID := guildContext.ActorDiscordUserID
@@ -280,11 +305,18 @@ func (s *GuildService) auditAuthorizationDenialWithMetadata(ctx context.Context,
 		actorID = guildContext.Staff.DiscordUserID
 	}
 	return recordAudit(ctx, s.store, &model.AuditLogEntry{
-		GuildID: guildContext.Guild.ID, ActorDiscordUserID: actorID,
-		ActorPermissionBits: guildContext.PermissionBits, Source: source,
-		Action: "authorization.denied", ResourceType: "permission", ResourceID: string(capability),
-		Result: model.AuditResultDenied, FailureReason: reason,
-		CorrelationID: correlationID, RequestID: requestID, MetadataJSON: metadata,
+		GuildID:             guildContext.Guild.ID,
+		ActorDiscordUserID:  actorID,
+		ActorPermissionBits: guildContext.PermissionBits,
+		Source:              source,
+		Action:              "authorization.denied",
+		ResourceType:        "permission",
+		ResourceID:          string(capability),
+		Result:              model.AuditResultDenied,
+		FailureReason:       reason,
+		CorrelationID:       correlationID,
+		RequestID:           requestID,
+		MetadataJSON:        metadata,
 	})
 }
 
@@ -304,14 +336,6 @@ func actionPermission(actionType model.ActionType) uint64 {
 	default:
 		return 0
 	}
-}
-
-// authorizationSource converts a case source into the adapter source recorded by the audit log.
-func authorizationSource(source model.CaseSource) model.AuditSource {
-	if source == model.CaseSourceDiscord {
-		return model.AuditSourceDiscord
-	}
-	return model.AuditSourceAPI
 }
 
 // authorizationNow centralizes cache activity timestamps for live resolution.

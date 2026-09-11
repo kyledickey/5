@@ -2,18 +2,25 @@ package quack
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
-// create validates and materializes a case within an already locked transaction, including the selected escalation level, immutable template snapshot, initial event, actions, and audit entry.
-func (s *CaseService) create(ctx context.Context, guildContext *GuildStaffContext, input CaseInput, preflight *caseCreatePreflight, attribution caseCreateAttribution) (*model.CreatedCase, error) {
-	if s == nil || s.store == nil {
-		return nil, errors.New("case service is not configured")
-	}
+// create materializes a case inside the already-locked guild transaction. It
+// re-reads the template and re-selects the escalation level so the persisted
+// snapshot reflects the state under the lock, rejects the request with
+// errCasePreflightStale when that differs from the preflight, and writes the
+// case, its initial event, pending actions, evidence, notification, and audit
+// rows in one CreateCase call.
+func (s *CaseService) create(
+	ctx context.Context,
+	guildContext *GuildStaffContext,
+	input CaseInput,
+	preflight *caseCreatePreflight,
+	attribution caseCreateAttribution,
+) (*model.CreatedCase, error) {
 	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
 		return nil, validationCaseError("missing guild context")
 	}
@@ -26,7 +33,9 @@ func (s *CaseService) create(ctx context.Context, guildContext *GuildStaffContex
 			return nil, err
 		}
 		if existing != nil {
-			if existing.TargetDiscordUserID != strings.TrimSpace(input.TargetDiscordUserID) || existing.TemplateID == nil || *existing.TemplateID != strings.TrimSpace(input.TemplateID) {
+			sameTarget := existing.TargetDiscordUserID == strings.TrimSpace(input.TargetDiscordUserID)
+			sameTemplate := existing.TemplateID != nil && *existing.TemplateID == strings.TrimSpace(input.TemplateID)
+			if !sameTarget || !sameTemplate {
 				return nil, validationCaseError("idempotency key was already used for another case request")
 			}
 			actions, actionErr := s.store.ListCaseActionExecutions(ctx, existing.ID)
@@ -37,7 +46,12 @@ func (s *CaseService) create(ctx context.Context, guildContext *GuildStaffContex
 			if evidenceErr != nil {
 				return nil, evidenceErr
 			}
-			return &model.CreatedCase{Case: *existing, ActionExecutions: actions, Evidence: evidence, Attachments: attachments}, nil
+			return &model.CreatedCase{
+				Case:             *existing,
+				ActionExecutions: actions,
+				Evidence:         evidence,
+				Attachments:      attachments,
+			}, nil
 		}
 	}
 
@@ -87,7 +101,10 @@ func (s *CaseService) create(ctx context.Context, guildContext *GuildStaffContex
 	if len(selectedLevel.Actions) == 1 {
 		actualAction = selectedLevel.Actions[0].ActionType
 	}
-	if preflight.TemplateID != template.Template.ID || preflight.TemplateVersion != template.Template.Version || preflight.SelectedLevelID != selectedLevel.Level.ID || preflight.ActionType != actualAction {
+	if preflight.TemplateID != template.Template.ID ||
+		preflight.TemplateVersion != template.Template.Version ||
+		preflight.SelectedLevelID != selectedLevel.Level.ID ||
+		preflight.ActionType != actualAction {
 		return nil, errCasePreflightStale
 	}
 	contextValuesJSON := preflight.ContextValuesJSON
@@ -183,7 +200,11 @@ func (s *CaseService) create(ctx context.Context, guildContext *GuildStaffContex
 		}
 		entry := s.auditEntryWithAttribution(ctx, guildContext, attribution, "evidence.capture", "case_evidence", "", result, failure)
 		if entry != nil {
-			entry.MetadataJSON = mustMarshalJSONObject(map[string]any{"snapshot_count": len(captured.Snapshots), "attachment_count": len(captured.Attachments), "partial": len(captured.Warnings) > 0})
+			entry.MetadataJSON = mustMarshalJSONObject(map[string]any{
+				"snapshot_count":   len(captured.Snapshots),
+				"attachment_count": len(captured.Attachments),
+				"partial":          len(captured.Warnings) > 0,
+			})
 			params.AdditionalAudits = append(params.AdditionalAudits, *entry)
 		}
 	}

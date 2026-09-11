@@ -10,9 +10,6 @@ import (
 // schema path without rewriting application tables or deleting its old ledger.
 // Unknown, edited, incomplete, or dirty migration histories must be resolved first.
 func (s *Store) AdoptCurrentSchema() error {
-	if s == nil || s.db == nil {
-		return errors.New("database not connected")
-	}
 	return withMigrationLock(s.db, func() error {
 		applied, err := loadAppliedMigrations(s.db)
 		if err != nil {

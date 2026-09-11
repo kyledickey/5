@@ -21,9 +21,6 @@ type casePublicationWriter interface {
 // snapshot. Three immediate attempts retain the existing registration behavior;
 // failure leaves the caller responsible for private feedback and bounded refresh.
 func (s *CaseService) RecordPublicReceipt(ctx context.Context, receipt model.CasePublication) error {
-	if s == nil || s.store == nil {
-		return errors.New("durable case publication storage unavailable")
-	}
 	writer, ok := s.store.(casePublicationWriter)
 	if !ok {
 		return errors.New("durable case publication storage unavailable")
@@ -43,9 +40,6 @@ func (s *CaseService) RecordPublicReceipt(ctx context.Context, receipt model.Cas
 // moderator check: publication recovery continues after the initiating staff
 // interaction ends, using the previously authorized public case projection.
 func (s *CaseService) PublicReceiptActionStatuses(ctx context.Context, caseID string) ([]CaseActionResponse, error) {
-	if s == nil || s.store == nil {
-		return nil, errors.New("case publication status storage unavailable")
-	}
 	actions, err := s.store.ListCaseActionExecutions(ctx, caseID)
 	if err != nil {
 		return nil, err

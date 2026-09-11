@@ -10,7 +10,7 @@ import (
 )
 
 // getCaseTemplateExpanded retrieves case template expanded without exposing the underlying adapter implementation.
-func getCaseTemplateExpanded(db *gorm.DB, guildID, templateID string) (*ExpandedCaseTemplate, error) {
+func getCaseTemplateExpanded(db *gorm.DB, guildID, templateID string) (*model.ExpandedCaseTemplate, error) {
 	var templateRecord CaseTemplateRecord
 	if err := db.Where("id = ? AND guild_id = ?", templateID, guildID).First(&templateRecord).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -44,7 +44,7 @@ func getCaseTemplateExpanded(db *gorm.DB, guildID, templateID string) (*Expanded
 		return nil, fmt.Errorf("get case template levels: %w", err)
 	}
 
-	expandedLevels := make([]ExpandedCaseTemplateLevel, 0, len(levelRecords))
+	expandedLevels := make([]model.ExpandedCaseTemplateLevel, 0, len(levelRecords))
 	for _, levelRecord := range levelRecords {
 		level := caseTemplateLevelModelFromRecord(levelRecord)
 		var actionRecords []CaseTemplateLevelActionRecord
@@ -55,13 +55,13 @@ func getCaseTemplateExpanded(db *gorm.DB, guildID, templateID string) (*Expanded
 		for _, actionRecord := range actionRecords {
 			actions = append(actions, caseTemplateLevelActionModelFromRecord(actionRecord))
 		}
-		expandedLevels = append(expandedLevels, ExpandedCaseTemplateLevel{
+		expandedLevels = append(expandedLevels, model.ExpandedCaseTemplateLevel{
 			Level:   level,
 			Actions: actions,
 		})
 	}
 
-	return &ExpandedCaseTemplate{
+	return &model.ExpandedCaseTemplate{
 		Template: template, ContextFields: contextFields, Levels: expandedLevels,
 	}, nil
 }
@@ -82,7 +82,7 @@ func createTemplateContextFields(tx *gorm.DB, templateID string, fields []model.
 }
 
 // createTemplateLevels creates template levels while preserving validation, authorization, and persistence invariants.
-func createTemplateLevels(tx *gorm.DB, templateID string, levels []ExpandedCaseTemplateLevel, now time.Time) error {
+func createTemplateLevels(tx *gorm.DB, templateID string, levels []model.ExpandedCaseTemplateLevel, now time.Time) error {
 	for i := range levels {
 		level := levels[i].Level
 		level.TemplateID = templateID

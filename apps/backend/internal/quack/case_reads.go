@@ -9,11 +9,14 @@ import (
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
-// List returns list subject to authorization, ordering, and filtering constraints.
+// List returns one page of the guild's cases, newest first, filtered by the
+// validated CaseListInput. Denied reads are audited; successful searches write
+// a case.search audit row whose failure fails the request.
 func (s *CaseService) List(ctx context.Context, guildContext *GuildStaffContext, input CaseListInput) (*CaseListResponse, error) {
 	params, limit, offset, err := s.caseListParams(guildContext, input)
 	if err != nil {
 		if errors.Is(err, ErrCasePermissionDenied) {
+			// best-effort: the denial is already being returned to the caller
 			_ = s.audit(ctx, guildContext, string(model.AuditActionCaseSearch), "case", "list", model.AuditResultDenied, "permission_denied")
 		}
 		return nil, err
@@ -54,8 +57,14 @@ func (s *CaseService) GetNativeDetail(ctx context.Context, guildContext *GuildSt
 
 // getDetail shares authorization and response construction while limiting reads
 // that the native renderer cannot display. The HTTP detail remains complete.
-func (s *CaseService) getDetail(ctx context.Context, guildContext *GuildStaffContext, caseRef string, native bool) (*CaseDetailResponse, error) {
+func (s *CaseService) getDetail(
+	ctx context.Context,
+	guildContext *GuildStaffContext,
+	caseRef string,
+	native bool,
+) (*CaseDetailResponse, error) {
 	if err := s.requireCaseRead(guildContext); err != nil {
+		// best-effort: the denial is already being returned to the caller
 		_ = s.audit(ctx, guildContext, string(model.AuditActionCaseRead), "case", strings.TrimSpace(caseRef), model.AuditResultDenied, "permission_denied")
 		return nil, err
 	}
@@ -135,6 +144,7 @@ func (s *CaseService) getDetail(ctx context.Context, guildContext *GuildStaffCon
 // and read auditing match Get; the full API detail contract remains unchanged.
 func (s *CaseService) GetEvidenceView(ctx context.Context, guildContext *GuildStaffContext, caseRef string) (*CaseDetailResponse, error) {
 	if err := s.requireCaseRead(guildContext); err != nil {
+		// best-effort: the denial is already being returned to the caller
 		_ = s.audit(ctx, guildContext, string(model.AuditActionCaseRead), "case", strings.TrimSpace(caseRef), model.AuditResultDenied, "permission_denied")
 		return nil, err
 	}
@@ -162,8 +172,15 @@ func (s *CaseService) GetEvidenceView(ctx context.Context, guildContext *GuildSt
 	}, nil
 }
 
-// UserHistory encapsulates the user history rule so callers share one consistent package implementation.
-func (s *CaseService) UserHistory(ctx context.Context, guildContext *GuildStaffContext, targetDiscordUserID string, input CaseListInput) (*CaseProfileResponse, error) {
+// UserHistory returns one page of the cases targeting a member together with
+// the member's all-time summary counts. It reuses List (and its authorization
+// and audit) with the target filter forced, then adds a case.history.read audit.
+func (s *CaseService) UserHistory(
+	ctx context.Context,
+	guildContext *GuildStaffContext,
+	targetDiscordUserID string,
+	input CaseListInput,
+) (*CaseProfileResponse, error) {
 	targetDiscordUserID = strings.TrimSpace(targetDiscordUserID)
 	if targetDiscordUserID == "" {
 		return nil, validationCaseError("target discord user id is required")
@@ -195,7 +212,9 @@ func (s *CaseService) UserHistory(ctx context.Context, guildContext *GuildStaffC
 	}, nil
 }
 
-// caseListParams encapsulates the case list params rule so callers share one consistent package implementation.
+// caseListParams checks read permission, then validates and normalizes every
+// filter in CaseListInput into the repository query. It also returns the
+// effective limit and offset so the response can echo them.
 func (s *CaseService) caseListParams(guildContext *GuildStaffContext, input CaseListInput) (model.ListCasesParams, int, int, error) {
 	if err := s.requireCaseRead(guildContext); err != nil {
 		return model.ListCasesParams{}, 0, 0, err
@@ -240,8 +259,12 @@ func (s *CaseService) caseListParams(guildContext *GuildStaffContext, input Case
 		ModeratorDiscordUserID: strings.TrimSpace(input.ModeratorDiscordUserID),
 		TemplateID:             strings.TrimSpace(input.TemplateID),
 		Validity:               validity,
-		CaseNumber:             caseNumber, ActionResult: actionResult, AppealStatus: appealStatus, CreatedAfter: createdAfter, CreatedBefore: createdBefore,
-		Limit:  limit,
-		Offset: offset,
+		CaseNumber:             caseNumber,
+		ActionResult:           actionResult,
+		AppealStatus:           appealStatus,
+		CreatedAfter:           createdAfter,
+		CreatedBefore:          createdBefore,
+		Limit:                  limit,
+		Offset:                 offset,
 	}, limit, offset, nil
 }

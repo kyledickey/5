@@ -5,11 +5,12 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/quackdiscord/bot/internal/quack"
 )
 
-// Logger records one structured result per request. Route patterns exclude
-// user-supplied paths and query parameters, including OAuth credentials.
+// Logger records one structured line per request after the handler chain
+// completes: info for success, warn for 4xx, error for 5xx. It logs the
+// matched route pattern rather than the raw path so user-supplied path
+// segments and query parameters (including OAuth codes) never reach logs.
 func Logger(c *gin.Context) {
 	start := time.Now()
 	c.Next()
@@ -24,8 +25,7 @@ func Logger(c *gin.Context) {
 		path = "unmatched"
 	}
 	slog.Log(c.Request.Context(), level, "HTTP request completed",
-		"request_id", quack.RequestIDFromContext(c.Request.Context()),
-		"correlation_id", quack.CorrelationIDFromContext(c.Request.Context()),
-		"method", c.Request.Method, "route", path,
-		"status", c.Writer.Status(), "duration", time.Since(start))
+		append(traceAttrs(c),
+			"method", c.Request.Method, "route", path,
+			"status", c.Writer.Status(), "duration", time.Since(start))...)
 }

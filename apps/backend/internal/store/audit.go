@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -11,17 +10,11 @@ import (
 	"gorm.io/gorm"
 )
 
-// ListAuditLogEntriesParams aliases the core list audit log entries params contract so Store satisfies the port without maintaining a second data shape.
-type ListAuditLogEntriesParams = model.ListAuditLogEntriesParams
-
-// ListAuditLogEntriesResult aliases the core list audit log entries result contract so Store satisfies the port without maintaining a second data shape.
-type ListAuditLogEntriesResult = model.ListAuditLogEntriesResult
-
-// CreateAuditLogEntry creates audit log entry while preserving validation, authorization, and persistence invariants.
+// CreateAuditLogEntry appends one audit row in its own transaction. Entries
+// whose Action is not a recognized audit event are dropped silently, as is a
+// nil entry, so callers can log unconditionally. Code that already holds a
+// transaction must use createAuditLogEntry instead.
 func (s *Store) CreateAuditLogEntry(ctx context.Context, entry *model.AuditLogEntry) error {
-	if s == nil || s.db == nil {
-		return errors.New("database not connected")
-	}
 	if entry == nil || !model.IsAuditEvent(entry.Action) {
 		return nil
 	}
@@ -31,25 +24,26 @@ func (s *Store) CreateAuditLogEntry(ctx context.Context, entry *model.AuditLogEn
 	})
 }
 
-// ListAuditLogEntries returns audit log entries subject to authorization, ordering, and filtering constraints.
+// ListAuditLogEntries returns a guild's important audit rows oldest-first with
+// no pagination; ListAuditLogEntriesFiltered is the paged variant.
 func (s *Store) ListAuditLogEntries(ctx context.Context, guildID string) ([]model.AuditLogEntry, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 
 	var entries []model.AuditLogEntry
-	if err := s.db.WithContext(ctx).Where("guild_id = ?", guildID).Where("action IN ?", model.ImportantAuditActions()).Order("created_at ASC").Find(&entries).Error; err != nil {
+	if err := s.db.WithContext(ctx).
+		Where("guild_id = ?", guildID).
+		Where("action IN ?", model.ImportantAuditActions()).
+		Order("created_at ASC").
+		Find(&entries).Error; err != nil {
 		return nil, fmt.Errorf("list audit log entries: %w", err)
 	}
 
 	return entries, nil
 }
 
-// ListAuditLogEntriesFiltered returns audit log entries filtered subject to authorization, ordering, and filtering constraints.
-func (s *Store) ListAuditLogEntriesFiltered(ctx context.Context, params ListAuditLogEntriesParams) (*ListAuditLogEntriesResult, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
+// ListAuditLogEntriesFiltered pages a guild's important audit rows newest-first.
+// Limit is clamped to 1..100. BeforeID is a keyset cursor (created_at, id) that
+// composes with Offset; Total counts the filtered set ignoring the cursor.
+func (s *Store) ListAuditLogEntriesFiltered(ctx context.Context, params model.ListAuditLogEntriesParams) (*model.ListAuditLogEntriesResult, error) {
 
 	limit := params.Limit
 	if limit <= 0 {
@@ -86,11 +80,14 @@ func (s *Store) ListAuditLogEntriesFiltered(ctx context.Context, params ListAudi
 		return nil, fmt.Errorf("list filtered audit log entries: %w", err)
 	}
 
-	return &ListAuditLogEntriesResult{Entries: entries, Total: total}, nil
+	return &model.ListAuditLogEntriesResult{Entries: entries, Total: total}, nil
 }
 
-// filteredAuditQuery encapsulates the filtered audit query rule so callers share one consistent package implementation.
-func filteredAuditQuery(query *gorm.DB, params ListAuditLogEntriesParams) *gorm.DB {
+// filteredAuditQuery applies the guild scope, the important-action allowlist,
+// and every non-empty filter in params. CaseID and MemberDiscordUserID match
+// either the resource columns or a JSON substring of metadata_json, which is
+// the only portable way to search that column on MySQL and SQLite.
+func filteredAuditQuery(query *gorm.DB, params model.ListAuditLogEntriesParams) *gorm.DB {
 	query = query.Where("guild_id = ?", params.GuildID).Where("action IN ?", model.ImportantAuditActions())
 	if params.ActorDiscordUserID != "" {
 		query = query.Where("actor_discord_user_id = ?", params.ActorDiscordUserID)
@@ -117,7 +114,8 @@ func filteredAuditQuery(query *gorm.DB, params ListAuditLogEntriesParams) *gorm.
 	if params.MemberDiscordUserID != "" {
 		pattern := `%"member_discord_user_id":"` + params.MemberDiscordUserID + `"%`
 		targetPattern := `%"target_discord_user_id":"` + params.MemberDiscordUserID + `"%`
-		query = query.Where("actor_discord_user_id = ? OR metadata_json LIKE ? OR metadata_json LIKE ?", params.MemberDiscordUserID, pattern, targetPattern)
+		query = query.Where("actor_discord_user_id = ? OR metadata_json LIKE ? OR metadata_json LIKE ?",
+			params.MemberDiscordUserID, pattern, targetPattern)
 	}
 	if params.CreatedAfter != "" {
 		if value, err := time.Parse(time.RFC3339Nano, params.CreatedAfter); err == nil {

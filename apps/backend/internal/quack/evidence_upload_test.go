@@ -24,7 +24,7 @@ func TestStaffUploadsPreserveFilesBeforeCreationAndWithoutRepeatingActions(t *te
 	input.Levels = []quack.TemplateLevelInput{{Name: "Ban", Position: 1, IsDefault: true, Actions: []quack.TemplateActionInput{{ActionType: model.ActionBanUser}}}}
 	template := createAppTemplate(t, ctx, repository, admin, input)
 	client := &fakeEvidenceClient{preserved: quack.PreservedDiscordAttachment{URL: "https://discord.com/channels/guild/storage/copy", MessageID: "copy", AttachmentID: "saved-file"}}
-	service := quack.NewCaseService(repository).WithEvidenceCapture(quack.NewEvidenceService(client, repository))
+	service := quack.NewCaseService(repository, nil).WithEvidenceCapture(quack.NewEvidenceService(client, repository))
 	file := quack.DiscordAttachmentSnapshot{ID: "file", Filename: "screenshot.png", ContentType: "image/png", SizeBytes: 100, URL: "https://cdn.discordapp.com/attachments/channel/file/screenshot.png"}
 	created, err := service.Create(ctx, moderator, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: "member", Attachments: []quack.DiscordAttachmentSnapshot{file}})
 	if err != nil {

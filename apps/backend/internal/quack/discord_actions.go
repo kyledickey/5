@@ -6,7 +6,9 @@ import (
 	actionmods "github.com/quackdiscord/bot/internal/quack/actionmods"
 )
 
-// DiscordActionClient defines the external operations needed by this package, keeping the concrete client at the adapter boundary.
+// DiscordActionClient is the minimum Discord write capability ActionService
+// requires. Richer adapters additionally implement the optional interfaces
+// below, which the service discovers by type assertion.
 type DiscordActionClient interface {
 	SendDM(ctx context.Context, discordUserID, message string) (map[string]any, error)
 }
@@ -32,5 +34,7 @@ type DiscordCaseNotificationClient interface {
 	SendCaseNotification(context.Context, CaseNotificationRequest) (CaseNotificationReceipt, error)
 }
 
-// DiscordActionError carries classified discord action error failure details across package boundaries.
+// DiscordActionError is the classified Discord failure adapters return from
+// enforcement calls. It is re-exported so callers of this package can inspect
+// the classification without importing actionmods.
 type DiscordActionError = actionmods.DiscordError

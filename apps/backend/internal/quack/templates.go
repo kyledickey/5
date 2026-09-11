@@ -22,14 +22,21 @@ const (
 )
 
 var (
-	ErrTemplateValidation                  = errors.New("template validation failed")
-	ErrTemplateConflict                    = model.ErrTemplateConflict
-	ErrTemplateNotFound                    = errors.New("case template not found")
-	ErrTemplatePermissionDenied            = errors.New("template permission denied")
+	// ErrTemplateValidation reports a policy that failed normalization; the wrapped message is safe to show.
+	ErrTemplateValidation = errors.New("template validation failed")
+	// ErrTemplateConflict re-exports the store's stale-version rejection for Update.
+	ErrTemplateConflict = model.ErrTemplateConflict
+	// ErrTemplateNotFound reports a template that does not exist in the caller's guild.
+	ErrTemplateNotFound = errors.New("case template not found")
+	// ErrTemplatePermissionDenied reports that the caller lacks the template read or write capability.
+	ErrTemplatePermissionDenied = errors.New("template permission denied")
+	// ErrTemplateCompatibilityReviewRequired re-exports the store's error for
+	// preserved legacy policy that cannot be projected as a valid live template.
 	ErrTemplateCompatibilityReviewRequired = model.ErrTemplateCompatibilityReviewRequired
 )
 
-// TemplateCompatibilityReviewError aliases the domain error returned when preserved legacy policy cannot be projected as a valid live template.
+// TemplateCompatibilityReviewError re-exports the typed model error so adapters
+// can errors.As against it without importing model.
 type TemplateCompatibilityReviewError = model.TemplateCompatibilityReviewError
 
 var templateSlugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{1,63}$`)
@@ -39,24 +46,26 @@ type TemplateService struct {
 	store TemplateRepository
 }
 
-// NewTemplateService binds versioned template persistence; construction has no side effects.
+// NewTemplateService returns a service over store; construction has no side effects.
 func NewTemplateService(store TemplateRepository) *TemplateService {
 	return &TemplateService{store: store}
 }
 
-// List returns list subject to authorization, ordering, and filtering constraints.
+// List returns every template in the caller's guild, archived ones included,
+// for staff with the template read capability. Denials and failures are audited.
 func (s *TemplateService) List(ctx context.Context, guildContext *GuildStaffContext) ([]TemplateResponse, error) {
 	ctx = ensureTraceContext(ctx)
-	if s == nil || s.store == nil || guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
-		return nil, errors.New("template service is not configured")
+	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
+		return nil, errors.New("missing guild context")
 	}
+	const action = string(model.AuditActionTemplateRead)
 	if !guildContext.Can(model.PermissionActionCaseTemplateRead) {
-		_ = s.audit(ctx, guildContext, string(model.AuditActionTemplateRead), "case_template", "list", model.AuditResultDenied, ErrTemplatePermissionDenied.Error())
+		_ = s.audit(ctx, guildContext, action, "case_template", "list", model.AuditResultDenied, ErrTemplatePermissionDenied.Error()) // best-effort: denial already returned
 		return nil, ErrTemplatePermissionDenied
 	}
 	templates, err := s.store.ListCaseTemplates(ctx, guildContext.Guild.ID)
 	if err != nil {
-		_ = s.audit(ctx, guildContext, string(model.AuditActionTemplateRead), "case_template", "list", model.AuditResultFailure, "query_failed")
+		_ = s.audit(ctx, guildContext, action, "case_template", "list", model.AuditResultFailure, "query_failed") // best-effort: storage error already returned
 		return nil, err
 	}
 
@@ -64,7 +73,7 @@ func (s *TemplateService) List(ctx context.Context, guildContext *GuildStaffCont
 	for _, template := range templates {
 		out = append(out, templateResponse(template))
 	}
-	if err := s.audit(ctx, guildContext, string(model.AuditActionTemplateRead), "case_template", "list", model.AuditResultSuccess, ""); err != nil {
+	if err := s.audit(ctx, guildContext, action, "case_template", "list", model.AuditResultSuccess, ""); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -85,43 +94,47 @@ func (s *TemplateService) ListActive(ctx context.Context, guildContext *GuildSta
 	return active, nil
 }
 
-// Get retrieves get without exposing the underlying adapter implementation.
+// Get returns one template in the caller's guild for staff with the template
+// read capability. A template in another guild is reported as not found.
 func (s *TemplateService) Get(ctx context.Context, guildContext *GuildStaffContext, templateID string) (*TemplateResponse, error) {
 	ctx = ensureTraceContext(ctx)
-	if s == nil || s.store == nil || guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
-		return nil, errors.New("template service is not configured")
+	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
+		return nil, errors.New("missing guild context")
 	}
+	const action = string(model.AuditActionTemplateRead)
 	if !guildContext.Can(model.PermissionActionCaseTemplateRead) {
-		_ = s.audit(ctx, guildContext, string(model.AuditActionTemplateRead), "case_template", templateID, model.AuditResultDenied, ErrTemplatePermissionDenied.Error())
+		_ = s.audit(ctx, guildContext, action, "case_template", templateID, model.AuditResultDenied, ErrTemplatePermissionDenied.Error()) // best-effort: denial already returned
 		return nil, ErrTemplatePermissionDenied
 	}
 	template, err := s.store.GetCaseTemplateExpanded(ctx, guildContext.Guild.ID, templateID)
 	if err != nil {
-		_ = s.audit(ctx, guildContext, string(model.AuditActionTemplateRead), "case_template", templateID, model.AuditResultFailure, "query_failed")
+		_ = s.audit(ctx, guildContext, action, "case_template", templateID, model.AuditResultFailure, "query_failed") // best-effort: storage error already returned
 		return nil, err
 	}
 	if template == nil {
-		_ = s.audit(ctx, guildContext, string(model.AuditActionTemplateRead), "case_template", templateID, model.AuditResultFailure, "not_found")
+		_ = s.audit(ctx, guildContext, action, "case_template", templateID, model.AuditResultFailure, "not_found") // best-effort: not-found already returned
 		return nil, ErrTemplateNotFound
 	}
 
 	response := templateResponse(*template)
-	if err := s.audit(ctx, guildContext, string(model.AuditActionTemplateRead), "case_template", templateID, model.AuditResultSuccess, ""); err != nil {
+	if err := s.audit(ctx, guildContext, action, "case_template", templateID, model.AuditResultSuccess, ""); err != nil {
 		return nil, err
 	}
 	return &response, nil
 }
 
-// Create validates, normalizes, and persists a new guild template with its escalation levels and actions, then records the moderation audit entry.
+// Create validates, normalizes, and persists a new guild template with its
+// escalation levels and actions, then records the moderation audit entry.
 func (s *TemplateService) Create(ctx context.Context, guildContext *GuildStaffContext, input TemplateInput) (*TemplateResponse, error) {
-	if err := s.requireWrite(ctx, guildContext, "case_template.create", ""); err != nil {
+	const action = "case_template.create"
+	if err := s.requireWrite(ctx, guildContext, action, ""); err != nil {
 		return nil, err
 	}
 
 	ctx = ensureTraceContext(ctx)
 	normalized, err := s.validate(ctx, guildContext, "", input)
 	if err != nil {
-		_ = s.audit(ctx, guildContext, "case_template.create", "case_template", "unknown", model.AuditResultFailure, err.Error())
+		_ = s.audit(ctx, guildContext, action, "case_template", "unknown", model.AuditResultFailure, err.Error()) // best-effort: validation error already returned
 		return nil, err
 	}
 
@@ -129,20 +142,23 @@ func (s *TemplateService) Create(ctx context.Context, guildContext *GuildStaffCo
 		Template:      normalized.template,
 		ContextFields: normalized.contextFields,
 		Levels:        normalized.levels,
-		Audit:         s.auditEntry(ctx, guildContext, "case_template.create", "case_template", "", model.AuditResultSuccess, ""),
+		Audit:         s.auditEntry(ctx, guildContext, action, "case_template", "", model.AuditResultSuccess, ""),
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	slog.InfoContext(ctx, "Template created", "guild_id", expanded.Template.GuildID, "template_id", expanded.Template.ID, "version", expanded.Template.Version)
+	logTemplate(ctx, "Template created", expanded)
 	response := templateResponse(*expanded)
 	return &response, nil
 }
 
 // Update replaces a policy only if its source version is still current. Existing case snapshots remain unchanged.
-func (s *TemplateService) Update(ctx context.Context, guildContext *GuildStaffContext, templateID string, input TemplateInput) (*TemplateResponse, error) {
-	if err := s.requireWrite(ctx, guildContext, "case_template.update", templateID); err != nil {
+func (s *TemplateService) Update(
+	ctx context.Context, guildContext *GuildStaffContext, templateID string, input TemplateInput,
+) (*TemplateResponse, error) {
+	const action = "case_template.update"
+	if err := s.requireWrite(ctx, guildContext, action, templateID); err != nil {
 		return nil, err
 	}
 
@@ -161,7 +177,7 @@ func (s *TemplateService) Update(ctx context.Context, guildContext *GuildStaffCo
 
 	normalized, err := s.validate(ctx, guildContext, templateID, input)
 	if err != nil {
-		_ = s.audit(ctx, guildContext, "case_template.update", "case_template", templateID, model.AuditResultFailure, err.Error())
+		_ = s.audit(ctx, guildContext, action, "case_template", templateID, model.AuditResultFailure, err.Error()) // best-effort: validation error already returned
 		return nil, err
 	}
 
@@ -172,7 +188,7 @@ func (s *TemplateService) Update(ctx context.Context, guildContext *GuildStaffCo
 		Template:        normalized.template,
 		ContextFields:   normalized.contextFields,
 		Levels:          normalized.levels,
-		Audit:           s.auditEntry(ctx, guildContext, "case_template.update", "case_template", templateID, model.AuditResultSuccess, ""),
+		Audit:           s.auditEntry(ctx, guildContext, action, "case_template", templateID, model.AuditResultSuccess, ""),
 	})
 	if err != nil {
 		return nil, err
@@ -181,85 +197,119 @@ func (s *TemplateService) Update(ctx context.Context, guildContext *GuildStaffCo
 		return nil, ErrTemplateNotFound
 	}
 
-	slog.InfoContext(ctx, "Template updated", "guild_id", expanded.Template.GuildID, "template_id", expanded.Template.ID, "version", expanded.Template.Version)
+	logTemplate(ctx, "Template updated", expanded)
 	response := templateResponse(*expanded)
 	return &response, nil
 }
 
 // Restore reverses archive without changing the template identity or version.
 func (s *TemplateService) Restore(ctx context.Context, guildContext *GuildStaffContext, templateID string) (*TemplateResponse, error) {
-	if err := s.requireWrite(ctx, guildContext, "case_template.restore", templateID); err != nil {
+	const action = "case_template.restore"
+	if err := s.requireWrite(ctx, guildContext, action, templateID); err != nil {
 		return nil, err
 	}
 
 	ctx = ensureTraceContext(ctx)
-	expanded, err := s.store.RestoreCaseTemplate(ctx, guildContext.Guild.ID, strings.TrimSpace(templateID), s.auditEntry(ctx, guildContext, "case_template.restore", "case_template", templateID, model.AuditResultSuccess, ""))
+	expanded, err := s.store.RestoreCaseTemplate(
+		ctx, guildContext.Guild.ID, strings.TrimSpace(templateID),
+		s.auditEntry(ctx, guildContext, action, "case_template", templateID, model.AuditResultSuccess, ""),
+	)
 	if err != nil {
-		_ = s.audit(ctx, guildContext, "case_template.restore", "case_template", templateID, model.AuditResultFailure, err.Error())
+		_ = s.audit(ctx, guildContext, action, "case_template", templateID, model.AuditResultFailure, err.Error()) // best-effort: storage error already returned
 		return nil, err
 	}
 	if expanded == nil {
-		_ = s.audit(ctx, guildContext, "case_template.restore", "case_template", templateID, model.AuditResultFailure, ErrTemplateNotFound.Error())
+		_ = s.audit(ctx, guildContext, action, "case_template", templateID, model.AuditResultFailure, ErrTemplateNotFound.Error()) // best-effort: not-found already returned
 		return nil, ErrTemplateNotFound
 	}
-	slog.InfoContext(ctx, "Template restored", "guild_id", expanded.Template.GuildID, "template_id", expanded.Template.ID, "version", expanded.Template.Version)
+	logTemplate(ctx, "Template restored", expanded)
 	response := templateResponse(*expanded)
 	return &response, nil
 }
 
 // Export returns policy fields only, deliberately excluding guild identity, history, channels, audit data, and secrets.
 func (s *TemplateService) Export(ctx context.Context, guildContext *GuildStaffContext, templateID string) (*TemplatePolicy, error) {
-	if err := s.requireWrite(ctx, guildContext, "case_template.export", templateID); err != nil {
+	const action = "case_template.export"
+	if err := s.requireWrite(ctx, guildContext, action, templateID); err != nil {
 		return nil, err
 	}
 
 	template, err := s.Get(ctx, guildContext, templateID)
 	if err != nil {
-		_ = s.audit(ctx, guildContext, "case_template.export", "case_template", templateID, model.AuditResultFailure, err.Error())
+		_ = s.audit(ctx, guildContext, action, "case_template", templateID, model.AuditResultFailure, err.Error()) // best-effort: read error already returned
 		return nil, err
 	}
 	input := template.EditInput()
-	policy := &TemplatePolicy{SchemaVersion: 1, CaseDecayDays: input.CaseDecayDays, Slug: input.Slug, Name: input.Name, Description: input.Description, OfficialReason: input.ReasonTemplate, Appealable: input.Appealable, ContextFields: input.ContextFields, Levels: input.Levels}
-	if err := s.audit(ctx, guildContext, "case_template.export", "case_template", templateID, model.AuditResultSuccess, ""); err != nil {
+	policy := &TemplatePolicy{
+		SchemaVersion:  1,
+		CaseDecayDays:  input.CaseDecayDays,
+		Slug:           input.Slug,
+		Name:           input.Name,
+		Description:    input.Description,
+		OfficialReason: input.ReasonTemplate,
+		Appealable:     input.Appealable,
+		ContextFields:  input.ContextFields,
+		Levels:         input.Levels,
+	}
+	if err := s.audit(ctx, guildContext, action, "case_template", templateID, model.AuditResultSuccess, ""); err != nil {
 		return nil, err
 	}
 	return policy, nil
 }
 
 // Import validates confirmed guild-neutral policy and creates a new active guild-owned template identity.
-func (s *TemplateService) Import(ctx context.Context, guildContext *GuildStaffContext, input TemplateImportInput) (*TemplateResponse, error) {
-	if err := s.requireWrite(ctx, guildContext, "case_template.import", ""); err != nil {
+func (s *TemplateService) Import(
+	ctx context.Context, guildContext *GuildStaffContext, input TemplateImportInput,
+) (*TemplateResponse, error) {
+	const action = "case_template.import"
+	if err := s.requireWrite(ctx, guildContext, action, ""); err != nil {
 		return nil, err
 	}
 
 	if !input.Confirm {
 		err := validationError("template import must be explicitly confirmed")
-		_ = s.audit(ctx, guildContext, "case_template.import", "case_template", "unknown", model.AuditResultFailure, err.Error())
+		_ = s.audit(ctx, guildContext, action, "case_template", "unknown", model.AuditResultFailure, err.Error()) // best-effort: validation error already returned
 		return nil, err
 	}
 	if input.Policy.SchemaVersion != 1 {
 		err := validationError("unsupported template policy schema_version")
-		_ = s.audit(ctx, guildContext, "case_template.import", "case_template", "unknown", model.AuditResultFailure, err.Error())
+		_ = s.audit(ctx, guildContext, action, "case_template", "unknown", model.AuditResultFailure, err.Error()) // best-effort: validation error already returned
 		return nil, err
 	}
-	normalized, err := s.validate(ctx, guildContext, "", TemplateInput{CaseDecayDays: input.Policy.CaseDecayDays, Slug: input.Policy.Slug, Name: input.Policy.Name, Description: input.Policy.Description, ReasonTemplate: input.Policy.OfficialReason, Appealable: input.Policy.Appealable, ContextFields: input.Policy.ContextFields, Levels: input.Policy.Levels})
+	normalized, err := s.validate(ctx, guildContext, "", TemplateInput{
+		CaseDecayDays:  input.Policy.CaseDecayDays,
+		Slug:           input.Policy.Slug,
+		Name:           input.Policy.Name,
+		Description:    input.Policy.Description,
+		ReasonTemplate: input.Policy.OfficialReason,
+		Appealable:     input.Policy.Appealable,
+		ContextFields:  input.Policy.ContextFields,
+		Levels:         input.Policy.Levels,
+	})
 	if err != nil {
-		_ = s.audit(ctx, guildContext, "case_template.import", "case_template", "unknown", model.AuditResultFailure, err.Error())
+		_ = s.audit(ctx, guildContext, action, "case_template", "unknown", model.AuditResultFailure, err.Error()) // best-effort: validation error already returned
 		return nil, err
 	}
-	expanded, err := s.store.CreateCaseTemplate(ctx, model.CreateCaseTemplateParams{Template: normalized.template, ContextFields: normalized.contextFields, Levels: normalized.levels, Audit: s.auditEntry(ctx, guildContext, "case_template.import", "case_template", "", model.AuditResultSuccess, "")})
+	expanded, err := s.store.CreateCaseTemplate(ctx, model.CreateCaseTemplateParams{
+		Template:      normalized.template,
+		ContextFields: normalized.contextFields,
+		Levels:        normalized.levels,
+		Audit:         s.auditEntry(ctx, guildContext, action, "case_template", "", model.AuditResultSuccess, ""),
+	})
 	if err != nil {
-		_ = s.audit(ctx, guildContext, "case_template.import", "case_template", "unknown", model.AuditResultFailure, err.Error())
+		_ = s.audit(ctx, guildContext, action, "case_template", "unknown", model.AuditResultFailure, err.Error()) // best-effort: storage error already returned
 		return nil, err
 	}
-	slog.InfoContext(ctx, "Template imported", "guild_id", expanded.Template.GuildID, "template_id", expanded.Template.ID, "version", expanded.Template.Version)
+	logTemplate(ctx, "Template imported", expanded)
 	response := templateResponse(*expanded)
 	return &response, nil
 }
 
-// Archive archives archive without deleting historical moderation references.
+// Archive hides a template from new cases and autocomplete without deleting
+// it; cases that snapshotted it keep their references.
 func (s *TemplateService) Archive(ctx context.Context, guildContext *GuildStaffContext, templateID string) (*TemplateResponse, error) {
-	if err := s.requireWrite(ctx, guildContext, "case_template.archive", templateID); err != nil {
+	const action = "case_template.archive"
+	if err := s.requireWrite(ctx, guildContext, action, templateID); err != nil {
 		return nil, err
 	}
 
@@ -268,33 +318,56 @@ func (s *TemplateService) Archive(ctx context.Context, guildContext *GuildStaffC
 		ctx,
 		guildContext.Guild.ID,
 		templateID,
-		s.auditEntry(ctx, guildContext, "case_template.archive", "case_template", templateID, model.AuditResultSuccess, ""),
+		s.auditEntry(ctx, guildContext, action, "case_template", templateID, model.AuditResultSuccess, ""),
 	)
 	if err != nil {
-		_ = s.audit(ctx, guildContext, "case_template.archive", "case_template", templateID, model.AuditResultFailure, err.Error())
+		_ = s.audit(ctx, guildContext, action, "case_template", templateID, model.AuditResultFailure, err.Error()) // best-effort: storage error already returned
 		return nil, err
 	}
 	if expanded == nil {
-		_ = s.audit(ctx, guildContext, "case_template.archive", "case_template", templateID, model.AuditResultFailure, ErrTemplateNotFound.Error())
+		_ = s.audit(ctx, guildContext, action, "case_template", templateID, model.AuditResultFailure, ErrTemplateNotFound.Error()) // best-effort: not-found already returned
 		return nil, ErrTemplateNotFound
 	}
 
-	slog.InfoContext(ctx, "Template archived", "guild_id", expanded.Template.GuildID, "template_id", expanded.Template.ID, "version", expanded.Template.Version)
+	logTemplate(ctx, "Template archived", expanded)
 	response := templateResponse(*expanded)
 	return &response, nil
 }
 
-// audit records audit so moderation changes remain attributable.
-func (s *TemplateService) audit(ctx context.Context, guildContext *GuildStaffContext, action, resourceType, resourceID string, result model.AuditResult, failureReason string) error {
+// logTemplate emits the structured info line shared by every successful template write.
+func logTemplate(ctx context.Context, message string, expanded *model.ExpandedCaseTemplate) {
+	slog.InfoContext(
+		ctx, message,
+		"guild_id", expanded.Template.GuildID, "template_id", expanded.Template.ID, "version", expanded.Template.Version,
+	)
+}
+
+// audit records a template outcome that did not go through the store's
+// transactional audit write (denials, validation failures, read outcomes).
+func (s *TemplateService) audit(
+	ctx context.Context,
+	guildContext *GuildStaffContext,
+	action, resourceType, resourceID string,
+	result model.AuditResult,
+	failureReason string,
+) error {
 	entry := s.auditEntry(ctx, guildContext, action, resourceType, resourceID, result, failureReason)
-	if entry == nil || s == nil || s.store == nil {
+	if entry == nil {
 		return nil
 	}
 	return recordAudit(ctx, s.store, entry)
 }
 
-// auditEntry records audit entry so moderation changes remain attributable.
-func (s *TemplateService) auditEntry(ctx context.Context, guildContext *GuildStaffContext, action, resourceType, resourceID string, result model.AuditResult, failureReason string) *model.AuditLogEntry {
+// auditEntry builds a template audit row with trace ids and the actor's current
+// permission bits. It returns nil when there is no staff row to attribute to;
+// an empty resource id is recorded as "unknown".
+func (s *TemplateService) auditEntry(
+	ctx context.Context,
+	guildContext *GuildStaffContext,
+	action, resourceType, resourceID string,
+	result model.AuditResult,
+	failureReason string,
+) *model.AuditLogEntry {
 	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
 		return nil
 	}
@@ -323,11 +396,9 @@ func (s *TemplateService) auditEntry(ctx context.Context, guildContext *GuildSta
 // requireWrite enforces the manager boundary even when a non-HTTP adapter calls
 // the service. Permission-sensitive denials are recorded without reading policy.
 func (s *TemplateService) requireWrite(ctx context.Context, guildContext *GuildStaffContext, action, templateID string) error {
-	if s == nil || s.store == nil {
-		return errors.New("template service is not configured")
-	}
-	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil || !guildContext.Can(model.PermissionActionCaseTemplateWrite) {
-		_ = s.audit(ctx, guildContext, action, "case_template", templateID, model.AuditResultDenied, "permission_denied")
+	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil ||
+		!guildContext.Can(model.PermissionActionCaseTemplateWrite) {
+		_ = s.audit(ctx, guildContext, action, "case_template", templateID, model.AuditResultDenied, "permission_denied") // best-effort: denial already returned
 		return ErrTemplatePermissionDenied
 	}
 	return nil

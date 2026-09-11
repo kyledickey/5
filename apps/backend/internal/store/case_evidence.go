@@ -12,13 +12,18 @@ import (
 
 // AppendCaseEvidence saves a staff upload atomically with its attribution. Only
 // evidence tables change; the moderation decision and action queue are untouched.
-func (s *Store) AppendCaseEvidence(ctx context.Context, guildID, caseID string, evidence []model.CaseEvidenceSnapshot, attachments []model.CaseEvidenceAttachment, audit *model.AuditLogEntry) error {
-	if s == nil || s.db == nil {
-		return errors.New("database not connected")
-	}
+func (s *Store) AppendCaseEvidence(
+	ctx context.Context,
+	guildID, caseID string,
+	evidence []model.CaseEvidenceSnapshot,
+	attachments []model.CaseEvidenceAttachment,
+	audit *model.AuditLogEntry,
+) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var item model.Case
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("guild_id = ? AND id = ?", guildID, caseID).First(&item).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("guild_id = ? AND id = ?", guildID, caseID).
+			First(&item).Error; err != nil {
 			return err
 		}
 		now := time.Now().UTC()
@@ -52,7 +57,12 @@ func (s *Store) AppendCaseEvidence(ctx context.Context, guildID, caseID string, 
 		if audit != nil {
 			entry := *audit
 			entry.GuildID, entry.ResourceID = guildID, caseID
-			entry.MetadataJSON = marshalJSONObject(map[string]any{"case_id": caseID, "case_number": item.CaseNumber, "target_discord_user_id": item.TargetDiscordUserID, "evidence_added": len(evidence)})
+			entry.MetadataJSON = marshalJSONObject(map[string]any{
+				"case_id":                caseID,
+				"case_number":            item.CaseNumber,
+				"target_discord_user_id": item.TargetDiscordUserID,
+				"evidence_added":         len(evidence),
+			})
 			return createAuditLogEntry(tx, &entry, now)
 		}
 		return nil

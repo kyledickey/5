@@ -32,9 +32,13 @@ func NewWithDiscordClient(store Repository, discord DiscordClient) *Services {
 	return NewWithConfigDependencies(config.Default(), store, discord, nil, nil)
 }
 
-// NewWithConfigDependencies assembles core use cases without starting workers.
-// Process composition owns delivery lifetimes; optional modules reuse these services.
-func NewWithConfigDependencies(cfg config.Config, store Repository, discord DiscordClient, actions DiscordActionClient, scheduler CaseWorkScheduler) *Services {
+// NewWithConfigDependencies assembles every service over one repository. discord,
+// actions, and scheduler may be nil; services then skip the live Discord checks,
+// evidence capture, channel validation, and queue statistics those adapters
+// provide. It starts no workers: process composition owns delivery lifetimes.
+func NewWithConfigDependencies(
+	cfg config.Config, store Repository, discord DiscordClient, actions DiscordActionClient, scheduler CaseWorkScheduler,
+) *Services {
 	services := &Services{Config: cfg, Store: store}
 	services.Appeals = NewAppealService(store)
 	services.Guilds = NewGuildService(store, discord)
@@ -55,7 +59,9 @@ func NewWithConfigDependencies(cfg config.Config, store Repository, discord Disc
 	}
 	services.Audits = NewAuditService(store)
 	services.Statistics = NewStaffStatisticsService(store)
-	services.Actions = NewActionService(store, actions).WithRecoveryControls(services.Guilds, scheduler).WithDashboardBaseURL(cfg.ApplicationBaseURL)
+	services.Actions = NewActionService(store, actions).
+		WithRecoveryControls(services.Guilds, scheduler).
+		WithDashboardBaseURL(cfg.ApplicationBaseURL)
 	services.Ops = NewOpsService(store, scheduler)
 	return services
 }

@@ -12,6 +12,8 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// TestInteractionDeduperClaimsOneConcurrentDelivery proves that of many
+// simultaneous claims for one interaction ID exactly one succeeds.
 func TestInteractionDeduperClaimsOneConcurrentDelivery(t *testing.T) {
 	deduper := interactions.NewInteractionDeduper(time.Minute, 100)
 	var claimed atomic.Int64
@@ -31,6 +33,8 @@ func TestInteractionDeduperClaimsOneConcurrentDelivery(t *testing.T) {
 	}
 }
 
+// TestRedisInteractionDeduperSurvivesRestartAndFailsClosed proves a Redis claim
+// is visible to a second process and that an unreachable Redis refuses claims.
 func TestRedisInteractionDeduperSurvivesRestartAndFailsClosed(t *testing.T) {
 	server := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
@@ -53,6 +57,8 @@ func TestRedisInteractionDeduperSurvivesRestartAndFailsClosed(t *testing.T) {
 	}
 }
 
+// TestInteractionCapacityCannotEvictLiveClaims proves a full table refuses new
+// IDs instead of forgetting an unexpired one.
 func TestInteractionCapacityCannotEvictLiveClaims(t *testing.T) {
 	deduper := interactions.NewInteractionDeduper(time.Minute, 1)
 	if !deduper.Claim("first") {

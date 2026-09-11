@@ -8,6 +8,10 @@ import (
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
+// response builds the AppealResponse projection for item. When member is true
+// every staff identity is redacted. Staff projections of an accepted appeal
+// also list reversal offers: succeeded timeouts and bans on the linked case
+// that have no reversal queued yet.
 func (s *AppealService) response(ctx context.Context, item *model.Appeal, member bool) (*AppealResponse, error) {
 	questions, err := decodeQuestions(item.QuestionSnapshotJSON)
 	if err != nil {
@@ -27,7 +31,14 @@ func (s *AppealService) response(ctx context.Context, item *model.Appeal, member
 		if member && event.ActorType == "staff" {
 			actorID = ""
 		}
-		responseEvents = append(responseEvents, AppealEventResponse{ID: event.ID, Type: model.AppealEventType(event.EventType), ActorType: event.ActorType, ActorDiscordUserID: actorID, Body: event.Body, CreatedAt: event.CreatedAt})
+		responseEvents = append(responseEvents, AppealEventResponse{
+			ID:                 event.ID,
+			Type:               model.AppealEventType(event.EventType),
+			ActorType:          event.ActorType,
+			ActorDiscordUserID: actorID,
+			Body:               event.Body,
+			CreatedAt:          event.CreatedAt,
+		})
 	}
 	reviewedBy := item.ReviewedByDiscordUserID
 	if member {
@@ -37,7 +48,20 @@ func (s *AppealService) response(ctx context.Context, item *model.Appeal, member
 	if item.CaseID != nil {
 		caseID = *item.CaseID
 	}
-	response := &AppealResponse{ID: item.ID, GuildID: item.GuildID, CaseID: caseID, TargetDiscordUserID: item.TargetDiscordUserID, Status: item.Status, Questions: questions, Answers: answers, DecisionReason: item.DecisionReason, ReviewedByDiscordUserID: reviewedBy, Events: responseEvents, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}
+	response := &AppealResponse{
+		ID:                      item.ID,
+		GuildID:                 item.GuildID,
+		CaseID:                  caseID,
+		TargetDiscordUserID:     item.TargetDiscordUserID,
+		Status:                  item.Status,
+		Questions:               questions,
+		Answers:                 answers,
+		DecisionReason:          item.DecisionReason,
+		ReviewedByDiscordUserID: reviewedBy,
+		Events:                  responseEvents,
+		CreatedAt:               item.CreatedAt,
+		UpdatedAt:               item.UpdatedAt,
+	}
 	if caseID != "" {
 		caseRecord, err := s.store.GetCaseByID(ctx, caseID)
 		if err != nil {
@@ -65,9 +89,15 @@ func (s *AppealService) response(ctx context.Context, item *model.Appeal, member
 			}
 			switch action.ActionType {
 			case model.ActionTimeoutUser:
-				response.ReversalOffers = append(response.ReversalOffers, AppealReversalOffer{OriginalExecutionID: action.ID, ActionType: model.ActionRemoveTimeout})
+				response.ReversalOffers = append(response.ReversalOffers, AppealReversalOffer{
+					OriginalExecutionID: action.ID,
+					ActionType:          model.ActionRemoveTimeout,
+				})
 			case model.ActionBanUser:
-				response.ReversalOffers = append(response.ReversalOffers, AppealReversalOffer{OriginalExecutionID: action.ID, ActionType: model.ActionUnbanUser})
+				response.ReversalOffers = append(response.ReversalOffers, AppealReversalOffer{
+					OriginalExecutionID: action.ID,
+					ActionType:          model.ActionUnbanUser,
+				})
 			}
 		}
 	}

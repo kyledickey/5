@@ -35,13 +35,16 @@ type Repository interface {
 	HashSet(context.Context, string, string, []byte) error
 }
 
-// CaseWorkScheduler schedules case work while hiding the queue implementation from the application core.
+// CaseWorkScheduler hands case IDs to the in-process worker pool. Submit
+// returns false when the work was not accepted (queue full or stopped); that is
+// only a latency loss because persisted action rows remain the work queue.
 type CaseWorkScheduler interface {
 	Submit(context.Context, string) bool
 	Stats() QueueStats
 }
 
-// QueueStats groups the queue stats state used to keep this package's responsibilities explicit.
+// QueueStats is a point-in-time view of the in-process case work queue as
+// reported by CaseWorkScheduler.Stats. Totals are cumulative since process start.
 type QueueStats struct {
 	BufferSize        int    `json:"buffer_size"`
 	Workers           int    `json:"workers"`
@@ -56,8 +59,8 @@ type QueueStats struct {
 	LastProcessedType string `json:"last_processed_type,omitempty"`
 }
 
-// GuildRepository supplies guild membership, bootstrap, and live staff authorization.
-// Consumers depend only on the persistence operations their use cases need.
+// GuildRepository is the persistence GuildService needs: guild and staff cache
+// rows, install bootstrap, deactivation, and channel-reference repair.
 type GuildRepository interface {
 	BootstrapGuild(context.Context, model.BootstrapGuildParams) (*model.BootstrapGuildResult, error)
 	ClearGuildChannelReferences(context.Context, string, string, *model.AuditLogEntry) (*model.GuildSettings, error)
@@ -70,16 +73,14 @@ type GuildRepository interface {
 	UpsertStaffMember(context.Context, model.UpsertStaffMemberParams) (*model.StaffMember, error)
 }
 
-// SettingsRepository supplies guild settings and their audit evidence.
-// Consumers depend only on the persistence operations their use cases need.
+// SettingsRepository is the persistence GuildSettingsService needs.
 type SettingsRepository interface {
 	CreateAuditLogEntry(context.Context, *model.AuditLogEntry) error
 	GetGuildSettings(context.Context, string) (*model.GuildSettings, error)
 	UpdateGuildSettings(context.Context, model.UpdateGuildSettingsParams) (*model.GuildSettings, error)
 }
 
-// TemplateRepository supplies versioned templates and their audit evidence.
-// Consumers depend only on the persistence operations their use cases need.
+// TemplateRepository is the persistence TemplateService needs for versioned templates.
 type TemplateRepository interface {
 	ArchiveCaseTemplate(context.Context, string, string, *model.AuditLogEntry) (*model.ExpandedCaseTemplate, error)
 	CreateAuditLogEntry(context.Context, *model.AuditLogEntry) error
@@ -91,10 +92,12 @@ type TemplateRepository interface {
 	UpdateCaseTemplate(context.Context, model.UpdateCaseTemplateParams) (*model.ExpandedCaseTemplate, error)
 }
 
-// CaseRepository supplies case creation, authorized reads, and immutable corrections.
-// Consumers depend only on the persistence operations their use cases need.
+// CaseRepository is the persistence CaseService needs: creation under the
+// guild case lock, authorized reads, evidence, and immutable corrections.
 type CaseRepository interface {
-	AppendCaseEvidence(context.Context, string, string, []model.CaseEvidenceSnapshot, []model.CaseEvidenceAttachment, *model.AuditLogEntry) error
+	AppendCaseEvidence(
+		context.Context, string, string, []model.CaseEvidenceSnapshot, []model.CaseEvidenceAttachment, *model.AuditLogEntry,
+	) error
 	UpdateCaseContext(context.Context, string, string, string, *model.AuditLogEntry) (*model.Case, error)
 	ListCaseActionsForCases(context.Context, []string) ([]model.CaseActionExecution, error)
 	CountTemplateCasesForTarget(context.Context, model.CountTemplateCasesForTargetParams) (int64, error)
@@ -121,8 +124,8 @@ type CaseRepository interface {
 	WithGuildCaseLock(context.Context, string, func(CaseRepository) error) error
 }
 
-// ActionRepository supplies leased enforcement, notifications, and staff recovery.
-// Consumers depend only on the persistence operations their use cases need.
+// ActionRepository is the persistence ActionService needs: leased execution
+// claims, notification delivery state, and staff retry, dismiss, and reversal.
 type ActionRepository interface {
 	BeginCaseNotificationDelivery(context.Context, string, string) error
 	ClaimCaseNotification(context.Context, model.ClaimCaseNotificationParams) (*model.CaseNotification, error)
@@ -144,23 +147,21 @@ type ActionRepository interface {
 	RetryCaseAction(context.Context, model.RetryCaseActionParams) (*model.CaseActionExecution, error)
 }
 
-// EvidenceRepository supplies the managed evidence channel reference.
-// Consumers depend only on the persistence operations their use cases need.
+// EvidenceRepository is the persistence EvidenceService needs to find and
+// atomically record the managed evidence channel.
 type EvidenceRepository interface {
 	GetGuildByDiscordID(context.Context, string) (*model.Guild, error)
 	GetGuildSettings(context.Context, string) (*model.GuildSettings, error)
 	CompareAndSetEvidenceChannel(context.Context, string, string, string) (string, error)
 }
 
-// AuditRepository supplies append-only audit writes and filtered reads.
-// Consumers depend only on the persistence operations their use cases need.
+// AuditRepository is the append-only write and filtered read AuditService needs.
 type AuditRepository interface {
 	CreateAuditLogEntry(context.Context, *model.AuditLogEntry) error
 	ListAuditLogEntriesFiltered(context.Context, model.ListAuditLogEntriesParams) (*model.ListAuditLogEntriesResult, error)
 }
 
-// OpsRepository supplies durable worker health snapshots.
-// Consumers depend only on the persistence operations their use cases need.
+// OpsRepository is the durable action health snapshot OpsService reads.
 type OpsRepository interface {
 	ActionQueueSnapshot(context.Context, string, int) (*model.ActionQueueSnapshot, error)
 }

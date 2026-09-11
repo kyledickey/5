@@ -6,15 +6,21 @@ import (
 	"strings"
 )
 
+// Discord permission bits this package evaluates. They mirror Discord's
+// documented values so the core never depends on discordgo.
 const (
-	permissionAdministrator   uint64 = 1 << 3
 	permissionKickMembers     uint64 = 1 << 1
 	permissionBanMembers      uint64 = 1 << 2
+	permissionAdministrator   uint64 = 1 << 3
+	permissionManageChannels  uint64 = 1 << 4
 	permissionManageGuild     uint64 = 1 << 5
 	permissionModerateMembers uint64 = 1 << 40
 )
 
-// DiscordClient defines the external operations needed by this package, keeping the concrete client at the adapter boundary.
+// DiscordClient is the read-only Discord access GuildService needs: the OAuth
+// user's guild list for the dashboard picker, the bot's guild membership, and a
+// fresh per-request authorization snapshot. The discordbot adapter implements
+// it; tests substitute fakes.
 type DiscordClient interface {
 	UserGuilds(ctx context.Context, accessToken string) ([]DiscordUserGuild, error)
 	BotGuilds(ctx context.Context) ([]DiscordBotGuild, error)
@@ -22,7 +28,8 @@ type DiscordClient interface {
 	GuildAuthorization(ctx context.Context, discordGuildID, actorDiscordUserID, targetDiscordUserID string) (*DiscordGuildAuthorization, error)
 }
 
-// DiscordUserGuild groups the discord user guild state used to keep this package's responsibilities explicit.
+// DiscordUserGuild is one guild from the OAuth user's guild list together with
+// the permission bits Discord reports for that user in it.
 type DiscordUserGuild struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
@@ -31,7 +38,7 @@ type DiscordUserGuild struct {
 	Permissions uint64 `json:"permissions,string"`
 }
 
-// DiscordBotGuild groups the discord bot guild state used to keep this package's responsibilities explicit.
+// DiscordBotGuild is a guild the bot is currently a member of.
 type DiscordBotGuild struct {
 	ID      string
 	Name    string
@@ -40,6 +47,7 @@ type DiscordBotGuild struct {
 }
 
 // DiscordGuildAuthorization is a request-scoped snapshot fetched from Discord for one protected operation.
+// Target is nil when the operation has no target member.
 type DiscordGuildAuthorization struct {
 	Guild  DiscordBotGuild
 	Actor  DiscordMemberAuthorization
@@ -48,6 +56,7 @@ type DiscordGuildAuthorization struct {
 }
 
 // DiscordMemberAuthorization captures current guild membership, permissions, account type, and hierarchy position.
+// Present is false when the user is no longer a member; the other fields are then zero.
 type DiscordMemberAuthorization struct {
 	DiscordUserID   string
 	DisplayName     string
@@ -57,7 +66,8 @@ type DiscordMemberAuthorization struct {
 	Bot             bool
 }
 
-// discordGuildIconURL encapsulates the discord guild icon url rule so callers share one consistent package implementation.
+// discordGuildIconURL builds the CDN icon URL, using gif for animated hashes.
+// It returns "" when the guild has no icon.
 func discordGuildIconURL(guildID, iconHash string) string {
 	if guildID == "" || iconHash == "" {
 		return ""

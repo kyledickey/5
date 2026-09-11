@@ -2,7 +2,6 @@ package quack
 
 import (
 	"context"
-	"errors"
 	"slices"
 	"strings"
 
@@ -14,9 +13,6 @@ import (
 // honeypot worker; it neither selects a member's level nor writes an audit event.
 // An empty action represents a case recorded without a Discord punishment.
 func (s *TemplateService) UnattendedTemplateActions(ctx context.Context, guildID, templateID string) ([]model.ActionType, error) {
-	if s == nil || s.store == nil {
-		return nil, errors.New("template service is not configured")
-	}
 	template, err := s.store.GetCaseTemplateExpanded(ctx, strings.TrimSpace(guildID), strings.TrimSpace(templateID))
 	if err != nil {
 		return nil, err

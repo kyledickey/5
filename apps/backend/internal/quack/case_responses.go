@@ -14,7 +14,10 @@ func caseResponse(created model.CreatedCase) CaseResponse {
 	return response
 }
 
-// caseResponseFromModel encapsulates the case response from model rule so callers share one consistent package implementation.
+// caseResponseFromModel projects a stored case and its action executions into
+// the staff API shape, decoding the JSON columns and reading the rule name and
+// selected level out of the immutable template snapshot. EvidenceIncomplete is
+// left false; callers that loaded evidence set it.
 func caseResponseFromModel(caseModel model.Case, actionExecutions []model.CaseActionExecution) CaseResponse {
 	response := CaseResponse{
 		CreatedAt:               caseModel.CreatedAt,
@@ -32,9 +35,14 @@ func caseResponseFromModel(caseModel model.Case, actionExecutions []model.CaseAc
 		ContextChannelDiscordID: caseModel.ContextChannelDiscordID,
 		ContextMessageDiscordID: caseModel.ContextMessageDiscordID,
 		ContextURL:              caseModel.ContextURL,
-		Metadata:                parseJSON(caseModel.MetadataJSON), ContextValues: parseCaseContextValues(caseModel.ContextValuesJSON), VoidedReason: caseModel.VoidedReason, VoidedAt: caseModel.VoidedAt, ReplacementCaseID: caseModel.ReplacementCaseID, ReplacesCaseID: caseModel.ReplacesCaseID,
-		SelectedLevel: selectedLevelResponse(caseModel.TemplateSnapshotJSON),
-		Actions:       make([]CaseActionResponse, 0, len(actionExecutions)),
+		Metadata:                parseJSON(caseModel.MetadataJSON),
+		ContextValues:           parseCaseContextValues(caseModel.ContextValuesJSON),
+		VoidedReason:            caseModel.VoidedReason,
+		VoidedAt:                caseModel.VoidedAt,
+		ReplacementCaseID:       caseModel.ReplacementCaseID,
+		ReplacesCaseID:          caseModel.ReplacesCaseID,
+		SelectedLevel:           selectedLevelResponse(caseModel.TemplateSnapshotJSON),
+		Actions:                 make([]CaseActionResponse, 0, len(actionExecutions)),
 	}
 
 	if snapshot := templateSnapshotResponse(caseModel.TemplateSnapshotJSON); snapshot != nil {
@@ -90,7 +98,8 @@ func caseActionResponse(action model.CaseActionExecution) CaseActionResponse {
 	}
 }
 
-// caseActionDetailResponses converts case action detail responses into its transport presentation without leaking transport types into the core.
+// caseActionDetailResponses pairs each action execution with its recorded
+// attempts (grouped by execution ID) and decoded config for the staff detail view.
 func caseActionDetailResponses(actions []model.CaseActionExecution, attempts []model.CaseActionAttempt) []CaseActionDetailResponse {
 	attemptsByExecution := map[string][]CaseActionAttemptResponse{}
 	for _, attempt := range attempts {
@@ -146,7 +155,8 @@ func caseEventResponses(events []model.CaseEvent) []CaseEventResponse {
 	return responses
 }
 
-// selectedLevelResponse reads the escalation decision from the immutable case snapshot.
+// selectedLevelResponse reads the escalation decision from the immutable case
+// snapshot, returning nil for malformed or level-less snapshots.
 func selectedLevelResponse(snapshotJSON string) *CaseSelectedLevel {
 	var snapshot struct {
 		SelectedLevel CaseSelectedLevel `json:"selected_level"`
@@ -157,7 +167,9 @@ func selectedLevelResponse(snapshotJSON string) *CaseSelectedLevel {
 	return &snapshot.SelectedLevel
 }
 
-// templateSnapshotResponse decodes the policy snapshot retained by historical case views.
+// templateSnapshotResponse decodes the policy snapshot retained by historical
+// case views. Older snapshots stored action settings under a nested "config"
+// object; those are decoded into the current flat fields so history stays readable.
 func templateSnapshotResponse(snapshotJSON string) *CaseTemplateSnapshotResponse {
 	var stored struct {
 		Template      templateSnapshotTemplate       `json:"template"`
@@ -173,7 +185,8 @@ func templateSnapshotResponse(snapshotJSON string) *CaseTemplateSnapshotResponse
 		Template:      stored.Template,
 		SelectedLevel: stored.SelectedLevel,
 		Actions:       make([]templateSnapshotAction, 0, len(stored.Actions)),
-		ContextFields: stored.ContextFields, ContextValues: stored.ContextValues,
+		ContextFields: stored.ContextFields,
+		ContextValues: stored.ContextValues,
 	}
 	for _, raw := range stored.Actions {
 		var action templateSnapshotAction
@@ -195,19 +208,43 @@ func templateSnapshotResponse(snapshotJSON string) *CaseTemplateSnapshotResponse
 	return &snapshot
 }
 
-// caseEvidenceResponses applies staff or member evidence projection rules.
-func caseEvidenceResponses(snapshots []model.CaseEvidenceSnapshot, attachments []model.CaseEvidenceAttachment, member bool) []CaseEvidenceResponse {
+// caseEvidenceResponses groups attachments under their snapshots. For member
+// views the original CDN URL is hidden whenever a managed copy exists.
+func caseEvidenceResponses(
+	snapshots []model.CaseEvidenceSnapshot,
+	attachments []model.CaseEvidenceAttachment,
+	member bool,
+) []CaseEvidenceResponse {
 	byEvidence := map[string][]CaseEvidenceAttachmentResponse{}
 	for _, item := range attachments {
 		original := item.OriginalURL
 		if member && item.PreservedURL != "" {
 			original = ""
 		}
-		byEvidence[item.EvidenceID] = append(byEvidence[item.EvidenceID], CaseEvidenceAttachmentResponse{Filename: item.Filename, ContentType: item.ContentType, SizeBytes: item.SizeBytes, OriginalURL: original, PreservedURL: item.PreservedURL, CopyOutcome: item.CopyOutcome, Warning: item.Warning})
+		byEvidence[item.EvidenceID] = append(byEvidence[item.EvidenceID], CaseEvidenceAttachmentResponse{
+			Filename:     item.Filename,
+			ContentType:  item.ContentType,
+			SizeBytes:    item.SizeBytes,
+			OriginalURL:  original,
+			PreservedURL: item.PreservedURL,
+			CopyOutcome:  item.CopyOutcome,
+			Warning:      item.Warning,
+		})
 	}
 	out := make([]CaseEvidenceResponse, 0, len(snapshots))
 	for _, item := range snapshots {
-		out = append(out, CaseEvidenceResponse{ID: item.ID, AuthorDiscordUserID: item.AuthorDiscordUserID, MessageURL: item.MessageURL, Content: item.Content, MessageCreatedAt: item.MessageCreatedAt, MessageEditedAt: item.MessageEditedAt, Embeds: parseJSON(item.EmbedsJSON), CaptureOutcome: item.CaptureOutcome, CaptureWarning: item.CaptureWarning, Attachments: byEvidence[item.ID]})
+		out = append(out, CaseEvidenceResponse{
+			ID:                  item.ID,
+			AuthorDiscordUserID: item.AuthorDiscordUserID,
+			MessageURL:          item.MessageURL,
+			Content:             item.Content,
+			MessageCreatedAt:    item.MessageCreatedAt,
+			MessageEditedAt:     item.MessageEditedAt,
+			Embeds:              parseJSON(item.EmbedsJSON),
+			CaptureOutcome:      item.CaptureOutcome,
+			CaptureWarning:      item.CaptureWarning,
+			Attachments:         byEvidence[item.ID],
+		})
 	}
 	return out
 }
@@ -217,7 +254,13 @@ func caseNotificationResponse(item *model.CaseNotification, member bool) *CaseNo
 	if item == nil {
 		return nil
 	}
-	response := &CaseNotificationResponse{Status: item.Status, AttemptCount: item.AttemptCount, LastErrorCode: item.LastErrorCode, LastError: item.LastError, SentAt: item.SentAt}
+	response := &CaseNotificationResponse{
+		Status:        item.Status,
+		AttemptCount:  item.AttemptCount,
+		LastErrorCode: item.LastErrorCode,
+		LastError:     item.LastError,
+		SentAt:        item.SentAt,
+	}
 	if member {
 		response.LastErrorCode = ""
 		response.LastError = ""

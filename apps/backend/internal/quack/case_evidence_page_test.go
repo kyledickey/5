@@ -65,7 +65,7 @@ func TestEvidencePageBoundsReadsAndChecksAuthority(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	service := quack.NewCaseService(repository)
+	service := quack.NewCaseService(repository, nil)
 	for _, position := range []int{1, 25, 50, 1000} {
 		page, err := service.GetEvidencePage(ctx, staff, item.ID, position)
 		want := position

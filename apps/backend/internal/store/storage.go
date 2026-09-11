@@ -13,7 +13,11 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// Store owns the MySQL and Redis clients and implements the core's narrow persistence ports. Raw clients remain adapter-local so transport and domain packages cannot bypass repository rules.
+// Store owns the GORM handle and the optional Redis client and implements the
+// persistence ports in internal/quack. The raw clients are exposed only through
+// DB and Redis for adapter-local code (migrations, module stores, tests) so
+// transport and domain packages cannot bypass repository rules. A Store is safe
+// for concurrent use; executableMu guards the guild-fairness cursor only.
 type Store struct {
 	db    *gorm.DB
 	redis *r.Client
@@ -22,11 +26,22 @@ type Store struct {
 	executableGuildCursor string
 }
 
-// WithGuildCaseLock runs case creation in one transaction while locking the guild row to serialize numbering and escalation selection.
-func (s *Store) WithGuildCaseLock(ctx context.Context, guildID string, fn func(quack.CaseRepository) error) error {
-	if s == nil || s.db == nil {
-		return errors.New("database not connected")
+// New wires a Store around an open database and an optional Redis client and
+// installs the append-only audit callback on db. db must not be nil; redis may
+// be nil, in which case the Redis-backed methods return an error. The callback
+// is registered once per *gorm.DB, so wrapping a transaction with New is cheap.
+func New(db *gorm.DB, redis *r.Client) *Store {
+	if db == nil {
+		panic("store: New requires a non-nil *gorm.DB")
 	}
+	installAuditImmutability(db)
+	return &Store{db: db, redis: redis}
+}
+
+// WithGuildCaseLock runs fn inside one transaction while holding a row lock on
+// the guild, serializing case numbering and escalation selection per guild. The
+// repository passed to fn is bound to that transaction.
+func (s *Store) WithGuildCaseLock(ctx context.Context, guildID string, fn func(quack.CaseRepository) error) error {
 	if guildID == "" {
 		return errors.New("guild id is required")
 	}
@@ -43,11 +58,8 @@ func (s *Store) WithGuildCaseLock(ctx context.Context, guildID string, fn func(q
 	})
 }
 
-// PingDatabase verifies database connectivity for health reporting.
+// PingDatabase reports database connectivity for health endpoints.
 func (s *Store) PingDatabase(ctx context.Context) error {
-	if s == nil || s.db == nil {
-		return errors.New("database not connected")
-	}
 	sqlDB, err := s.db.DB()
 	if err != nil {
 		return err
@@ -55,42 +67,40 @@ func (s *Store) PingDatabase(ctx context.Context) error {
 	return sqlDB.PingContext(ctx)
 }
 
-// PingRedis verifies redis connectivity for health reporting.
+// PingRedis reports Redis connectivity for health endpoints; a Store built
+// without Redis reports it as not connected.
 func (s *Store) PingRedis(ctx context.Context) error {
-	if s == nil || s.redis == nil {
+	if s.redis == nil {
 		return errors.New("redis not connected")
 	}
 	return s.redis.Ping(ctx).Err()
 }
 
-// HashGet computes a stable digest for hash get so unchanged Discord commands can skip synchronization.
+// HashGet reads one field of a Redis hash. The Discord command registrar uses
+// it to compare stored command digests so unchanged commands skip resync.
 func (s *Store) HashGet(ctx context.Context, key, field string) ([]byte, error) {
-	if s == nil || s.redis == nil {
+	if s.redis == nil {
 		return nil, errors.New("redis not connected")
 	}
 	return s.redis.HGet(ctx, key, field).Bytes()
 }
 
-// HashSet computes a stable digest for hash set so unchanged Discord commands can skip synchronization.
+// HashSet writes one field of a Redis hash; see HashGet.
 func (s *Store) HashSet(ctx context.Context, key, field string, value []byte) error {
-	if s == nil || s.redis == nil {
+	if s.redis == nil {
 		return errors.New("redis not connected")
 	}
 	return s.redis.HSet(ctx, key, field, value).Err()
 }
 
-// Redis returns the owned Redis client only for adapter-local features such as command caching.
+// Redis returns the owned Redis client (nil when the Store was built without
+// one) for adapter-local features such as command caching.
 func (s *Store) Redis() *r.Client {
 	return s.redis
 }
 
-// DB returns the owned GORM handle only for adapter-local integration and migration code.
+// DB returns the owned GORM handle for adapter-local integration, module
+// stores, migration tooling, and tests.
 func (s *Store) DB() *gorm.DB {
 	return s.db
-}
-
-// New constructs new with required dependencies explicit so callers control lifecycle and substitution.
-func New(db *gorm.DB, redis *r.Client) *Store {
-	installAuditImmutability(db)
-	return &Store{db: db, redis: redis}
 }

@@ -3,16 +3,16 @@ package quack
 import (
 	"context"
 	"errors"
-	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
-var (
-	ErrBotNotInGuild = errors.New("bot is not in guild")
-)
+// ErrBotNotInGuild reports that Quack is not a member of the requested guild,
+// so no staff context or live authorization can exist for it.
+var ErrBotNotInGuild = errors.New("bot is not in guild")
 
 // GuildService resolves dashboard and Discord identities into a common authorized staff context.
 type GuildService struct {
@@ -20,7 +20,11 @@ type GuildService struct {
 	discord DiscordClient
 }
 
-// GuildStaffContext carries the request-scoped guild staff context data needed by downstream logic.
+// GuildStaffContext is the per-request result of resolving an actor against
+// live Discord state: the persisted guild, the cached staff row (nil when the
+// actor was never seen as a member), and the capability map derived from the
+// actor's current permission bits. Live keeps the snapshot it was built from
+// so later preflight checks can compare against it.
 type GuildStaffContext struct {
 	Guild              *model.Guild
 	Staff              *model.StaffMember
@@ -32,7 +36,8 @@ type GuildStaffContext struct {
 	Live               DiscordGuildAuthorization
 }
 
-// UserGuildListItem groups the user guild list item state used to keep this package's responsibilities explicit.
+// UserGuildListItem is one dashboard guild-picker row: a guild the user can
+// manage or moderate, annotated with whether Quack is installed there.
 type UserGuildListItem struct {
 	DiscordGuildID  string `json:"discord_guild_id"`
 	Name            string `json:"name"`
@@ -46,7 +51,10 @@ type UserGuildListItem struct {
 	QuackGuildName  string `json:"quack_guild_name,omitempty"`
 }
 
-// DiscordStaffContextInput groups the validated inputs needed for discord staff context input.
+// DiscordStaffContextInput identifies the interaction actor for
+// ResolveDiscordStaffContext. PermissionBits and LastActiveAt are accepted from
+// the interaction payload but not consulted: authority always comes from a
+// fresh Discord lookup, and the activity timestamp is taken at resolution time.
 type DiscordStaffContextInput struct {
 	DiscordGuildID string
 	DiscordUserID  string
@@ -64,15 +72,19 @@ type DiscordGuildLifecycleInput struct {
 	KnownChannelDiscordIDs []string
 }
 
-// NewGuildService binds guild persistence to live Discord membership and permission checks.
+// NewGuildService returns a service over store. discord may be nil for
+// storage-only composition (see New); methods that need live Discord state then
+// return ErrAuthorizationUnavailable or a configuration error.
 func NewGuildService(store GuildRepository, discord DiscordClient) *GuildService {
 	return &GuildService{store: store, discord: discord}
 }
 
-// ListUserManageableGuilds returns user manageable guilds subject to authorization, ordering, and filtering constraints.
+// ListUserManageableGuilds returns the session user's guilds where they own,
+// administer, manage, or moderate, marking those the bot is also in. It reads
+// Discord only and needs the session's OAuth access token.
 func (s *GuildService) ListUserManageableGuilds(ctx context.Context, session *model.AuthSession) ([]UserGuildListItem, error) {
-	if s == nil || s.discord == nil {
-		return nil, errors.New("guild service is not configured")
+	if s.discord == nil {
+		return nil, errors.New("discord client is not configured")
 	}
 	if session == nil || session.AccessToken == "" {
 		return nil, errors.New("missing auth session")
@@ -124,11 +136,13 @@ func (s *GuildService) ListUserManageableGuilds(ctx context.Context, session *mo
 	return out, nil
 }
 
-// ResolveStaffContext resolves staff context from authoritative request and repository data.
-func (s *GuildService) ResolveStaffContext(ctx context.Context, session *model.AuthSession, discordGuildID string) (*GuildStaffContext, error) {
-	if s == nil || s.store == nil {
-		return nil, errors.New("guild service is not configured")
-	}
+// ResolveStaffContext refreshes the dashboard session user's membership and
+// permissions in one guild from Discord, upserts the guild and staff cache
+// rows, and returns the context every authorized use case takes. Adapter
+// failures surface as ErrBotNotInGuild or ErrAuthorizationUnavailable.
+func (s *GuildService) ResolveStaffContext(
+	ctx context.Context, session *model.AuthSession, discordGuildID string,
+) (*GuildStaffContext, error) {
 	if s.discord == nil {
 		return nil, errors.New("discord client is not configured")
 	}
@@ -154,11 +168,10 @@ func (s *GuildService) ResolveStaffContext(ctx context.Context, session *model.A
 	return s.contextFromAuthorization(ctx, snapshot, session.DiscordUserID, staffDisplayName(session))
 }
 
-// ResolveDiscordStaffContext resolves discord staff context from authoritative request and repository data.
+// ResolveDiscordStaffContext is the interaction-side counterpart of
+// ResolveStaffContext: it ignores permission bits carried by the interaction
+// and reads the actor's current state from Discord.
 func (s *GuildService) ResolveDiscordStaffContext(ctx context.Context, input DiscordStaffContextInput) (*GuildStaffContext, error) {
-	if s == nil || s.store == nil {
-		return nil, errors.New("guild service is not configured")
-	}
 	if s.discord == nil {
 		return nil, errors.New("discord client is not configured")
 	}
@@ -185,8 +198,13 @@ func (s *GuildService) ResolveDiscordStaffContext(ctx context.Context, input Dis
 	return s.contextFromAuthorization(ctx, snapshot, discordUserID, input.DisplayName)
 }
 
-// contextFromAuthorization materializes a request context from live Discord state and refreshes attribution cache data only after successful resolution.
-func (s *GuildService) contextFromAuthorization(ctx context.Context, snapshot *DiscordGuildAuthorization, actorDiscordUserID, fallbackDisplayName string) (*GuildStaffContext, error) {
+// contextFromAuthorization materializes a request context from live Discord
+// state. The guild row is always refreshed; the staff row is upserted only when
+// the actor is currently a member, so departed staff keep their last-seen
+// attribution without regaining authority.
+func (s *GuildService) contextFromAuthorization(
+	ctx context.Context, snapshot *DiscordGuildAuthorization, actorDiscordUserID, fallbackDisplayName string,
+) (*GuildStaffContext, error) {
 	if snapshot == nil || snapshot.Guild.ID == "" || snapshot.Guild.ID != strings.TrimSpace(snapshot.Guild.ID) {
 		return nil, ErrAuthorizationUnavailable
 	}
@@ -194,8 +212,10 @@ func (s *GuildService) contextFromAuthorization(ctx context.Context, snapshot *D
 		return nil, ErrAuthorizationUnavailable
 	}
 	guild, err := s.store.UpsertGuild(ctx, model.UpsertGuildParams{
-		DiscordGuildID: snapshot.Guild.ID, Name: snapshot.Guild.Name,
-		IconURL: discordGuildIconURL(snapshot.Guild.ID, snapshot.Guild.Icon), OwnerDiscordUserID: snapshot.Guild.OwnerID,
+		DiscordGuildID:     snapshot.Guild.ID,
+		Name:               snapshot.Guild.Name,
+		IconURL:            discordGuildIconURL(snapshot.Guild.ID, snapshot.Guild.Icon),
+		OwnerDiscordUserID: snapshot.Guild.OwnerID,
 	})
 	if err != nil {
 		return nil, err
@@ -211,9 +231,11 @@ func (s *GuildService) contextFromAuthorization(ctx context.Context, snapshot *D
 			displayName = actorDiscordUserID
 		}
 		staff, err = s.store.UpsertStaffMember(ctx, model.UpsertStaffMemberParams{
-			GuildID: guild.ID, DiscordUserID: actorDiscordUserID,
+			GuildID:                guild.ID,
+			DiscordUserID:          actorDiscordUserID,
 			LastSeenPermissionBits: snapshot.Actor.PermissionBits,
-			LastKnownDisplayName:   displayName, LastActiveAt: authorizationNow(),
+			LastKnownDisplayName:   displayName,
+			LastActiveAt:           authorizationNow(),
 		})
 	} else {
 		staff, err = s.store.GetStaffMember(ctx, guild.ID, actorDiscordUserID)
@@ -225,32 +247,36 @@ func (s *GuildService) contextFromAuthorization(ctx context.Context, snapshot *D
 	isOwner := snapshot.Guild.OwnerID == actorDiscordUserID
 	role := discordRoleContext(snapshot.Actor.PermissionBits, isOwner)
 	return &GuildStaffContext{
-		Guild: guild, Staff: staff, ActorDiscordUserID: actorDiscordUserID,
-		PermissionBits: snapshot.Actor.PermissionBits, Permissions: role.permissions,
-		IsAdmin: role.isAdmin, IsModerator: role.isModerator, Live: *snapshot,
+		Guild:              guild,
+		Staff:              staff,
+		ActorDiscordUserID: actorDiscordUserID,
+		PermissionBits:     snapshot.Actor.PermissionBits,
+		Permissions:        role.permissions,
+		IsAdmin:            role.isAdmin,
+		IsModerator:        role.isModerator,
+		Live:               *snapshot,
 	}, nil
 }
 
-// Can reports whether the staff context grants every requested moderation permission.
+// Can reports whether the context grants action. A nil context or nil
+// capability map grants nothing.
 func (ctx *GuildStaffContext) Can(action model.PermissionAction) bool {
-	if ctx == nil {
+	if ctx == nil || ctx.Permissions == nil {
 		return false
 	}
-	if ctx.Permissions == nil {
-		return false
-	}
-
 	return ctx.Permissions[action]
 }
 
-// discordRole groups the discord role state used to keep this package's responsibilities explicit.
+// discordRole is the admin/moderator classification and capability map derived from one set of permission bits.
 type discordRole struct {
 	isAdmin     bool
 	isModerator bool
 	permissions map[model.PermissionAction]bool
 }
 
-// discordRoleContext encapsulates the discord role context rule so callers share one consistent package implementation.
+// discordRoleContext classifies permission bits: the owner or Administrator is
+// an admin with every capability; Moderate Members alone makes a moderator;
+// Manage Guild alone configures without moderating.
 func discordRoleContext(permissionBits uint64, isOwner bool) discordRole {
 	isAdmin := isOwner || hasAllBits(permissionBits, permissionAdministrator)
 	hasManageGuild := hasAllBits(permissionBits, permissionManageGuild)
@@ -266,7 +292,8 @@ func discordRoleContext(permissionBits uint64, isOwner bool) discordRole {
 	return role
 }
 
-// discordPermissionMap encapsulates the discord permission map rule so callers share one consistent package implementation.
+// discordPermissionMap is the single capability table: moderation actions
+// require Moderate Members and configuration requires Manage Guild.
 func discordPermissionMap(canModerate, canManage bool) map[model.PermissionAction]bool {
 	return map[model.PermissionAction]bool{
 		model.PermissionActionCaseCreate:         canModerate,
@@ -284,7 +311,7 @@ func discordPermissionMap(canModerate, canManage bool) map[model.PermissionActio
 	}
 }
 
-// hasAllBits encapsulates the has all bits rule so callers share one consistent package implementation.
+// hasAllBits reports whether every bit in required is set; required == 0 always matches.
 func hasAllBits(bits, required uint64) bool {
 	if required == 0 {
 		return true
@@ -293,7 +320,7 @@ func hasAllBits(bits, required uint64) bool {
 	return bits&required == required
 }
 
-// staffDisplayName encapsulates the staff display name rule so callers share one consistent package implementation.
+// staffDisplayName prefers the session's global name over its username.
 func staffDisplayName(session *model.AuthSession) string {
 	if session == nil {
 		return ""
@@ -304,7 +331,7 @@ func staffDisplayName(session *model.AuthSession) string {
 	return session.Username
 }
 
-// PermissionMapStrings encapsulates the permission map strings rule so callers share one consistent package implementation.
+// PermissionMapStrings converts a capability map to string keys for JSON responses.
 func PermissionMapStrings(permissions map[model.PermissionAction]bool) map[string]bool {
 	out := make(map[string]bool, len(permissions))
 	for action, allowed := range permissions {
@@ -313,7 +340,8 @@ func PermissionMapStrings(permissions map[model.PermissionAction]bool) map[strin
 	return out
 }
 
-// PermissionBitsString encapsulates the permission bits string rule so callers share one consistent package implementation.
+// PermissionBitsString renders permission bits in decimal. Responses carry
+// them as strings because Discord's bit set exceeds JavaScript's safe integer range.
 func PermissionBitsString(bits uint64) string {
-	return fmt.Sprintf("%d", bits)
+	return strconv.FormatUint(bits, 10)
 }

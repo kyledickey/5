@@ -1,7 +1,6 @@
 package discordbot
 
 import (
-	"errors"
 	"net/http"
 	"sync/atomic"
 
@@ -10,14 +9,20 @@ import (
 
 const discordUserGuildsURL = "https://discord.com/api/v10/users/@me/guilds"
 
-// Bot owns the Discord session and adapts Discord guild and messaging operations to core ports.
+// Bot owns the Discord gateway session and adapts Discord operations to the
+// ports in internal/quack. Session is required and is set by New; callers that
+// build a Bot literal (module integrations) must supply one. HTTPClient is used
+// only for OAuth user requests and evidence downloads and defaults to
+// http.DefaultClient when nil. connected tracks gateway readiness for health checks.
 type Bot struct {
 	Session    *discordgo.Session
 	HTTPClient *http.Client
 	connected  atomic.Bool
 }
 
-// New constructs new with required dependencies explicit so callers control lifecycle and substitution.
+// New creates a session for token with the Guilds intent and a bounded message
+// cache, and registers the readiness handlers. It does not open the gateway;
+// the runtime adds module intents first and then calls Open.
 func New(token string) (*Bot, error) {
 	session, err := discordgo.New(token)
 	if err != nil {
@@ -50,11 +55,9 @@ func (b *Bot) gatewayDisconnected(_ *discordgo.Session, _ *discordgo.Disconnect)
 	b.connected.Store(false)
 }
 
-// Open opens and verifies open so startup fails before serving traffic when the dependency is unavailable.
+// Open connects to the gateway and marks the bot ready. Startup fails before
+// serving traffic when Discord rejects the token or is unreachable.
 func (b *Bot) Open() error {
-	if b == nil || b.Session == nil {
-		return errors.New("discord session is not configured")
-	}
 	if err := b.Session.Open(); err != nil {
 		return err
 	}
@@ -62,7 +65,8 @@ func (b *Bot) Open() error {
 	return nil
 }
 
-// Close releases resources owned by bot and is safe to use during reverse-order shutdown.
+// Close disconnects the gateway once. It tolerates a nil receiver and a bot
+// that was never opened so reverse-order shutdown can call it unconditionally.
 func (b *Bot) Close() error {
 	if b == nil || b.Session == nil {
 		return nil
@@ -73,9 +77,10 @@ func (b *Bot) Close() error {
 	return b.Session.Close()
 }
 
-// Status reports whether the adapter's external dependency is currently ready for health checks.
+// Status reports gateway readiness, the bot's username and heartbeat latency
+// for health endpoints. It is not ready until the session state has a user.
 func (b *Bot) Status() (bool, string, int64) {
-	if b == nil || !b.connected.Load() || b.Session == nil || b.Session.State == nil || b.Session.State.User == nil {
+	if !b.connected.Load() || b.Session.State == nil || b.Session.State.User == nil {
 		return false, "", 0
 	}
 	return true, b.Session.State.User.Username, b.Session.HeartbeatLatency().Milliseconds()

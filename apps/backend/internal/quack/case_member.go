@@ -2,7 +2,6 @@ package quack
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"time"
 
@@ -54,11 +53,14 @@ type MemberEnforcementOutcome struct {
 	Status     model.ActionExecutionStatus `json:"status"`
 }
 
-// ListMemberCases returns only cases targeting the authenticated Discord identity and does not require current guild membership.
-func (s *CaseService) ListMemberCases(ctx context.Context, guildID, memberDiscordUserID string, input CaseListInput) (*MemberCaseListResponse, error) {
-	if s == nil || s.store == nil {
-		return nil, errors.New("case service is not configured")
-	}
+// ListMemberCases returns only cases targeting the authenticated Discord
+// identity and does not require current guild membership. A case is appealable
+// when its snapshot allows it, it is still valid, and no appeal exists yet.
+func (s *CaseService) ListMemberCases(
+	ctx context.Context,
+	guildID, memberDiscordUserID string,
+	input CaseListInput,
+) (*MemberCaseListResponse, error) {
 	guildID = strings.TrimSpace(guildID)
 	memberDiscordUserID = strings.TrimSpace(memberDiscordUserID)
 	if guildID == "" || memberDiscordUserID == "" {
@@ -68,7 +70,12 @@ func (s *CaseService) ListMemberCases(ctx context.Context, guildID, memberDiscor
 	if err != nil {
 		return nil, err
 	}
-	result, err := s.store.ListCasesFiltered(ctx, model.ListCasesParams{GuildID: guildID, TargetDiscordUserID: memberDiscordUserID, Limit: limit, Offset: offset})
+	result, err := s.store.ListCasesFiltered(ctx, model.ListCasesParams{
+		GuildID:             guildID,
+		TargetDiscordUserID: memberDiscordUserID,
+		Limit:               limit,
+		Offset:              offset,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -94,16 +101,25 @@ func (s *CaseService) ListMemberCases(ctx context.Context, guildID, memberDiscor
 		if appeal != nil {
 			appealID, appealStatus = appeal.ID, appeal.Status
 		}
-		responses = append(responses, MemberCaseSummary{ID: item.ID, GuildID: item.GuildID, CaseNumber: item.CaseNumber, Reason: item.Reason, Validity: item.Validity, CreatedAt: item.CreatedAt, TemplateName: memberTemplateName(item), Enforcement: memberEnforcement(byCase[item.ID]), Appealable: caseSnapshotAppealable(item.TemplateSnapshotJSON) && item.Validity == model.CaseValidityValid && appeal == nil, AppealID: appealID, AppealStatus: appealStatus})
+		responses = append(responses, MemberCaseSummary{
+			ID:           item.ID,
+			GuildID:      item.GuildID,
+			CaseNumber:   item.CaseNumber,
+			Reason:       item.Reason,
+			Validity:     item.Validity,
+			CreatedAt:    item.CreatedAt,
+			TemplateName: memberTemplateName(item),
+			Enforcement:  memberEnforcement(byCase[item.ID]),
+			Appealable:   memberCaseAppealable(item, appeal),
+			AppealID:     appealID,
+			AppealStatus: appealStatus,
+		})
 	}
 	return &MemberCaseListResponse{Cases: responses, Total: result.Total, Limit: limit, Offset: offset}, nil
 }
 
 // GetMemberCase returns a privacy-safe case detail only when the authenticated identity owns the case.
 func (s *CaseService) GetMemberCase(ctx context.Context, caseID, memberDiscordUserID string) (*MemberCaseDetail, error) {
-	if s == nil || s.store == nil {
-		return nil, errors.New("case service is not configured")
-	}
 	item, err := s.store.GetCaseByID(ctx, strings.TrimSpace(caseID))
 	if err != nil {
 		return nil, err
@@ -120,15 +136,27 @@ func (s *CaseService) GetMemberCase(ctx context.Context, caseID, memberDiscordUs
 		return nil, err
 	}
 	result := &MemberCaseDetail{
-		ID: item.ID, GuildID: item.GuildID, CaseNumber: item.CaseNumber, TemplateID: item.TemplateID,
-		TemplateName: memberTemplateName(*item), Reason: item.Reason, Validity: item.Validity, CreatedAt: item.CreatedAt,
-		Enforcement: memberEnforcement(actions),
-		Appealable:  caseSnapshotAppealable(item.TemplateSnapshotJSON) && item.Validity == model.CaseValidityValid && appeal == nil,
+		ID:           item.ID,
+		GuildID:      item.GuildID,
+		CaseNumber:   item.CaseNumber,
+		TemplateID:   item.TemplateID,
+		TemplateName: memberTemplateName(*item),
+		Reason:       item.Reason,
+		Validity:     item.Validity,
+		CreatedAt:    item.CreatedAt,
+		Enforcement:  memberEnforcement(actions),
+		Appealable:   memberCaseAppealable(*item, appeal),
 	}
 	if appeal != nil {
 		result.AppealID, result.AppealStatus = appeal.ID, appeal.Status
 	}
 	return result, nil
+}
+
+// memberCaseAppealable reports whether the member may open an appeal: the
+// snapshotted rule allows it, the case is still valid, and none exists yet.
+func memberCaseAppealable(item model.Case, appeal *model.Appeal) bool {
+	return caseSnapshotAppealable(item.TemplateSnapshotJSON) && item.Validity == model.CaseValidityValid && appeal == nil
 }
 
 // memberTemplateName exposes the rule name fixed at creation, never a staff level label.

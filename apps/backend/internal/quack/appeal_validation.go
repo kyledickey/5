@@ -9,6 +9,9 @@ import (
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
+// validateQuestions normalizes a form definition: 1-10 questions sorted by
+// Position with unique non-empty ids, contiguous positions from 0, prompts of
+// at most 300 characters, and a supported type.
 func validateQuestions(questions []model.AppealQuestion) ([]model.AppealQuestion, error) {
 	if len(questions) == 0 || len(questions) > 10 {
 		return nil, appealValidation("appeal form must contain between 1 and 10 questions")
@@ -20,7 +23,8 @@ func validateQuestions(questions []model.AppealQuestion) ([]model.AppealQuestion
 		question := &normalized[index]
 		question.ID = strings.TrimSpace(question.ID)
 		question.Prompt = strings.TrimSpace(question.Prompt)
-		if question.ID == "" || len(question.ID) > 64 || question.Prompt == "" || len([]rune(question.Prompt)) > 300 || seen[question.ID] || question.Position != index {
+		if question.ID == "" || len(question.ID) > 64 || question.Prompt == "" || len([]rune(question.Prompt)) > 300 ||
+			seen[question.ID] || question.Position != index {
 			return nil, appealValidation("appeal questions require unique ids and contiguous ordering")
 		}
 		seen[question.ID] = true
@@ -33,6 +37,10 @@ func validateQuestions(questions []model.AppealQuestion) ([]model.AppealQuestion
 	return normalized, nil
 }
 
+// validateAnswers matches answers to questions by id, rejecting duplicates,
+// unknown ids, missing required answers, and values of the wrong type. Text
+// answers are trimmed and limited to 4000 characters. The result is ordered
+// like questions and omits unanswered optional questions.
 func validateAnswers(questions []model.AppealQuestion, answers []model.AppealAnswer) ([]model.AppealAnswer, error) {
 	byID := map[string]model.AppealAnswer{}
 	for _, answer := range answers {
@@ -72,6 +80,8 @@ func validateAnswers(questions []model.AppealQuestion, answers []model.AppealAns
 	return normalized, nil
 }
 
+// decodeQuestions parses a stored question snapshot and re-validates it so a
+// corrupt snapshot fails loudly instead of rendering a partial form.
 func decodeQuestions(body string) ([]model.AppealQuestion, error) {
 	var questions []model.AppealQuestion
 	if err := json.Unmarshal([]byte(body), &questions); err != nil {
@@ -80,6 +90,8 @@ func decodeQuestions(body string) ([]model.AppealQuestion, error) {
 	return validateQuestions(questions)
 }
 
+// caseSnapshotAppealable reads the appealable flag frozen in the case's
+// template snapshot; the live template's current setting is irrelevant.
 func caseSnapshotAppealable(body string) bool {
 	var snapshot struct {
 		Template struct {
@@ -91,13 +103,16 @@ func caseSnapshotAppealable(body string) bool {
 
 func validAppealState(status model.AppealStatus) bool {
 	switch status {
-	case model.AppealStatusPending, model.AppealStatusNeedsInformation, model.AppealStatusAccepted, model.AppealStatusRejected, model.AppealStatusClosed:
+	case model.AppealStatusPending, model.AppealStatusNeedsInformation, model.AppealStatusAccepted,
+		model.AppealStatusRejected, model.AppealStatusClosed:
 		return true
 	default:
 		return false
 	}
 }
 
+// requireAppealReview is the shared staff gate: a resolved guild, a staff row
+// for attribution, and the appeal.review capability.
 func requireAppealReview(guildContext *GuildStaffContext) error {
 	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil || !guildContext.Can(model.PermissionActionAppealReview) {
 		return ErrAppealPermissionDenied

@@ -1,7 +1,7 @@
 # Quack v5 Rehearsal Protocol
 
 This protocol records the release evidence that cannot be inferred from unit
-tests. Product behavior remains defined by [`v5.md`](../v5.md). A skipped step
+tests. Product behavior remains defined by [`v5.md`](../planning/v5.md). A skipped step
 is recorded as **NOT EXECUTED**, together with its missing dependency; it is
 never converted into a pass.
 

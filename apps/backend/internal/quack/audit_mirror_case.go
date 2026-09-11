@@ -61,7 +61,11 @@ func (w *AuditMirrorWorker) enrichCase(ctx context.Context, entry model.AuditLog
 				message.ReversalNoop = metadata.ReversalNoop
 			}
 		}
-		if entry.Action == string(model.AuditActionActionFailed) && execution.Status == model.ActionExecutionFailed && execution.DismissedAt == nil && (item.Validity != model.CaseValidityVoided || execution.ReversalOfExecutionID != nil) {
+		// A failed punishment on a voided case must not be retried; a failed
+		// reversal still needs one so the member is not left punished.
+		retryable := execution.Status == model.ActionExecutionFailed && execution.DismissedAt == nil &&
+			(item.Validity != model.CaseValidityVoided || execution.ReversalOfExecutionID != nil)
+		if entry.Action == string(model.AuditActionActionFailed) && retryable {
 			message.RetryExecutionID = execution.ID
 		}
 	}

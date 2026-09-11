@@ -2,7 +2,6 @@ package quack
 
 import (
 	"context"
-	"errors"
 
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
@@ -23,9 +22,6 @@ type CaseReceiptResponse struct {
 // not a case discovery API. Adapters must never accept an arbitrary user's case
 // reference here; interactive case navigation uses GetNativeDetail instead.
 func (s *CaseService) ReceiptForPublication(ctx context.Context, caseID string) (*CaseReceiptResponse, error) {
-	if s == nil || s.store == nil {
-		return nil, errors.New("case receipt storage unavailable")
-	}
 	item, err := s.store.GetCaseByID(ctx, caseID)
 	if err != nil {
 		return nil, err
@@ -41,7 +37,17 @@ func (s *CaseService) ReceiptForPublication(ctx context.Context, caseID string) 
 	if err != nil {
 		return nil, err
 	}
-	base := &CaseResponse{ModeratorDiscordUserID: item.ModeratorDiscordUserID, ContextValues: parseCaseContextValues(item.ContextValuesJSON), Reason: item.Reason, ID: item.ID, CaseNumber: item.CaseNumber, CreatedAt: item.CreatedAt, TargetDiscordUserID: item.TargetDiscordUserID, Validity: item.Validity, SelectedLevel: selectedLevelResponse(item.TemplateSnapshotJSON)}
+	base := &CaseResponse{
+		ID:                     item.ID,
+		CaseNumber:             item.CaseNumber,
+		CreatedAt:              item.CreatedAt,
+		TargetDiscordUserID:    item.TargetDiscordUserID,
+		ModeratorDiscordUserID: item.ModeratorDiscordUserID,
+		Reason:                 item.Reason,
+		Validity:               item.Validity,
+		ContextValues:          parseCaseContextValues(item.ContextValuesJSON),
+		SelectedLevel:          selectedLevelResponse(item.TemplateSnapshotJSON),
+	}
 	result := &CaseReceiptResponse{Case: base, Notification: caseNotificationResponse(notification, false)}
 	base.EvidenceIncomplete, err = s.store.CasePublicationEvidenceIncomplete(ctx, caseID)
 	if err != nil {
@@ -65,6 +71,8 @@ func (s *CaseService) ReceiptForPublication(ctx context.Context, caseID string) 
 
 // Pending reports whether either enforcement or the independent member DM still
 // needs a receipt update. Missing notification means this level has DMs disabled.
+// A nil receipt is reported as pending so callers keep polling rather than
+// treating a failed read as a finished delivery.
 func (r *CaseReceiptResponse) Pending() bool {
 	if r == nil {
 		return true

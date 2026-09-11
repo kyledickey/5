@@ -28,11 +28,21 @@ func (s *Store) CompareAndSetEvidenceChannel(ctx context.Context, guildID, expec
 			return nil
 		}
 		now := time.Now().UTC()
-		if err := tx.Model(&current).Where("guild_id = ?", guildID).Updates(map[string]any{"managed_evidence_channel_discord_id": next, "updated_at": now}).Error; err != nil {
+		if err := tx.Model(&current).Where("guild_id = ?", guildID).
+			Updates(map[string]any{"managed_evidence_channel_discord_id": next, "updated_at": now}).Error; err != nil {
 			return err
 		}
 		winner = next
-		return createAuditLogEntry(tx, &model.AuditLogEntry{GuildID: guildID, Source: model.AuditSourceSystem, Action: "evidence_channel.ensure", ResourceType: "guild_settings", ResourceID: current.ID, Result: model.AuditResultSuccess, MetadataJSON: "{}"}, now)
+		audit := model.AuditLogEntry{
+			GuildID:      guildID,
+			Source:       model.AuditSourceSystem,
+			Action:       "evidence_channel.ensure",
+			ResourceType: "guild_settings",
+			ResourceID:   current.ID,
+			Result:       model.AuditResultSuccess,
+			MetadataJSON: "{}",
+		}
+		return createAuditLogEntry(tx, &audit, now)
 	})
 	return winner, err
 }

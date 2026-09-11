@@ -5,10 +5,12 @@ import (
 	"sync"
 )
 
-// lockGuildOperation serializes one family of guild operations before reading
-// configuration. Each caller family owns its lock map; waiting is cancellable and
-// other guilds remain independent. Locks live for the runtime lifetime so waiters
-// can never acquire a detached replacement lock for the same guild.
+// lockGuildOperation serializes one family of guild operations (for example
+// honeypot setup and warning refresh, which share Runtime.honeypotWarningLocks)
+// before configuration is read. Waiting honours ctx; other guilds are
+// unaffected. Locks live for the Runtime's lifetime so a waiter can never
+// acquire a detached replacement lock for the same guild. The returned func
+// releases the lock and must be called exactly once.
 func lockGuildOperation(ctx context.Context, locks *sync.Map, guildID string) (func(), error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

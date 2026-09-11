@@ -1,7 +1,7 @@
 # Quack v5 orchestrator
 
-Read `v5.md`, `docs/v5-scope-drift.md`, `TODO.md`, and
-`docs/exec-plans/active/v5-readiness.md`. Product precedence is `v5.md`, then
+Read `docs/planning/v5.md`, `docs/planning/v5-scope-drift.md`, `docs/planning/TODO.md`, and
+`docs/planning/exec-plans/active/v5-readiness.md`. Product precedence is `v5.md`, then
 documented clarifications, then `TODO.md`. Treat the backlog as inventory, not
 an exhaustive specification.
 
@@ -115,7 +115,7 @@ bodies/handoffs; summarize rather than duplicate it in the plan.
 
 Final readiness still requires every `v5.md` requirement, applicable TODO and
 scope-drift item, repository-wide gate, migration/E2E/rehearsal, and
-`docs/v5-readiness.md` evidence matrix to be complete or explicitly adjudicated.
+`docs/release/readiness.md` evidence matrix to be complete or explicitly adjudicated.
 
 Use `gh` for PR/review operations. Never merge GitHub pull requests,
 force-push, delete branches, change repository settings, or modify release

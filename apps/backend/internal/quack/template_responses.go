@@ -6,7 +6,8 @@ import (
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
-// templateResponse converts template response into its transport presentation without leaking transport types into the core.
+// templateResponse projects an expanded template into the transport shape.
+// ContextFields and Levels are always non-nil so JSON renders [] rather than null.
 func templateResponse(expanded model.ExpandedCaseTemplate) TemplateResponse {
 	template := expanded.Template
 	response := TemplateResponse{
@@ -26,7 +27,14 @@ func templateResponse(expanded model.ExpandedCaseTemplate) TemplateResponse {
 		Levels:                 make([]TemplateLevelResponse, 0, len(expanded.Levels)),
 	}
 	for _, field := range expanded.ContextFields {
-		response.ContextFields = append(response.ContextFields, TemplateContextFieldResponse{ID: field.ID, Key: field.Key, Label: field.Label, FieldType: field.FieldType, Position: field.Position, Required: field.Required})
+		response.ContextFields = append(response.ContextFields, TemplateContextFieldResponse{
+			ID:        field.ID,
+			Key:       field.Key,
+			Label:     field.Label,
+			FieldType: field.FieldType,
+			Position:  field.Position,
+			Required:  field.Required,
+		})
 	}
 
 	for _, level := range expanded.Levels {
@@ -43,7 +51,7 @@ func templateResponse(expanded model.ExpandedCaseTemplate) TemplateResponse {
 	return response
 }
 
-// templateLevelDetails encapsulates the template level details rule so callers share one consistent package implementation.
+// templateLevelDetails copies the level fields shared by template and case snapshot responses.
 func templateLevelDetails(level model.CaseTemplateLevel) TemplateLevelDetails {
 	return TemplateLevelDetails{
 		ID:               level.ID,
@@ -53,15 +61,6 @@ func templateLevelDetails(level model.CaseTemplateLevel) TemplateLevelDetails {
 		TriggerCaseCount: level.TriggerCaseCount,
 		NotifyUser:       level.NotifyUser,
 	}
-}
-
-// levelActionResponses converts level action responses into its transport presentation without leaking transport types into the core.
-func levelActionResponses(actions []model.CaseTemplateLevelAction) []TemplateActionResponse {
-	responses := make([]TemplateActionResponse, 0, len(actions))
-	for _, action := range actions {
-		responses = append(responses, templateActionResponse(action))
-	}
-	return responses
 }
 
 // templateActionResponse projects canonical or compatible stored settings into the typed product contract.
@@ -96,7 +95,8 @@ func decodeTemplateActionConfig(body string) templateActionConfig {
 	}
 }
 
-// parseJSON parses json and rejects malformed input before it reaches core logic.
+// parseJSON decodes stored JSON for a response, substituting an empty object
+// for empty or malformed input so responses never carry null metadata.
 func parseJSON(body string) any {
 	if body == "" {
 		return map[string]any{}

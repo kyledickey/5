@@ -8,12 +8,17 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
+// Sentinel errors returned by EncodeCustomID and DecodeCustomID. The dispatcher
+// answers both with a generic "component not available" reply.
 var (
 	ErrCustomIDInvalid = errors.New("custom id is invalid")
 	ErrCustomIDTooLong = errors.New("custom id exceeds Discord limit")
 )
 
-// CustomID is the decoded routing identity embedded in an interactive Discord component.
+// CustomID is the routing identity embedded in an interactive Discord component
+// as "namespace:action:version:payload". Namespace and Action select the handler
+// in the component registry; Payload is opaque, handler-owned data (case IDs,
+// page numbers) and must never carry authority or member-controlled content.
 type CustomID struct {
 	Namespace string
 	Action    string
@@ -21,7 +26,9 @@ type CustomID struct {
 	Payload   string
 }
 
-// EncodeCustomID serializes custom id into its stable external representation.
+// EncodeCustomID renders id as "namespace:action:version:payload". It fails with
+// ErrCustomIDInvalid when a routing part is empty or contains ':' and with
+// ErrCustomIDTooLong when the result exceeds Discord's 100-character limit.
 func EncodeCustomID(id CustomID) (string, error) {
 	namespace := strings.TrimSpace(id.Namespace)
 	action := strings.TrimSpace(id.Action)
@@ -40,7 +47,8 @@ func EncodeCustomID(id CustomID) (string, error) {
 	return value, nil
 }
 
-// DecodeCustomID parses decode custom id and rejects malformed input before it reaches core logic.
+// DecodeCustomID parses a value produced by EncodeCustomID. Payload may contain
+// further ':' characters; only the first three separators are routing.
 func DecodeCustomID(value string) (CustomID, error) {
 	parts := strings.SplitN(strings.TrimSpace(value), ":", 4)
 	if len(parts) != 4 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
@@ -90,7 +98,8 @@ func LinkButton(url, label string, disabled bool) discordgo.Button {
 	}
 }
 
-// Row groups Discord components into one action row.
+// Row groups components into one action row, silently keeping only the first
+// five because Discord rejects larger rows.
 func Row(components ...discordgo.MessageComponent) discordgo.ActionsRow {
 	if len(components) > 5 {
 		components = components[:5]

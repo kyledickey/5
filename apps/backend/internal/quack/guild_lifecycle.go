@@ -5,7 +5,6 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
@@ -22,9 +21,6 @@ type GuildOperationalHealth struct {
 // operator. It does not require live Discord access, so diagnostics remain usable
 // during an outage. An unknown guild returns an empty ID without creating it.
 func (s *GuildService) OperationalGuildID(ctx context.Context, discordGuildID string) (string, error) {
-	if s == nil || s.store == nil {
-		return "", errors.New("guild service is not configured")
-	}
 	guild, err := s.store.GetGuildByDiscordID(ctx, strings.TrimSpace(discordGuildID))
 	if err != nil || guild == nil {
 		return "", err
@@ -37,8 +33,12 @@ func (s *GuildService) OperationalGuildID(ctx context.Context, discordGuildID st
 // reconciliation clears stale references, so missing required references are
 // reported immediately and isolated to this guild.
 func (s *GuildService) OperationalGuildHealth(ctx context.Context, discordGuildID string) (GuildOperationalHealth, error) {
-	status := GuildOperationalHealth{Reasons: []string{}, BotPermissions: map[string]bool{}, ManagedChannels: map[string]bool{}}
-	if s == nil || s.store == nil || s.discord == nil {
+	status := GuildOperationalHealth{
+		Reasons:         []string{},
+		BotPermissions:  map[string]bool{},
+		ManagedChannels: map[string]bool{},
+	}
+	if s.discord == nil {
 		return status, ErrAuthorizationUnavailable
 	}
 	guild, err := s.store.GetGuildByDiscordID(ctx, strings.TrimSpace(discordGuildID))
@@ -51,14 +51,14 @@ func (s *GuildService) OperationalGuildHealth(ctx context.Context, discordGuildI
 		status.Reasons = append(status.Reasons, "discord_bot_unavailable")
 		return status, nil
 	}
-	permissions := map[string]int64{
-		"moderate_members": discordgo.PermissionModerateMembers,
-		"kick_members":     discordgo.PermissionKickMembers,
-		"ban_members":      discordgo.PermissionBanMembers,
-		"manage_channels":  discordgo.PermissionManageChannels,
+	permissions := map[string]uint64{
+		"moderate_members": permissionModerateMembers,
+		"kick_members":     permissionKickMembers,
+		"ban_members":      permissionBanMembers,
+		"manage_channels":  permissionManageChannels,
 	}
 	for name, permission := range permissions {
-		available := hasDiscordPermission(live.Bot.PermissionBits, uint64(permission))
+		available := hasDiscordPermission(live.Bot.PermissionBits, permission)
 		status.BotPermissions[name] = available
 		if !available {
 			status.Degraded = true
@@ -78,17 +78,18 @@ func (s *GuildService) OperationalGuildHealth(ctx context.Context, discordGuildI
 	return status, nil
 }
 
-// BootstrapDiscordGuild atomically installs or reactivates a guild, refreshes metadata, repairs stale channels, and ensures one starter policy.
-func (s *GuildService) BootstrapDiscordGuild(ctx context.Context, input DiscordGuildLifecycleInput) (*model.BootstrapGuildResult, error) {
-	if s == nil || s.store == nil {
-		return nil, errors.New("guild service is not configured")
-	}
+// BootstrapDiscordGuild atomically installs or reactivates a guild, refreshes
+// metadata, repairs stale channels, and ensures one starter policy.
+func (s *GuildService) BootstrapDiscordGuild(
+	ctx context.Context, input DiscordGuildLifecycleInput,
+) (*model.BootstrapGuildResult, error) {
 	guildID := strings.TrimSpace(input.DiscordGuildID)
 	if guildID == "" || strings.TrimSpace(input.Name) == "" || strings.TrimSpace(input.OwnerDiscordUserID) == "" {
 		return nil, errors.New("guild id, name, and owner are required")
 	}
 	return s.store.BootstrapGuild(ctx, model.BootstrapGuildParams{
-		DiscordGuildID: guildID, Name: strings.TrimSpace(input.Name),
+		DiscordGuildID:         guildID,
+		Name:                   strings.TrimSpace(input.Name),
 		IconURL:                discordGuildIconURL(guildID, strings.TrimSpace(input.Icon)),
 		OwnerDiscordUserID:     strings.TrimSpace(input.OwnerDiscordUserID),
 		KnownChannelDiscordIDs: input.KnownChannelDiscordIDs,
@@ -97,29 +98,28 @@ func (s *GuildService) BootstrapDiscordGuild(ctx context.Context, input DiscordG
 
 // DeactivateDiscordGuild marks a true guild departure inactive while preserving settings, starter policy, and history.
 func (s *GuildService) DeactivateDiscordGuild(ctx context.Context, discordGuildID string) (*model.Guild, error) {
-	if s == nil || s.store == nil {
-		return nil, errors.New("guild service is not configured")
-	}
 	return s.store.DeactivateGuild(ctx, strings.TrimSpace(discordGuildID), systemGuildAudit("guild.lifecycle.leave", "guild"))
 }
 
 // ClearDeletedChannel removes stale core settings references when Discord confirms a configured channel was deleted.
 func (s *GuildService) ClearDeletedChannel(ctx context.Context, discordGuildID, channelID string) (*model.GuildSettings, error) {
-	if s == nil || s.store == nil {
-		return nil, errors.New("guild service is not configured")
-	}
 	guild, err := s.store.GetGuildByDiscordID(ctx, strings.TrimSpace(discordGuildID))
 	if err != nil || guild == nil {
 		return nil, err
 	}
-	return s.store.ClearGuildChannelReferences(ctx, guild.ID, strings.TrimSpace(channelID), systemGuildAudit("guild_settings.channel_reference.cleared", "guild_settings"))
+	return s.store.ClearGuildChannelReferences(
+		ctx, guild.ID, strings.TrimSpace(channelID), systemGuildAudit("guild_settings.channel_reference.cleared", "guild_settings"),
+	)
 }
 
 // systemGuildAudit creates adapter-attributed lifecycle evidence without pretending the bot is a Discord staff member.
 func systemGuildAudit(action, resourceType string) *model.AuditLogEntry {
 	return &model.AuditLogEntry{
-		ActorDiscordUserID: "quack-system", Source: model.AuditSourceDiscord,
-		Action: action, ResourceType: resourceType, Result: model.AuditResultSuccess,
-		MetadataJSON: "{}",
+		ActorDiscordUserID: "quack-system",
+		Source:             model.AuditSourceDiscord,
+		Action:             action,
+		ResourceType:       resourceType,
+		Result:             model.AuditResultSuccess,
+		MetadataJSON:       "{}",
 	}
 }

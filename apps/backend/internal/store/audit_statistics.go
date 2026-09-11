@@ -4,20 +4,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	gormmysql "gorm.io/driver/mysql"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/quackdiscord/bot/internal/quack/model"
+	gormmysql "gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
 
-// DeriveStaffStatistics calculates operational counts directly from immutable source records.
+// DeriveStaffStatistics aggregates case, action, appeal, and audit counts for
+// one guild over [From, To) by UTC day and by each source's dimensions. It
+// scans grouped projections only, never full rows, so memory scales with the
+// number of distinct buckets rather than records.
 func (s *Store) DeriveStaffStatistics(ctx context.Context, params model.StaffStatisticsParams) (*model.StaffStatistics, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 	if params.GuildID == "" || params.From.IsZero() || params.To.IsZero() || !params.From.Before(params.To) {
 		return nil, errors.New("invalid staff statistics range")
 	}
@@ -33,10 +33,42 @@ func (s *Store) DeriveStaffStatistics(ctx context.Context, params model.StaffSta
 		buckets    []*[]model.StatisticBucket
 		name       string
 	}{
-		{&model.Case{}, "guild_id = ?", []any{params.GuildID}, []string{"CASE WHEN template_id IS NULL OR LENGTH(template_id) = 0 THEN 'historical_or_deleted' ELSE template_id END", "status", "source"}, &result.CaseTotal, []*[]model.StatisticBucket{&result.CasesByDay, &result.CasesByTemplate, &result.CasesByValidity, &result.CasesBySource}, "case"},
-		{&model.CaseActionExecution{}, "case_id IN (SELECT id FROM cases WHERE guild_id = ?)", []any{params.GuildID}, []string{"action_type", "status"}, &result.ActionTotal, []*[]model.StatisticBucket{&result.ActionsByDay, &result.ActionsByType, &result.ActionsByResult}, "action"},
-		{&model.Appeal{}, "guild_id = ?", []any{params.GuildID}, []string{"status"}, &result.AppealTotal, []*[]model.StatisticBucket{&result.AppealsByDay, &result.AppealsByStatus}, "appeal"},
-		{&model.AuditLogEntry{}, "guild_id = ? AND action IN ?", []any{params.GuildID, model.ImportantAuditActions()}, []string{"action", "result", "source"}, &result.AuditTotal, []*[]model.StatisticBucket{&result.AuditsByDay, &result.AuditsByAction, &result.AuditsByResult, &result.AuditsBySource}, "audit"},
+		{
+			table:      &model.Case{},
+			scope:      "guild_id = ?",
+			args:       []any{params.GuildID},
+			dimensions: []string{"CASE WHEN template_id IS NULL OR LENGTH(template_id) = 0 THEN 'historical_or_deleted' ELSE template_id END", "status", "source"},
+			total:      &result.CaseTotal,
+			buckets:    []*[]model.StatisticBucket{&result.CasesByDay, &result.CasesByTemplate, &result.CasesByValidity, &result.CasesBySource},
+			name:       "case",
+		},
+		{
+			table:      &model.CaseActionExecution{},
+			scope:      "case_id IN (SELECT id FROM cases WHERE guild_id = ?)",
+			args:       []any{params.GuildID},
+			dimensions: []string{"action_type", "status"},
+			total:      &result.ActionTotal,
+			buckets:    []*[]model.StatisticBucket{&result.ActionsByDay, &result.ActionsByType, &result.ActionsByResult},
+			name:       "action",
+		},
+		{
+			table:      &model.Appeal{},
+			scope:      "guild_id = ?",
+			args:       []any{params.GuildID},
+			dimensions: []string{"status"},
+			total:      &result.AppealTotal,
+			buckets:    []*[]model.StatisticBucket{&result.AppealsByDay, &result.AppealsByStatus},
+			name:       "appeal",
+		},
+		{
+			table:      &model.AuditLogEntry{},
+			scope:      "guild_id = ? AND action IN ?",
+			args:       []any{params.GuildID, model.ImportantAuditActions()},
+			dimensions: []string{"action", "result", "source"},
+			total:      &result.AuditTotal,
+			buckets:    []*[]model.StatisticBucket{&result.AuditsByDay, &result.AuditsByAction, &result.AuditsByResult, &result.AuditsBySource},
+			name:       "audit",
+		},
 	}
 	for _, group := range groups {
 		query := timeRange(s.db.WithContext(ctx).Model(group.table).Where(group.scope, group.args...), params)

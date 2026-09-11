@@ -27,7 +27,8 @@ func appealMemberNotification(item model.AppealNotification) (AppealMemberNotifi
 		return AppealMemberNotification{LegacyBody: item.Body}, nil
 	}
 	var intent model.AppealDecisionIntent
-	if json.Unmarshal([]byte(item.DecisionIntentJSON), &intent) != nil || intent.Version != 1 || !utf8.ValidString(intent.Reason) || strings.TrimSpace(intent.Reason) == "" || len([]rune(intent.Reason)) > 2000 {
+	if json.Unmarshal([]byte(item.DecisionIntentJSON), &intent) != nil || intent.Version != 1 ||
+		!utf8.ValidString(intent.Reason) || strings.TrimSpace(intent.Reason) == "" || len([]rune(intent.Reason)) > 2000 {
 		return AppealMemberNotification{}, ErrAppealNotificationIntent
 	}
 	switch intent.Status {

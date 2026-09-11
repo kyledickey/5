@@ -37,7 +37,8 @@ func TestDMRepliesNeverCarryEphemeralFlags(t *testing.T) {
 					t.Fatal("DM task timed out")
 				}
 			}
-			if len(client.responses) != 1 || client.responses[0].Data != nil && client.responses[0].Data.Flags&discordgo.MessageFlagsEphemeral != 0 {
+			if len(client.responses) != 1 ||
+				client.responses[0].Data != nil && client.responses[0].Data.Flags&discordgo.MessageFlagsEphemeral != 0 {
 				t.Fatal("DM acknowledgement carried ephemeral flag")
 			}
 			if deferred && (len(client.followups) != 1 || client.followups[0].Flags&discordgo.MessageFlagsEphemeral != 0) {

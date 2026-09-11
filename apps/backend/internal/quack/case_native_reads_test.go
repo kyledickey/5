@@ -50,7 +50,7 @@ func TestNativeDetailBoundsHistoryPreservesOutput(t *testing.T) {
 	if err := repository.DB().Create(&attempt).Error; err != nil {
 		t.Fatal(err)
 	}
-	service := quack.NewCaseService(repository)
+	service := quack.NewCaseService(repository, nil)
 	full, err := service.Get(ctx, staff, item.ID)
 	if err != nil {
 		t.Fatal(err)

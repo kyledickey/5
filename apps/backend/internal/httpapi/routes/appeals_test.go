@@ -28,7 +28,7 @@ func TestAppealMemberRoutesReplayOriginalSubmission(t *testing.T) {
 	appeals := quack.NewAppealService(repository)
 	cfg := config.Default()
 	cfg.RateLimits.MemberRead.Maximum = 20
-	services := &quack.Services{Config: cfg, Cases: quack.NewCaseService(nil)}
+	services := &quack.Services{Config: cfg, Cases: quack.NewCaseService(repository, nil)}
 	router := gin.New()
 	group := router.Group("/members/me")
 	group.Use(func(c *gin.Context) {
@@ -62,7 +62,7 @@ func TestAppealMemberRoutesReplayOriginalSubmission(t *testing.T) {
 func TestAppealMemberRoutesFailClosedWithoutRedis(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repository := newAppealRouteRepository()
-	services := &quack.Services{Config: config.Default(), Cases: quack.NewCaseService(nil)}
+	services := &quack.Services{Config: config.Default(), Cases: quack.NewCaseService(repository, nil)}
 	router := gin.New()
 	group := router.Group("/members/me")
 	group.Use(func(c *gin.Context) {
@@ -167,7 +167,7 @@ func (r *appealRouteRepository) CreateAuditLogEntry(context.Context, *model.Audi
 func TestAppealConversationRoutesAreRemoved(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repository := newAppealRouteRepository()
-	services := &quack.Services{Config: config.Default(), Cases: quack.NewCaseService(nil)}
+	services := &quack.Services{Config: config.Default(), Cases: quack.NewCaseService(repository, nil)}
 	appeals := quack.NewAppealService(repository)
 	router := gin.New()
 	primitives := httpplatform.Primitives{RateLimits: httpplatform.NewRateLimiter(nil, ""), Idempotency: httpplatform.NewIdempotencyStore(nil, "")}

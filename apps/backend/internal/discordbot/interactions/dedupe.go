@@ -10,7 +10,10 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// InteractionDeduper atomically claims Discord interaction IDs for a bounded time window.
+// InteractionDeduper claims each Discord interaction ID exactly once within a
+// TTL so a redelivered interaction never runs a handler twice. Without Redis it
+// is process-local (an in-memory map bounded by maxSize); with Redis the claim
+// survives restarts and is shared across replicas.
 type InteractionDeduper struct {
 	mu      sync.Mutex
 	seen    map[string]*list.Element
@@ -44,9 +47,11 @@ func NewRedisInteractionDeduper(client redis.UniversalClient, ttl time.Duration)
 	return deduper
 }
 
-// Claim returns true exactly once for an interaction ID within the configured window.
+// Claim returns true exactly once for an interaction ID within the configured
+// window. Empty IDs are never claimed. When the in-memory table is full and
+// nothing has expired it fails closed rather than evicting a live claim.
 func (d *InteractionDeduper) Claim(id string) bool {
-	if d == nil || id == "" {
+	if id == "" {
 		return false
 	}
 	if d.redis != nil {

@@ -1,0 +1,658 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quack v5 Backend Code Quality Report</title>
+<style>
+  :root {
+    --bg: #0e0e10;
+    --bg-2: #161619;
+    --bg-3: #1e1e23;
+    --line: #2a2a31;
+    --fg: #f4f4f5;
+    --fg-2: #b8b8c0;
+    --fg-3: #7d7d88;
+    --red: #ff3b30;
+    --green: #34c759;
+    --blue: #0a84ff;
+    --orange: #ff9500;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15px; line-height: 1.55; }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code { font-family: var(--mono); font-size: 0.9em; background: var(--bg-3); padding: 1px 5px; border-radius: 4px; color: var(--fg); }
+  pre { background: var(--bg-2); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: 13px; line-height: 1.5; }
+  pre code { background: none; padding: 0; }
+
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 48px 28px 96px; }
+  header { border-bottom: 1px solid var(--line); padding-bottom: 28px; margin-bottom: 40px; }
+  header h1 { font-size: 34px; margin: 0 0 8px; letter-spacing: -0.02em; }
+  header .sub { color: var(--fg-2); font-size: 15px; }
+  header .meta { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { display: inline-block; font-family: var(--mono); font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg-2); color: var(--fg-2); }
+  .chip.red { border-color: var(--red); color: var(--red); }
+  .chip.green { border-color: var(--green); color: var(--green); }
+  .chip.blue { border-color: var(--blue); color: var(--blue); }
+  .chip.orange { border-color: var(--orange); color: var(--orange); }
+
+  nav.toc { background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; padding: 16px 20px; margin-bottom: 40px; }
+  nav.toc ol { margin: 8px 0 0; padding-left: 20px; columns: 2; column-gap: 32px; }
+  nav.toc li { margin: 3px 0; }
+  nav.toc .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--fg-3); }
+
+  section { margin-bottom: 56px; }
+  h2 { font-size: 24px; margin: 0 0 18px; padding-left: 14px; border-left: 4px solid var(--blue); letter-spacing: -0.01em; }
+  h2.red { border-color: var(--red); }
+  h2.green { border-color: var(--green); }
+  h2.orange { border-color: var(--orange); }
+  h3 { font-size: 17px; margin: 28px 0 10px; color: var(--fg); }
+  p { margin: 0 0 12px; color: var(--fg-2); }
+  p strong, li strong { color: var(--fg); }
+  ul, ol { color: var(--fg-2); padding-left: 22px; margin: 0 0 14px; }
+  li { margin: 5px 0; }
+  li::marker { color: var(--fg-3); }
+
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 20px; font-size: 14px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--fg-3); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+  td { color: var(--fg-2); }
+  td:first-child { color: var(--fg); }
+  td.num, th.num { text-align: right; font-family: var(--mono); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 12px 0 24px; }
+  .stat { background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .stat .k { font-size: 12px; color: var(--fg-3); text-transform: uppercase; letter-spacing: 0.08em; }
+  .stat .v { font-family: var(--mono); font-size: 24px; margin-top: 4px; color: var(--fg); }
+  .stat .v.red { color: var(--red); } .stat .v.green { color: var(--green); } .stat .v.blue { color: var(--blue); } .stat .v.orange { color: var(--orange); }
+  .stat .n { font-size: 12px; color: var(--fg-3); margin-top: 4px; }
+
+  .scores { display: grid; grid-template-columns: 1fr; gap: 10px; margin: 12px 0 24px; }
+  .score { display: grid; grid-template-columns: 240px 1fr 48px; align-items: center; gap: 14px; }
+  .score .name { color: var(--fg); font-size: 14px; }
+  .score .bar { height: 10px; background: var(--bg-3); border-radius: 999px; overflow: hidden; border: 1px solid var(--line); }
+  .score .bar i { display: block; height: 100%; border-radius: 999px; }
+  .score .val { font-family: var(--mono); text-align: right; color: var(--fg-2); }
+
+  .callout { border-left: 4px solid var(--blue); background: var(--bg-2); border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 14px 0 20px; color: var(--fg-2); }
+  .callout.red { border-color: var(--red); } .callout.green { border-color: var(--green); } .callout.orange { border-color: var(--orange); }
+  .callout .t { font-weight: 600; color: var(--fg); display: block; margin-bottom: 4px; }
+
+  .finding { border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin: 14px 0; background: var(--bg-2); }
+  .finding .h { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .finding .h .sev { font-family: var(--mono); font-size: 11px; padding: 2px 8px; border-radius: 4px; color: #000; font-weight: 700; }
+  .sev.high { background: var(--red); } .sev.med { background: var(--orange); } .sev.low { background: var(--blue); } .sev.good { background: var(--green); }
+  .finding .h b { font-size: 16px; color: var(--fg); }
+  .finding p:last-child, .finding ul:last-child { margin-bottom: 0; }
+
+  .diagram { background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; padding: 18px; margin: 14px 0 22px; overflow-x: auto; }
+  .diagram .cap { font-size: 12px; color: var(--fg-3); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
+  .diagram pre.mermaid { background: none; border: 0; padding: 0; margin: 0; display: flex; justify-content: center; }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--fg-3); margin-top: 8px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+
+  footer { border-top: 1px solid var(--line); margin-top: 48px; padding-top: 18px; color: var(--fg-3); font-size: 13px; }
+  @media (max-width: 720px) { nav.toc ol { columns: 1; } .score { grid-template-columns: 1fr; gap: 6px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Quack v5 Backend Code Quality Report</h1>
+  <div class="sub">Read-only discovery pass of <code>apps/backend</code>, excluding <code>Legacy/</code>. Branch <code>v5/monolith</code> at <code>3f54f18</code>. Generated 2026-09-08.</div>
+  <div class="meta">
+    <span class="chip">Go 1.25.4</span>
+    <span class="chip">gin · gorm · discordgo · go-redis</span>
+    <span class="chip green">go test ./... pass</span>
+    <span class="chip green">gofmt clean</span>
+    <span class="chip green">go vet clean</span>
+    <span class="chip orange">staticcheck 45</span>
+    <span class="chip blue">overall 7 / 10</span>
+  </div>
+</header>
+
+<nav class="toc">
+  <span class="lbl">Contents</span>
+  <ol>
+    <li><a href="#scorecard">Scorecard and baseline</a></li>
+    <li><a href="#arch">Architecture overview</a></li>
+    <li><a href="#layering">Layering and boundary leaks</a></li>
+    <li><a href="#casepath">Case creation path</a></li>
+    <li><a href="#queue">Action queue lifecycle</a></li>
+    <li><a href="#schema">Schema lifecycle duality</a></li>
+    <li><a href="#comments">Doc comment problem</a></li>
+    <li><a href="#style">Style, idiom, and hygiene</a></li>
+    <li><a href="#complexity">Complexity hotspots</a></li>
+    <li><a href="#tests">Tests and CI</a></li>
+    <li><a href="#recs">Recommendations</a></li>
+  </ol>
+</nav>
+
+<!-- ============================================================ -->
+<section id="scorecard">
+  <h2>1. Scorecard and baseline</h2>
+
+  <div class="scores">
+    <div class="score"><span class="name">Architecture and boundaries</span><div class="bar"><i style="width:75%;background:var(--blue)"></i></div><span class="val">7.5</span></div>
+    <div class="score"><span class="name">Complexity control</span><div class="bar"><i style="width:80%;background:var(--green)"></i></div><span class="val">8.0</span></div>
+    <div class="score"><span class="name">Testing</span><div class="bar"><i style="width:75%;background:var(--blue)"></i></div><span class="val">7.5</span></div>
+    <div class="score"><span class="name">Idiomatic Go</span><div class="bar"><i style="width:65%;background:var(--orange)"></i></div><span class="val">6.5</span></div>
+    <div class="score"><span class="name">Readability and cleanliness</span><div class="bar"><i style="width:60%;background:var(--orange)"></i></div><span class="val">6.0</span></div>
+    <div class="score"><span class="name">Code-level documentation</span><div class="bar"><i style="width:40%;background:var(--red)"></i></div><span class="val">4.0</span></div>
+    <div class="score"><span class="name">Repo-level docs</span><div class="bar"><i style="width:80%;background:var(--green)"></i></div><span class="val">8.0</span></div>
+    <div class="score"><span class="name"><strong>Overall</strong></span><div class="bar"><i style="width:70%;background:var(--fg)"></i></div><span class="val">7.0</span></div>
+  </div>
+
+  <div class="grid">
+    <div class="stat"><div class="k">Go files</div><div class="v">545</div><div class="n">~68.8k lines, 219 test files</div></div>
+    <div class="stat"><div class="k">Avg cyclomatic</div><div class="v green">5.45</div><div class="n">gocyclo, non-test</div></div>
+    <div class="stat"><div class="k">Functions &gt; 100 lines</div><div class="v green">13</div><div class="n">of 1480 total</div></div>
+    <div class="stat"><div class="k">Largest file</div><div class="v green">504</div><div class="n">lines (case_moderator.go)</div></div>
+    <div class="stat"><div class="k">Templated doc comments</div><div class="v red">~240</div><div class="n">machine-generated filler</div></div>
+    <div class="stat"><div class="k">Nil-receiver guards</div><div class="v orange">177</div><div class="n"><code>s == nil || s.store == nil</code></div></div>
+    <div class="stat"><div class="k">strings.TrimSpace</div><div class="v orange">304</div><div class="n">scattered normalisation</div></div>
+    <div class="stat"><div class="k">Funcs with ≥ 6 params</div><div class="v orange">35</div><div class="n">max 8 (audit helpers)</div></div>
+    <div class="stat"><div class="k">staticcheck</div><div class="v orange">45</div><div class="n">30 ST1005 · 11 SA1019 · 4 U1000</div></div>
+    <div class="stat"><div class="k">quack package</div><div class="v orange">87</div><div class="n">files · 114 exported types</div></div>
+    <div class="stat"><div class="k">TODO / FIXME</div><div class="v green">0</div><div class="n">in Go source</div></div>
+    <div class="stat"><div class="k">t.Parallel</div><div class="v blue">0</div><div class="n">no parallel tests</div></div>
+  </div>
+
+  <div class="callout blue">
+    <span class="t">One-line verdict</span>
+    A thoughtfully designed moderation core with a genuinely good durable-work-queue model, undermined at the surface by machine-generated comment noise, reflexive nil checks, a flat 87-file core package, and several places where the "ports and adapters" story is not actually true in the import graph.
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="arch">
+  <h2 class="green">2. Architecture overview</h2>
+  <p>The process is one binary. <code>internal/runtime.Run</code> is the composition root: it loads config, opens MySQL and Redis, runs schema reconciliation, builds the Discord session, composes optional modules, registers commands and gateway handlers, starts core workers and the action queue, then serves HTTP until cancelled. Shutdown runs in reverse with a bounded deadline. There is no <code>init()</code> and no mutable package globals beyond compiled regexes and Redis Lua scripts.</p>
+
+  <div class="diagram">
+    <div class="cap">Intended layering (as documented)</div>
+    <pre class="mermaid">
+flowchart TB
+  subgraph Adapters["Delivery adapters"]
+    HTTP["httpapi<br/>gin routes · middleware · platform"]
+    BOT["discordbot<br/>commands · interactions · ui/views"]
+  end
+  subgraph Core["Application core"]
+    Q["quack<br/>Services · use cases · ports"]
+    M["quack/model<br/>domain types"]
+  end
+  subgraph Infra["Infrastructure"]
+    S["store<br/>MySQL + Redis via GORM"]
+    WQ["workqueue<br/>bounded latency queue + DB polling"]
+  end
+  subgraph Opt["Optional modules"]
+    MI["moduleintegration<br/>composition + glue"]
+    T["modules/tickets"]
+    L["modules/generallogging"]
+    H["modules/honeypot"]
+  end
+  RT["runtime.Run<br/>composition root"]
+  RT --> HTTP & BOT & Q & S & WQ & MI
+  HTTP --> Q
+  BOT --> Q
+  Q --> M
+  S -. implements ports .-> Q
+  WQ -. CaseWorkScheduler .-> Q
+  MI --> T & L & H
+  MI --> Q
+  classDef core fill:#0a84ff,stroke:#0a84ff,color:#fff
+  classDef infra fill:#34c759,stroke:#34c759,color:#000
+  classDef adapter fill:#ff9500,stroke:#ff9500,color:#000
+  classDef opt fill:#1e1e23,stroke:#7d7d88,color:#f4f4f5
+  class Q,M core
+  class S,WQ infra
+  class HTTP,BOT adapter
+  class MI,T,L,H opt
+  class RT opt
+    </pre>
+  </div>
+
+  <h3>What is good</h3>
+  <ul>
+    <li><strong>Explicit composition.</strong> Every dependency is passed by hand in <code>runtime.go</code>. Shutdown order is explicit and each stage is bounded by a context deadline.</li>
+    <li><strong>Consumer-side ports.</strong> <code>quack/ports.go</code> declares small interfaces per service (<code>CaseRepository</code>, <code>ActionRepository</code>, and so on). Tests fake them by embedding <code>quack.Repository</code> in a struct and overriding one method.</li>
+    <li><strong>Durable work model.</strong> Persisted action rows are the truth; the in-memory queue is only a latency optimisation. Leases fence stale workers. An expired lease is treated as "outcome unknown" and routed to staff review rather than blindly retried.</li>
+    <li><strong>Audit immutability.</strong> A GORM callback rejects any update or delete against <code>audit_log_entries</code>.</li>
+    <li><strong>HTTP platform.</strong> CSRF double-submit, strict CORS, trusted-proxy handling, body limits, structured error envelope, and log redaction are all present and tested.</li>
+    <li><strong>Small files.</strong> Nothing exceeds 504 lines; most files are under 200.</li>
+  </ul>
+</section>
+
+<!-- ============================================================ -->
+<section id="layering">
+  <h2 class="red">3. Layering and boundary leaks</h2>
+  <p>The import graph tells a different story from the doc comments. Below, red edges are dependencies that contradict the stated boundaries; orange edges are questionable but defensible.</p>
+
+  <div class="diagram">
+    <div class="cap">Actual import graph (internal packages, simplified)</div>
+    <pre class="mermaid">
+flowchart LR
+  Q["quack (core)"]
+  M["quack/model"]
+  S["store"]
+  HTTP["httpapi/*"]
+  APIERR["httpapi/apierror"]
+  BOT["discordbot/*"]
+  MI["moduleintegration"]
+  MOD["modules/*<br/>tickets · honeypot · logging"]
+  DG(["discordgo"])
+  GORM(["gorm"])
+  GIN(["gin"])
+
+  HTTP --> Q
+  BOT --> Q
+  S --> Q
+  Q --> M
+  MI --> Q & S & HTTP & BOT & MOD
+
+  Q -- "guild_lifecycle.go" --> DG
+  M -- "gorm tags on Case, CasePublication" --> GORM
+  MOD -- "direct DB access" --> GORM
+  MOD -- "routes.go in each module" --> GIN
+  MOD -- "tickets/components.go" --> BOT
+  S -- "migrations" --> MOD
+  APIERR -- "only for trace IDs" --> Q
+
+  linkStyle 9,10,11,12,13,14 stroke:#ff3b30,stroke-width:2.5px,color:#ff3b30
+  linkStyle 15 stroke:#ff9500,stroke-width:2px,color:#ff9500
+  classDef ext fill:#1e1e23,stroke:#7d7d88,color:#b8b8c0,stroke-dasharray:4 3
+  classDef core fill:#0a84ff,stroke:#0a84ff,color:#fff
+  class DG,GORM,GIN ext
+  class Q,M core
+    </pre>
+    <div class="legend"><span><i style="background:var(--red)"></i>contradicts stated boundary</span><span><i style="background:var(--orange)"></i>questionable</span><span><i style="background:var(--blue)"></i>core</span></div>
+  </div>
+
+  <div class="finding">
+    <div class="h"><span class="sev high">HIGH</span><b>The core is not transport-free</b></div>
+    <p><code>internal/quack/guild_lifecycle.go</code> imports <code>discordgo</code> directly. <code>internal/quack/model/schema.go</code> carries <code>gorm:"column:status"</code> on <code>Case.Validity</code>, and <code>model/case_publication.go</code> has eight GORM tags plus a <code>TableName()</code>. The file headers say "domain models remain storage-agnostic". They do not.</p>
+  </div>
+
+  <div class="finding">
+    <div class="h"><span class="sev high">HIGH</span><b>Two structs per table, kept in sync by hand</b></div>
+    <p><code>store</code> queries pass domain structs like <code>model.Case</code> straight into GORM (<code>tx.Select("*").Create(&amp;caseModel)</code>, <code>Model(&amp;model.Case{})</code>) and rely on default snake-case naming to hit the <code>cases</code> table. Meanwhile <code>store/schema_records.go</code> declares a parallel <code>CaseRecord</code> with full column tags that is used only for <code>AutoMigrate</code>. Any field added to one and not the other silently produces a column mismatch at runtime.</p>
+  </div>
+
+  <div class="finding">
+    <div class="h"><span class="sev med">MED</span><b>Modules are not isolated</b></div>
+    <p><code>modules/tickets</code>, <code>modules/honeypot</code>, and <code>modules/generallogging</code> each own a GORM store and a gin <code>routes.go</code>. <code>tickets/components.go</code> imports <code>discordbot/interactions</code> and <code>discordbot/ui</code>. The package doc for <code>modules</code> calls it "the isolation boundary shared by optional modules", but the modules depend on every framework the core is supposed to hide.</p>
+  </div>
+
+  <div class="finding">
+    <div class="h"><span class="sev med">MED</span><b>moduleintegration is a second composition root that also holds business logic</b></div>
+    <p>60 files. It imports <code>store</code>, all of <code>httpapi/*</code>, all of <code>discordbot/*</code>, <code>quack</code>, and the three modules. It also reaches back and mutates the core: <code>services.Settings.WithModuleEnablementValidator(runtime)</code> is called from <code>moduleintegration.New</code>.</p>
+  </div>
+
+  <div class="finding">
+    <div class="h"><span class="sev low">LOW</span><b>Repository is a god interface</b></div>
+    <p><code>quack.Repository</code> embeds 11 ports and then appends 12 loose methods for OAuth state, sessions, Redis hash get/set, and pings. None of those are moderation concerns. Each embedded port also re-declares <code>CreateAuditLogEntry</code> and <code>GetGuildSettings</code>, so interface segregation was achieved by copy-paste rather than by a shared <code>AuditWriter</code> port.</p>
+  </div>
+
+  <div class="finding">
+    <div class="h"><span class="sev low">LOW</span><b>Capability discovery by type assertion</b></div>
+    <pre><code>if channels, ok := actions.(StaffChannelValidator); ok {
+    services.Settings.WithStaffChannelValidator(channels)
+}
+if evidenceClient, ok := actions.(DiscordEvidenceClient); ok { ... }
+if discord != nil {
+    services.Cases.authorizer = services.Guilds   // direct field poke
+}</code></pre>
+    <p>Combined with five <code>With*</code> setters and variadic optional constructor params (<code>NewCaseService(store, scheduler ...CaseWorkScheduler)</code>), it is hard to see from any one place which capabilities a running <code>Services</code> actually has.</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="casepath">
+  <h2 class="orange">4. Case creation path</h2>
+  <p>Case creation is the most important use case and also the most duplicated. Four functions form the path; each re-validates what the previous one already validated.</p>
+
+  <div class="diagram">
+    <div class="cap">CaseService.Create call path with repeated checks</div>
+    <pre class="mermaid">
+flowchart TD
+  A["Create(ctx, guildContext, input)<br/><span style='color:#ff9500'>reject honeypot source</span>"]
+  B["createWithAttribution<br/>85 lines<br/><span style='color:#ff3b30'>✓ nil svc · ✓ guild ctx · ✓ permission<br/>✓ trim + idempotency lookup #1</span>"]
+  C["preflightCreate<br/>83 lines<br/><span style='color:#ff3b30'>✓ guild ctx · ✓ permission · ✓ trim<br/>✓ load template · ✓ select level</span><br/>live Discord authz · evidence capture"]
+  D["WithGuildCaseLock<br/>SELECT guild FOR UPDATE<br/><span style='color:#ff9500'>transactionalService := *s</span>"]
+  E["create<br/>179 lines<br/><span style='color:#ff3b30'>✓ nil svc · ✓ guild ctx · ✓ permission<br/>✓ trim + idempotency lookup #2<br/>✓ load template · ✓ select level</span><br/>compare to preflight → stale?"]
+  F["store.CreateCase<br/>169 lines, cyclomatic 47<br/>number · case · event · actions<br/>evidence · notification · audits"]
+  G{"errCasePreflightStale?"}
+  A --> B --> C --> D --> E --> F
+  E --> G
+  G -- "yes, up to 4x" --> C
+  G -- no --> H["schedule + respond"]
+  classDef hot fill:#1e1e23,stroke:#ff3b30,color:#f4f4f5
+  classDef ok fill:#1e1e23,stroke:#34c759,color:#f4f4f5
+  class B,C,E hot
+  class F,H ok
+    </pre>
+    <div class="legend"><span><i style="background:var(--red)"></i>repeated validation</span><span><i style="background:var(--orange)"></i>fragile mechanism</span></div>
+  </div>
+
+  <ul>
+    <li><strong>Guild context and permission</strong> are checked in <code>createWithAttribution</code>, again in <code>preflightCreate</code>, and again in <code>create</code>.</li>
+    <li><strong>Idempotency lookup happens twice</strong> with subtly different rules. The outer one tolerates <code>existing.TemplateID == nil</code>; the inner one rejects it. The inner lookup (inside the lock) is the one that matters; the outer one is an optimisation that has drifted.</li>
+    <li><strong>Template load and level selection happen twice</strong> (preflight, then inside the lock) by design, to detect staleness. That is reasonable, but the comparison logic is spread across two functions and a sentinel error.</li>
+    <li><strong><code>transactionalService := *s</code></strong> shallow-copies the whole service struct to swap the store. It works today. It breaks silently the day a mutex, cache, or non-copyable field is added to <code>CaseService</code>.</li>
+    <li><strong>Latent invariant.</strong> <code>create</code> sets <code>Position: 0</code> on every action execution, and <code>store.CreateCase</code> derives the unique idempotency key from position. Template validation currently caps levels at one action so this never collides, but the store does not defend itself.</li>
+  </ul>
+</section>
+
+<!-- ============================================================ -->
+<section id="queue">
+  <h2 class="green">5. Action queue lifecycle</h2>
+  <p>This is the strongest part of the codebase. The state machine below is reconstructed from <code>store/action_claims.go</code>, <code>store/action_results.go</code>, and <code>quack/actions.go</code>. The comments in these files are the best in the repo.</p>
+
+  <div class="diagram">
+    <div class="cap">CaseActionExecution status transitions</div>
+    <pre class="mermaid">
+stateDiagram-v2
+  direction LR
+  [*] --> pending : CreateCase (same tx)
+  pending --> running : claim, lease token + 2m expiry
+  retrying --> running : next_retry_at reached
+  running --> succeeded : CompleteCaseAction ok
+  running --> retrying : retryable, outcome certain, attempts left
+  running --> failed : permanent / uncertain / budget exhausted
+  running --> running : lease expired + safe: reclaim, close prior attempt
+  running --> failed : lease expired + unsafe: review required
+  failed --> pending : staff Retry
+  failed --> skipped : staff Dismiss
+  pending --> cancelled : case voided
+  retrying --> cancelled : case voided
+  succeeded --> [*]
+  skipped --> [*]
+  cancelled --> [*]
+    </pre>
+  </div>
+
+  <div class="diagram">
+    <div class="cap">Two paths into the worker: latency queue vs durable polling</div>
+    <pre class="mermaid">
+flowchart LR
+  CC["CaseService.Create<br/>commits tx"] -- "Submit(caseID)" --> Q["workqueue<br/>bounded chan + pending set"]
+  Q -- "full? drop + count" --> X((shed))
+  P["poll every 1s<br/>ListExecutableCaseIDs(100)"] --> Q
+  Q --> W["worker N"]
+  W --> PA["ActionService.ProcessCaseActions<br/>loop: claim → execute → complete"]
+  PA --> N["processNotification<br/>member DM after outcome"]
+  DB[("MySQL rows<br/>= source of truth")] --> P
+  PA --> DB
+  classDef g fill:#34c759,stroke:#34c759,color:#000
+  classDef b fill:#0a84ff,stroke:#0a84ff,color:#fff
+  class DB g
+  class Q,W b
+    </pre>
+  </div>
+
+  <div class="callout green">
+    <span class="t">Why this is good</span>
+    The queue is explicitly allowed to drop work because the poller will find it again. Lease expiry does not imply Discord failed, so unsafe or irreversible actions are parked for a human instead of being re-sent. Reversals require a fresh live authorization check at execution time, not at request time.
+  </div>
+
+  <ul>
+    <li><strong>Minor:</strong> <code>actionWorkerID()</code> is only <code>action-worker:&lt;unixnano&gt;</code>. No host or PID. The lease token is the real fence, so this is cosmetic, but it makes attempt logs ambiguous across replicas.</li>
+    <li><strong>Minor:</strong> the handler map still registers <code>ActionSendDM</code> although the docs state member DMs are no longer an action type.</li>
+  </ul>
+</section>
+
+<!-- ============================================================ -->
+<section id="schema">
+  <h2 class="orange">6. Schema lifecycle duality</h2>
+  <p>Two independent mechanisms manage the database schema and they disagree with the documentation.</p>
+
+  <div class="diagram">
+    <div class="cap">Startup schema paths</div>
+    <pre class="mermaid">
+flowchart TD
+  ST["Store.Migrate()<br/>called at every startup"] --> IS["InitializeSchema()"]
+  IS --> MK{"quack_current_schema<br/>marker exists?"}
+  MK -- "no, DB empty" --> CR["create marker"]
+  MK -- "no, tables exist" --> ERR["ErrSchemaAdoptionRequired<br/>refuse to start"]
+  MK -- yes --> AM
+  CR --> AM["db.AutoMigrate(all *Record models)<br/>+ module migrations<br/>+ applyCurrentStorageConstraints"]
+  AM --> Q["initializeAuditMirrorQueue"]
+
+  OP["quack-migrate CLI<br/>legacy-up / adopt / rollback"] --> LG["MigrateLegacySchema()"]
+  LG --> LED["checksum ledger<br/>quack_schema_migrations<br/>0001 … 0410"]
+  LED --> EMB["checksum = sha256 of<br/>//go:embed migration_NNNN.go<br/>(the Go source file itself)"]
+
+  classDef warn fill:#1e1e23,stroke:#ff9500,color:#f4f4f5
+  classDef bad fill:#1e1e23,stroke:#ff3b30,color:#f4f4f5
+  class AM warn
+  class EMB bad
+    </pre>
+  </div>
+
+  <ul>
+    <li><strong>Docs contradict code.</strong> <code>docs/v5-scope-drift.md</code> says schema changes use the ledger "without startup <code>AutoMigrate</code>". <code>Store.Migrate()</code> calls <code>InitializeSchema()</code>, which calls <code>db.AutoMigrate</code> on every boot.</li>
+    <li><strong>Embedding Go source as checksum material is brittle.</strong> Reformatting, renaming a variable, or editing a comment in <code>migration_0001_initial_v5_schema.go</code> changes its checksum and would fail <code>validateAppliedMigrations</code> against any database that already applied it. SQL files are the conventional and safer input.</li>
+    <li><strong>Migration numbering is odd:</strong> files are 0001 to 0008, then 0200, 0400, 0410, with comments mapping 0006 to "logical module migration 0100". The mapping lives only in comments.</li>
+  </ul>
+</section>
+
+<!-- ============================================================ -->
+<section id="comments">
+  <h2 class="red">7. The doc comment problem</h2>
+  <p>Roughly 240 doc comments match a dozen template phrases. They restate the identifier in more words, and in several cases they are copied from an unrelated function and are simply wrong. This directly violates the repo's own <code>AGENTS.md</code> ("Avoid comments that merely restate the identifier").</p>
+
+  <table>
+    <thead><tr><th>Template phrase</th><th class="num">Count</th></tr></thead>
+    <tbody>
+      <tr><td><code>X encapsulates the X rule so callers share one consistent package implementation</code></td><td class="num">89</td></tr>
+      <tr><td><code>X groups the X state used to keep this package's responsibilities explicit</code></td><td class="num">26</td></tr>
+      <tr><td><code>X aliases the core X contract so Store satisfies the port without maintaining a second data shape</code></td><td class="num">22</td></tr>
+      <tr><td><code>X identifies the supported X values stored and exchanged by Quack</code></td><td class="num">17</td></tr>
+      <tr><td><code>… subject to authorization, ordering, and filtering constraints</code></td><td class="num">15</td></tr>
+      <tr><td><code>X represents the persistence-free domain state for a X</code></td><td class="num">14</td></tr>
+      <tr><td><code>X groups the validated inputs needed for X</code></td><td class="num">13</td></tr>
+      <tr><td><code>… while preserving validation, authorization, and persistence invariants</code></td><td class="num">10</td></tr>
+      <tr><td>other recurring patterns</td><td class="num">~35</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Examples that are nonsense or wrong</h3>
+  <pre><code>// marshalJSONObject serializes marshal jsonobject into its stable external representation.
+// Handle handles handle and translates it into the package's application or response contract.
+// HashGet computes a stable digest for hash get so unchanged Discord commands can skip synchronization.
+// New constructs new with required dependencies explicit so callers control lifecycle and substitution.
+// SetTestConfig encapsulates the set test config rule so callers share one consistent package implementation.
+func SetTestConfig(t testing.TB) { t.Helper() }   // empty body
+
+// execute processes execute according to persisted state and retry policy.
+func (d *Dispatcher) execute(...)   // this is the Discord interaction dispatcher; there is no retry policy</code></pre>
+
+  <div class="callout red">
+    <span class="t">Why it matters</span>
+    A reader cannot tell at a glance which comments are trustworthy. The hand-written comments in <code>store/action_claims.go</code>, <code>workqueue/queue.go</code>, and <code>runtime/</code> explain real invariants and are excellent. The generated ones bury them. Because every one of the twelve patterns is greppable, this is a mechanical fix.
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="style">
+  <h2 class="orange">8. Style, idiom, and hygiene</h2>
+
+  <div class="finding">
+    <div class="h"><span class="sev med">MED</span><b>Reflexive nil-receiver guards</b></div>
+    <pre><code>func (s *CaseService) Void(...) {
+    if s == nil || s.store == nil {
+        return nil, errors.New("case service is not configured")
+    }</code></pre>
+    <p>149 <code>if s == nil</code> guards and 189 "is not configured / not connected" strings. A nil receiver is never a valid state after a constructor. This adds three lines to every method, obscures real preconditions, and makes coverage look more defensive than it is.</p>
+  </div>
+
+  <div class="finding">
+    <div class="h"><span class="sev med">MED</span><b>Probable data race in the interaction dispatcher</b></div>
+    <pre><code>func (d *Dispatcher) Handle(session *discordgo.Session, interaction *discordgo.InteractionCreate) {
+    if d.Client == nil {
+        d.Client = sessionClient{session: session}   // unguarded write
+    }</code></pre>
+    <p>discordgo runs each handler on its own goroutine by default. Two concurrent first interactions race on this write. The neighbouring <code>Deduper</code> field is correctly guarded by <code>dedupeMu</code>; <code>Client</code> is not. CI does not run with <code>-race</code>.</p>
+  </div>
+
+  <div class="finding">
+    <div class="h"><span class="sev med">MED</span><b>Errors doubling as UI copy</b></div>
+    <p>30 <code>ST1005</code> hits. Some are simply capitalised; others are Discord-facing sentences passed through <code>error</code>, for example <code>errors.New("Select a server message to create a case.")</code>. Error values and user-visible strings are conflated, which makes both harder to change.</p>
+  </div>
+
+  <div class="finding">
+    <div class="h"><span class="sev low">LOW</span><b>Positional-argument overload</b></div>
+    <p>35 functions take six or more parameters. The audit helpers take seven or eight positional strings in a row: <code>audit(ctx, guildContext, action, resourceType, resourceID, result, failure)</code>. An <code>AuditEvent</code> struct would remove a whole class of argument-order mistakes.</p>
+  </div>
+
+  <div class="finding">
+    <div class="h"><span class="sev low">LOW</span><b>Dead code and deprecated APIs</b></div>
+    <ul>
+      <li>Unused: <code>commands.caseMember</code>, <code>commands.embedFields</code>, <code>quack.authorizationSource</code>, <code>quack.levelActionResponses</code>, and the empty <code>testutil.SetTestConfig</code>.</li>
+      <li>11 uses of deprecated discordgo fields (<code>DMPermission</code>, <code>PermissionManageServer</code>).</li>
+    </ul>
+  </div>
+
+  <div class="finding">
+    <div class="h"><span class="sev low">LOW</span><b>Small duplications and inconsistencies</b></div>
+    <ul>
+      <li><code>marshalJSONObject</code> (store) and <code>mustMarshalJSONObject</code> (quack) are the same function. <code>truncateRunes</code> (quack) and <code>ui.TruncateRunes</code> likewise.</li>
+      <li>Ten type aliases at the top of <code>store/cases.go</code> re-export <code>model</code> types, each with an identical 20-word comment. Callers could use <code>model.X</code> directly.</li>
+      <li>Struct literals switch mid-literal from one-field-per-line to four fields jammed on one line (<code>routes/cases.go</code>, <code>createCase</code>).</li>
+      <li>300-character single-line conditions in <code>views/</code> and <code>dispatcher.taskError</code>.</li>
+      <li>36 <code>gin.H{...}</code> response envelopes and <code>@Success 201 {object} map[string]interface{}</code> annotations make the generated OpenAPI contract untyped.</li>
+      <li><code>PermissionBitsString</code> uses <code>fmt.Sprintf("%d")</code> where <code>strconv.FormatUint</code> is idiomatic.</li>
+      <li><code>ui.Context</code> embeds <code>context.Context</code> and is named <code>ctx</code> by convention, so handlers juggle <code>ctx.Context</code>, <code>ctx.Services</code>, and a separate <code>taskCtx</code>.</li>
+      <li>21 <code>*JSON string</code> fields on domain models and 115 <code>map[string]any</code> uses: metadata flows through the core stringly typed.</li>
+      <li><code>httpapi.Run</code> returning is the only thing that ends the process. A dead Discord session does not.</li>
+      <li><code>store.appendCaseEvent</code> silently returns nil when the case row is missing.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="complexity">
+  <h2 class="green">9. Complexity hotspots</h2>
+  <p>Overall complexity is well controlled: average cyclomatic 5.45, and 1057 of 1480 functions are 20 lines or fewer. The complexity that exists is concentrated in a handful of places, and most of them are the transactional store writes, which is where you would expect it.</p>
+
+  <table>
+    <thead><tr><th>Function</th><th class="num">Cyclomatic</th><th class="num">Lines</th><th>Note</th></tr></thead>
+    <tbody>
+      <tr><td><code>views.StaffLogMessage</code></td><td class="num">54</td><td class="num">157</td><td>Presentation switch; a lookup table would flatten it</td></tr>
+      <tr><td><code>store.CreateCase</code></td><td class="num">47</td><td class="num">169</td><td>Defaults-filling for six record types inside one tx</td></tr>
+      <tr><td><code>quack.create</code></td><td class="num">43</td><td class="num">179</td><td>Largest function in the core; see §4</td></tr>
+      <tr><td><code>store.bootstrapGuildOnce</code></td><td class="num">36</td><td class="num">126</td><td>Guild + settings + starter policy + channel repair</td></tr>
+      <tr><td><code>moduleintegration.SetupHoneypot</code></td><td class="num">35</td><td class="num">94</td><td></td></tr>
+      <tr><td><code>config.Validate</code></td><td class="num">34</td><td class="num">—</td><td>Flat list of checks; acceptable</td></tr>
+      <tr><td><code>commands.handleTemplateLevel</code></td><td class="num">34</td><td class="num">91</td><td></td></tr>
+      <tr><td><code>store.TransitionAppeal</code></td><td class="num">31</td><td class="num">105</td><td></td></tr>
+      <tr><td><code>quack.PreflightCase</code></td><td class="num">30</td><td class="num">—</td><td>Linear denial checks; readable despite the number</td></tr>
+      <tr><td><code>quack.processClaimedAction</code></td><td class="num">22</td><td class="num">117</td><td></td></tr>
+      <tr><td><code>runtime.Run</code></td><td class="num">22</td><td class="num">112</td><td>Composition root; fine</td></tr>
+    </tbody>
+  </table>
+
+  <p>The real complexity cost is <strong>navigational</strong>, not per-function: 87 files in one flat <code>quack</code> package, 23 of them prefixed <code>case_</code>, with 366 exported symbols. Splitting by aggregate (cases, templates, appeals, evidence, guilds) would cost little and pay back immediately.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="tests">
+  <h2 class="blue">10. Tests and CI</h2>
+
+  <div class="grid">
+    <div class="stat"><div class="k">Test files</div><div class="v">219</div><div class="n">no testify; stdlib only</div></div>
+    <div class="stat"><div class="k">Table-driven tests</div><div class="v">28</div><div class="n">most are scenario tests</div></div>
+    <div class="stat"><div class="k">MySQL-gated tests</div><div class="v orange">5</div><div class="n">skipped without <code>QUACK_TEST_MYSQL_DSN</code></div></div>
+    <div class="stat"><div class="k">Packages with 0 tests</div><div class="v red">4</div><div class="n">middleware · apierror · idutil · testutil</div></div>
+  </div>
+
+  <p><strong>Strengths.</strong> Tests are behaviour-named and scenario-shaped (<code>TestAppealQueueConfigurationTakesEffectWithoutRestart</code>, <code>TestCoreWorkersRunAndCancelWithoutOptionalModules</code>). Fakes are built idiomatically by embedding <code>quack.Repository</code> and overriding one method. Security contract tests in <code>httpapi</code> assert redaction, CSRF, CORS, and proxy trust explicitly.</p>
+
+  <p><strong>Gaps.</strong></p>
+  <ul>
+    <li><code>httpapi/middleware</code> owns session refresh, cookie expiry, and CSRF token issuance, and has <strong>no tests at all</strong>. Its behaviour is only exercised indirectly through the platform tests.</li>
+    <li>Unit tests run on <strong>SQLite in memory</strong>, where <code>SELECT … FOR UPDATE</code> is a no-op and <code>GET_LOCK</code> does not exist. The guild case lock, lease claims, and migration lock are only verified by the five MySQL-gated tests.</li>
+    <li>The GitHub workflow provisions <strong>no MySQL service</strong>, so those five tests always skip in CI. The concurrency guarantees the architecture depends on are not verified by CI.</li>
+    <li>CI runs <code>go build</code> and <code>go test</code> only. No <code>go vet</code>, no staticcheck, no <code>-race</code>.</li>
+    <li>Zero <code>t.Parallel</code>. Package-level test time is fine today (store 3.3s, quack 2.9s) but it will not stay that way.</li>
+  </ul>
+
+  <div class="diagram">
+    <div class="cap">What CI actually verifies vs what the design relies on</div>
+    <pre class="mermaid">
+flowchart LR
+  subgraph CI["GitHub Actions (go.yml)"]
+    B["go build ./cmd/quack"] --> T["go test ./...<br/>SQLite + miniredis"]
+  end
+  subgraph Skipped["Skipped in CI"]
+    MY["5 MySQL-gated tests<br/>row locks · GET_LOCK · lease fencing"]
+  end
+  subgraph Missing["Not run anywhere"]
+    V["go vet"] ; SC["staticcheck"] ; R["-race"]
+  end
+  T -. "t.Skip" .-> MY
+  classDef g fill:#34c759,stroke:#34c759,color:#000
+  classDef o fill:#1e1e23,stroke:#ff9500,color:#f4f4f5
+  classDef r fill:#1e1e23,stroke:#ff3b30,color:#f4f4f5
+  class B,T g
+  class MY o
+  class V,SC,R r
+    </pre>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="recs">
+  <h2 class="blue">11. Recommendations, in priority order</h2>
+  <ol>
+    <li><strong>Strip or rewrite the templated doc comments.</strong> The twelve phrase patterns are greppable. Keep every comment that explains an invariant; delete every one that restates the name.</li>
+    <li><strong>Delete nil-receiver guards.</strong> Assert required dependencies once in each constructor and let a nil receiver panic like everywhere else in Go.</li>
+    <li><strong>Collapse the case-creation path.</strong> One validation pass, one idempotency rule, and an explicit transactional receiver instead of <code>transactionalService := *s</code>.</li>
+    <li><strong>Fix the <code>Dispatcher.Client</code> race</strong>, then add <code>-race</code>, <code>go vet</code>, staticcheck, and a MySQL service container to the workflow so the gated tests run.</li>
+    <li><strong>Pick one schema mechanism.</strong> Either the checksum ledger or startup <code>AutoMigrate</code>, not both. Either stop passing domain structs to GORM or drop the parallel <code>*Record</code> types. Move migration checksums off embedded Go source.</li>
+    <li><strong>Split <code>quack</code> by aggregate</strong> or, at minimum, move OAuth, session, and Redis-hash methods out of <code>Repository</code> and introduce a shared <code>AuditWriter</code> port.</li>
+    <li><strong>Push <code>discordgo</code>, <code>gorm</code>, and <code>gin</code> out of <code>quack</code>, <code>model</code>, and <code>modules</code>.</strong> Have <code>apierror</code> import <code>idutil</code> instead of the whole core.</li>
+    <li><strong>Replace 7- and 8-argument audit helpers</strong> with an event struct; migrate deprecated discordgo fields; delete the four dead functions and <code>SetTestConfig</code>.</li>
+    <li><strong>Add tests for <code>httpapi/middleware</code></strong> and separate user-facing Discord copy from <code>error</code> values.</li>
+  </ol>
+</section>
+
+<footer>
+  Sources: <code>gofmt -l</code>, <code>go vet ./...</code>, <code>staticcheck ./...</code>, <code>gocyclo -avg</code>, a go/ast pass for function length and arity, <code>go list</code> import graph, grep counts, and a full read of the core, store, HTTP, Discord, and module packages. No code was modified. Diagrams render with Mermaid from a CDN and need network access on first open.
+</footer>
+
+</div>
+
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: "base",
+    securityLevel: "loose",
+    themeVariables: {
+      darkMode: true,
+      background: "#161619",
+      primaryColor: "#1e1e23",
+      primaryTextColor: "#f4f4f5",
+      primaryBorderColor: "#7d7d88",
+      secondaryColor: "#1e1e23",
+      tertiaryColor: "#161619",
+      lineColor: "#b8b8c0",
+      textColor: "#f4f4f5",
+      clusterBkg: "#121215",
+      clusterBorder: "#2a2a31",
+      titleColor: "#f4f4f5",
+      edgeLabelBackground: "#161619",
+      nodeTextColor: "#f4f4f5",
+      fontFamily: "-apple-system, BlinkMacSystemFont, Inter, Segoe UI, Helvetica, Arial, sans-serif",
+      fontSize: "13px"
+    },
+    flowchart: { htmlLabels: true, curve: "basis", padding: 12 }
+  });
+</script>
+</body>
+</html>

@@ -39,7 +39,8 @@ func TestPublicResultAndEnforcementUpdateKeepOriginalResponse(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("publication timed out")
 	}
-	if len(client.responses) != 1 || client.responses[0].Type != discordgo.InteractionResponseDeferredChannelMessageWithSource || (client.responses[0].Data != nil && client.responses[0].Data.Flags&discordgo.MessageFlagsEphemeral != 0) {
+	if len(client.responses) != 1 || client.responses[0].Type != discordgo.InteractionResponseDeferredChannelMessageWithSource ||
+		(client.responses[0].Data != nil && client.responses[0].Data.Flags&discordgo.MessageFlagsEphemeral != 0) {
 		t.Fatal("thinking acknowledgement was not public")
 	}
 	if client.deleted != 0 || len(client.edits) != 2 {
@@ -50,7 +51,8 @@ func TestPublicResultAndEnforcementUpdateKeepOriginalResponse(t *testing.T) {
 			t.Fatalf("missing in-place result %d", i)
 		}
 	}
-	if len(client.followups) != 1 || client.followups[0].Flags&discordgo.MessageFlagsEphemeral == 0 || !strings.Contains(client.followups[0].Content, "<:quack_error:") {
+	if len(client.followups) != 1 || client.followups[0].Flags&discordgo.MessageFlagsEphemeral == 0 ||
+		!strings.Contains(client.followups[0].Content, "<:quack_error:") {
 		t.Fatal("private reply leaked to channel")
 	}
 }

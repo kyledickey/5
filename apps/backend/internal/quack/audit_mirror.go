@@ -65,6 +65,7 @@ type AuditMirrorRepository interface {
 
 // AuditMirrorWorker polls immutable audit history and mirrors important events
 // out of band so Discord availability never blocks the originating operation.
+// pollMu serializes PollOnce so overlapping polls cannot double-deliver.
 type AuditMirrorWorker struct {
 	store    AuditMirrorRepository
 	sender   AuditMirrorSender
@@ -73,8 +74,14 @@ type AuditMirrorWorker struct {
 	pollMu   sync.Mutex
 }
 
-// NewAuditMirrorWorker constructs the optional audit mirror worker.
+// NewAuditMirrorWorker returns a worker over store. sender may be nil, in
+// which case every pending entry is recorded as a failed delivery and retried
+// later; a non-positive interval defaults to five seconds. It panics on a nil
+// store because the worker cannot poll without one.
 func NewAuditMirrorWorker(store AuditMirrorRepository, sender AuditMirrorSender, interval time.Duration) *AuditMirrorWorker {
+	if store == nil {
+		panic("quack: NewAuditMirrorWorker requires a repository")
+	}
 	if interval <= 0 {
 		interval = 5 * time.Second
 	}
@@ -83,9 +90,6 @@ func NewAuditMirrorWorker(store AuditMirrorRepository, sender AuditMirrorSender,
 
 // Run polls until cancellation. A failed poll is retried later and does not stop moderation work.
 func (w *AuditMirrorWorker) Run(ctx context.Context) {
-	if w == nil {
-		return
-	}
 	ticker := time.NewTicker(w.interval)
 	defer ticker.Stop()
 	for {
@@ -102,9 +106,6 @@ func (w *AuditMirrorWorker) Run(ctx context.Context) {
 
 // PollOnce processes one bounded batch and serializes concurrent poll triggers.
 func (w *AuditMirrorWorker) PollOnce(ctx context.Context) error {
-	if w == nil || w.store == nil {
-		return errors.New("audit mirror worker is not configured")
-	}
 	w.pollMu.Lock()
 	defer w.pollMu.Unlock()
 	entries, err := w.store.ListPendingAuditMirrorEntries(ctx, w.batch)
@@ -123,6 +124,8 @@ func (w *AuditMirrorWorker) PollOnce(ctx context.Context) error {
 	return errors.Join(failures...)
 }
 
+// process mirrors one entry and always records a delivery outcome. Guilds
+// without a configured channel are marked finished so they are not retried.
 func (w *AuditMirrorWorker) process(ctx context.Context, entry model.AuditLogEntry) error {
 	settings, err := w.store.GetGuildSettings(ctx, entry.GuildID)
 	if err != nil {
@@ -138,7 +141,21 @@ func (w *AuditMirrorWorker) process(ctx context.Context, entry model.AuditLogEnt
 	if w.sender == nil {
 		return w.recordDelivery(ctx, entry, false, "sender_unavailable")
 	}
-	message := AuditMirrorMessage{AuditEntryID: entry.ID, DiscordGuildID: guild.DiscordGuildID, ChannelDiscordID: settings.AuditMirrorChannelDiscordID, OccurredAt: entry.CreatedAt, ActorDiscordUserID: entry.ActorDiscordUserID, Action: entry.Action, ResourceType: entry.ResourceType, ResourceID: entry.ResourceID, Result: entry.Result, FailureReason: entry.FailureReason, RequestID: entry.RequestID, CorrelationID: entry.CorrelationID, MetadataJSON: model.RedactAuditMetadata(entry.MetadataJSON)}
+	message := AuditMirrorMessage{
+		AuditEntryID:       entry.ID,
+		DiscordGuildID:     guild.DiscordGuildID,
+		ChannelDiscordID:   settings.AuditMirrorChannelDiscordID,
+		OccurredAt:         entry.CreatedAt,
+		ActorDiscordUserID: entry.ActorDiscordUserID,
+		Action:             entry.Action,
+		ResourceType:       entry.ResourceType,
+		ResourceID:         entry.ResourceID,
+		Result:             entry.Result,
+		FailureReason:      entry.FailureReason,
+		RequestID:          entry.RequestID,
+		CorrelationID:      entry.CorrelationID,
+		MetadataJSON:       model.RedactAuditMetadata(entry.MetadataJSON),
+	}
 	if err := w.enrichCase(ctx, entry, &message); err != nil {
 		return w.recordDelivery(ctx, entry, false, "case_details_unavailable")
 	}
@@ -162,5 +179,7 @@ func (w *AuditMirrorWorker) recordDelivery(ctx context.Context, original model.A
 
 // FormatAuditMirrorLine returns a bounded fallback description for adapters without embeds.
 func FormatAuditMirrorLine(message AuditMirrorMessage) string {
-	return fmt.Sprintf("%s · %s · %s/%s · %s", message.Action, message.Result, message.ResourceType, message.ResourceID, message.CorrelationID)
+	return fmt.Sprintf(
+		"%s · %s · %s/%s · %s", message.Action, message.Result, message.ResourceType, message.ResourceID, message.CorrelationID,
+	)
 }

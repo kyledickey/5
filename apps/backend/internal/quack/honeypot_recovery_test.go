@@ -26,7 +26,7 @@ func TestFindSystemHoneypotRequiresExactIdentity(t *testing.T) {
 	template := "template"
 	request := quack.CaseInput{Source: model.CaseSourceHoneypot, TemplateID: template, TargetDiscordUserID: "member", ContextChannelDiscordID: "trap", ContextMessageDiscordID: "message", IdempotencyKey: "honeypot:guild:message"}
 	saved := model.Case{ULIDModel: model.ULIDModel{ID: "case"}, GuildID: "guild", Source: model.CaseSourceHoneypot, TemplateID: &template, TargetDiscordUserID: "member", ContextChannelDiscordID: "trap", ContextMessageDiscordID: "message"}
-	service := quack.NewCaseService(honeypotLookupRepository{saved: &saved})
+	service := quack.NewCaseService(honeypotLookupRepository{saved: &saved}, nil)
 	found, err := service.FindSystemHoneypot(context.Background(), "guild", request)
 	if err != nil || found == nil || found.ID != "case" {
 		t.Fatal("read-only recovery failed", found, err)
@@ -37,7 +37,7 @@ func TestFindSystemHoneypotRequiresExactIdentity(t *testing.T) {
 	} {
 		changed := saved
 		mutate(&changed)
-		if result, err := quack.NewCaseService(honeypotLookupRepository{saved: &changed}).FindSystemHoneypot(context.Background(), "guild", request); err == nil || result != nil {
+		if result, err := quack.NewCaseService(honeypotLookupRepository{saved: &changed}, nil).FindSystemHoneypot(context.Background(), "guild", request); err == nil || result != nil {
 			t.Fatal("mismatched recovery accepted", changed)
 		}
 	}

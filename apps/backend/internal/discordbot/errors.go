@@ -1,6 +1,7 @@
 package discordbot
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -8,12 +9,28 @@ import (
 	"github.com/quackdiscord/bot/internal/quack/actionmods"
 )
 
-// classifyDiscordError encapsulates the classify discord error rule so callers share one consistent package implementation.
+// singleAttempt returns the request options every adapter call uses: the
+// caller's context, no automatic REST retries and no rate-limit sleeping, so
+// retry policy stays with Quack's workers and a lost response is never repeated
+// blindly. Extra options (audit-log reasons) are appended.
+func singleAttempt(ctx context.Context, extra ...discordgo.RequestOption) []discordgo.RequestOption {
+	return append([]discordgo.RequestOption{
+		discordgo.WithContext(ctx),
+		discordgo.WithRestRetries(0),
+		discordgo.WithRetryOnRatelimit(false),
+	}, extra...)
+}
+
+// classifyDiscordError is classifyDiscordOperation for reversible operations.
 func classifyDiscordError(code string, err error) error {
 	return classifyDiscordOperation(code, err, false)
 }
 
-// classifyDiscordOperation produces redacted retry and ambiguity semantics for persisted attempts.
+// classifyDiscordOperation turns a discordgo error into an actionmods.DiscordError
+// carrying only a stable code, a generic message, and retry/uncertainty flags.
+// The raw response text is dropped because it may echo member content. For an
+// irreversible operation (ban, kick, DM send) a 5xx or network error is marked
+// OutcomeUncertain and not Retryable, because the request may have succeeded.
 func classifyDiscordOperation(operation string, err error, irreversible bool) error {
 	var rateLimit *discordgo.RateLimitError
 	if errors.As(err, &rateLimit) {
@@ -40,7 +57,17 @@ func classifyDiscordOperation(operation string, err error, irreversible bool) er
 			retryable = !irreversible
 			uncertain = irreversible
 		}
-		return actionmods.DiscordError{Code: operation + "_" + code, Message: "Discord rejected the moderation request", Retryable: retryable, OutcomeUncertain: uncertain}
+		return actionmods.DiscordError{
+			Code:             operation + "_" + code,
+			Message:          "Discord rejected the moderation request",
+			Retryable:        retryable,
+			OutcomeUncertain: uncertain,
+		}
 	}
-	return actionmods.DiscordError{Code: operation + "_network_error", Message: "Discord request failed", Retryable: !irreversible, OutcomeUncertain: irreversible}
+	return actionmods.DiscordError{
+		Code:             operation + "_network_error",
+		Message:          "Discord request failed",
+		Retryable:        !irreversible,
+		OutcomeUncertain: irreversible,
+	}
 }

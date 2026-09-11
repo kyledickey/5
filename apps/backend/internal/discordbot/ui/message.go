@@ -8,6 +8,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
+// Discord's documented size limits for embed fields and component custom IDs.
 const (
 	EmbedTitleLimit       = 256
 	EmbedDescriptionLimit = 4096
@@ -18,6 +19,8 @@ const (
 	CustomIDLimit         = 100
 )
 
+// Embed colours. Every non-error state uses the brand colour so cards read as one
+// product; only errors get Discord's red.
 const (
 	ColorMain    = 0xE5AA2C
 	ColorSuccess = ColorMain
@@ -26,7 +29,9 @@ const (
 	ColorMuted   = ColorMain
 )
 
-// Message is the package-owned Discord response model used for both initial responses and followups.
+// Message is the transport-neutral body shared by initial responses, followups,
+// channel sends and DMs. Content may contain discordtext icon placeholders and
+// command references; ForApplication resolves both before anything is sent.
 type Message struct {
 	Content         string
 	Embeds          []*discordgo.MessageEmbed
@@ -103,7 +108,8 @@ func (e Edit) WebhookEdit() *discordgo.WebhookEdit {
 	return edit
 }
 
-// EditMessage converts edit message into its transport presentation without leaking transport types into the core.
+// EditMessage converts a Message into an Edit that replaces content, embeds and
+// components (each pointer is set, so previous values are cleared, not merged).
 func EditMessage(m Message) Edit {
 	content := m.Content
 	embeds := append([]*discordgo.MessageEmbed{}, m.Embeds...)
@@ -127,32 +133,32 @@ func WithEmbeds(embeds ...*discordgo.MessageEmbed) Message {
 	return Message{Embeds: embeds}
 }
 
-// EmbedMessage converts embed message into its transport presentation without leaking transport types into the core.
+// EmbedMessage wraps a single embed in a Message.
 func EmbedMessage(embed *discordgo.MessageEmbed, ephemeral bool) Message {
 	return Message{Embeds: []*discordgo.MessageEmbed{embed}, Ephemeral: ephemeral}
 }
 
-// EmbedsMessage converts embeds message into its transport presentation without leaking transport types into the core.
+// EmbedsMessage wraps several embeds in a Message.
 func EmbedsMessage(ephemeral bool, embeds ...*discordgo.MessageEmbed) Message {
 	return Message{Embeds: embeds, Ephemeral: ephemeral}
 }
 
-// SuccessEmbed converts success embed into its transport presentation without leaking transport types into the core.
+// SuccessEmbed builds a titled embed in the success colour.
 func SuccessEmbed(title, description string) *discordgo.MessageEmbed {
 	return NewEmbed().SetTitle(title).SetDescription(description).SetColor(ColorSuccess).Build()
 }
 
-// ErrorEmbed converts error embed into its transport presentation without leaking transport types into the core.
+// ErrorEmbed builds a red embed with the standard "Couldn’t do that" title.
 func ErrorEmbed(description string) *discordgo.MessageEmbed {
 	return NewEmbed().SetTitle("Couldn’t do that").SetDescription(description).SetColor(ColorError).Build()
 }
 
-// WarningEmbed converts warning embed into its transport presentation without leaking transport types into the core.
+// WarningEmbed builds a titled embed in the warning colour.
 func WarningEmbed(title, description string) *discordgo.MessageEmbed {
 	return NewEmbed().SetTitle(title).SetDescription(description).SetColor(ColorWarning).Build()
 }
 
-// InfoEmbed converts info embed into its transport presentation without leaking transport types into the core.
+// InfoEmbed builds a titled embed in the brand colour.
 func InfoEmbed(title, description string) *discordgo.MessageEmbed {
 	return NewEmbed().SetTitle(title).SetDescription(description).SetColor(ColorMain).Build()
 }
@@ -169,44 +175,47 @@ func TruncateRunes(value string, limit int) string {
 	return string(runes[:limit])
 }
 
-// Embed is a fluent builder that centralizes Quack's Discord embed formatting rules.
+// Embed is a fluent builder that applies Discord's per-field limits on every
+// setter and the 6000-character aggregate limit in Build. The builder is reusable:
+// Build returns a copy and leaves the builder's fields intact.
 type Embed struct {
 	embed *discordgo.MessageEmbed
 }
 
-// NewEmbed constructs embed with required dependencies explicit so callers control lifecycle and substitution.
+// NewEmbed starts an empty embed in the brand colour.
 func NewEmbed() *Embed {
 	return &Embed{embed: &discordgo.MessageEmbed{Color: ColorMain}}
 }
 
-// NewInfoEmbed constructs info embed with required dependencies explicit so callers control lifecycle and substitution.
+// NewInfoEmbed starts a titled embed in the brand colour.
 func NewInfoEmbed(title, description string) *Embed {
 	return NewEmbed().SetTitle(title).SetDescription(description).SetColor(ColorMain)
 }
 
-// NewSuccessEmbed constructs success embed with required dependencies explicit so callers control lifecycle and substitution.
+// NewSuccessEmbed starts a titled embed in the success colour.
 func NewSuccessEmbed(title, description string) *Embed {
 	return NewEmbed().SetTitle(title).SetDescription(description).SetColor(ColorSuccess)
 }
 
-// NewErrorEmbed constructs error embed with required dependencies explicit so callers control lifecycle and substitution.
+// NewErrorEmbed starts a red embed with the standard "Couldn’t do that" title.
 func NewErrorEmbed(description string) *Embed {
 	return NewEmbed().SetTitle("Couldn’t do that").SetDescription(description).SetColor(ColorError)
 }
 
-// SetTitle encapsulates the set title rule so callers share one consistent package implementation.
+// SetTitle trims and truncates the title to EmbedTitleLimit runes.
 func (e *Embed) SetTitle(title string) *Embed {
 	e.embed.Title = TruncateRunes(strings.TrimSpace(title), EmbedTitleLimit)
 	return e
 }
 
-// SetDescription encapsulates the set description rule so callers share one consistent package implementation.
+// SetDescription truncates the description to EmbedDescriptionLimit runes.
 func (e *Embed) SetDescription(description string) *Embed {
 	e.embed.Description = TruncateRunes(description, EmbedDescriptionLimit)
 	return e
 }
 
-// AddField encapsulates the add field rule so callers share one consistent package implementation.
+// AddField appends one field, substituting a zero-width space for blank names or
+// values (Discord rejects empty strings) and ignoring fields past EmbedFieldLimit.
 func (e *Embed) AddField(name string, value any, inline bool) *Embed {
 	if len(e.embed.Fields) >= EmbedFieldLimit {
 		return e
@@ -227,7 +236,7 @@ func (e *Embed) AddField(name string, value any, inline bool) *Embed {
 	return e
 }
 
-// AddFields encapsulates the add fields rule so callers share one consistent package implementation.
+// AddFields appends prebuilt fields through AddField, skipping nil entries.
 func (e *Embed) AddFields(fields ...*discordgo.MessageEmbedField) *Embed {
 	for _, field := range fields {
 		if field == nil {
@@ -238,13 +247,13 @@ func (e *Embed) AddFields(fields ...*discordgo.MessageEmbedField) *Embed {
 	return e
 }
 
-// SetFooter encapsulates the set footer rule so callers share one consistent package implementation.
+// SetFooter truncates the footer text to EmbedFooterLimit runes.
 func (e *Embed) SetFooter(text string) *Embed {
 	e.embed.Footer = &discordgo.MessageEmbedFooter{Text: TruncateRunes(text, EmbedFooterLimit)}
 	return e
 }
 
-// SetAuthor encapsulates the set author rule so callers share one consistent package implementation.
+// SetAuthor sets the author line; the name is bounded like a title.
 func (e *Embed) SetAuthor(name, iconURL string) *Embed {
 	e.embed.Author = &discordgo.MessageEmbedAuthor{
 		Name:    TruncateRunes(strings.TrimSpace(name), EmbedTitleLimit),
@@ -253,13 +262,13 @@ func (e *Embed) SetAuthor(name, iconURL string) *Embed {
 	return e
 }
 
-// SetThumbnail encapsulates the set thumbnail rule so callers share one consistent package implementation.
+// SetThumbnail sets the thumbnail image URL.
 func (e *Embed) SetThumbnail(url string) *Embed {
 	e.embed.Thumbnail = &discordgo.MessageEmbedThumbnail{URL: strings.TrimSpace(url)}
 	return e
 }
 
-// SetTimestamp encapsulates the set timestamp rule so callers share one consistent package implementation.
+// SetTimestamp records t in RFC 3339 UTC, defaulting a zero time to now.
 func (e *Embed) SetTimestamp(t time.Time) *Embed {
 	if t.IsZero() {
 		t = time.Now()
@@ -268,13 +277,14 @@ func (e *Embed) SetTimestamp(t time.Time) *Embed {
 	return e
 }
 
-// SetColor encapsulates the set color rule so callers share one consistent package implementation.
+// SetColor sets the embed's accent colour.
 func (e *Embed) SetColor(color int) *Embed {
 	e.embed.Color = color
 	return e
 }
 
-// SetNamedColor encapsulates the set named color rule so callers share one consistent package implementation.
+// SetNamedColor maps a human colour name ("success", "error", "muted", ...) to a
+// palette colour; unknown names fall back to the brand colour.
 func (e *Embed) SetNamedColor(name string) *Embed {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "success", "green":
@@ -290,7 +300,7 @@ func (e *Embed) SetNamedColor(name string) *Embed {
 	}
 }
 
-// Field encapsulates the field rule so callers share one consistent package implementation.
+// Field builds an unbounded embed field for use with AddFields, which applies the limits.
 func Field(name string, value any, inline bool) *discordgo.MessageEmbedField {
 	return &discordgo.MessageEmbedField{
 		Name:   fmt.Sprint(name),

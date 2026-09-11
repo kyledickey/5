@@ -14,10 +14,10 @@ import (
 
 // SendAuditMirror sends one core audit event to its configured staff-only channel.
 // It does not share formatting, queues, or state with optional general logging.
+// A destination that fails validation or that Discord rejects with 403/404 is
+// reported as quack.ErrAuditMirrorChannelUnavailable so the worker can pause
+// that guild; any other failure is retried by the worker's normal policy.
 func (b *Bot) SendAuditMirror(ctx context.Context, message quack.AuditMirrorMessage) error {
-	if b == nil || b.Session == nil {
-		return errors.New("Discord audit mirror adapter is not configured")
-	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -25,13 +25,15 @@ func (b *Bot) SendAuditMirror(ctx context.Context, message quack.AuditMirrorMess
 		return fmt.Errorf("%w: private destination validation failed", quack.ErrAuditMirrorChannelUnavailable)
 	}
 	notice := views.AuditMirrorMessage(message)
-	_, err := b.Session.ChannelMessageSendComplex(message.ChannelDiscordID, notice.SendParams(ui.SessionApplicationID(b.Session)), discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
+	params := notice.SendParams(ui.SessionApplicationID(b.Session))
+	_, err := b.Session.ChannelMessageSendComplex(message.ChannelDiscordID, params, singleAttempt(ctx)...)
 	if err == nil {
 		return nil
 	}
 	var restErr *discordgo.RESTError
-	if errors.As(err, &restErr) && restErr.Response != nil && (restErr.Response.StatusCode == http.StatusForbidden || restErr.Response.StatusCode == http.StatusNotFound) {
+	if errors.As(err, &restErr) && restErr.Response != nil &&
+		(restErr.Response.StatusCode == http.StatusForbidden || restErr.Response.StatusCode == http.StatusNotFound) {
 		return fmt.Errorf("%w: Discord rejected configured channel", quack.ErrAuditMirrorChannelUnavailable)
 	}
-	return errors.New("Discord audit mirror delivery failed")
+	return errors.New("discord audit mirror delivery failed")
 }

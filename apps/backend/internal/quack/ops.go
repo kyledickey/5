@@ -14,7 +14,9 @@ type OpsService struct {
 	scheduler CaseWorkScheduler
 }
 
-// OpsStatusResponse is the transport-neutral representation returned for ops status response.
+// OpsStatusResponse is the operator status document: transient queue counters
+// from the scheduler plus durable action counts from the repository, either
+// process-wide (Scope "global") or restricted to one guild (Scope "guild").
 type OpsStatusResponse struct {
 	GeneratedAt time.Time       `json:"generated_at"`
 	Scope       string          `json:"scope"`
@@ -23,7 +25,9 @@ type OpsStatusResponse struct {
 	Actions     OpsActionStatus `json:"actions"`
 }
 
-// OpsActionStatus identifies the supported ops action status values stored and exchanged by Quack.
+// OpsActionStatus summarizes persisted enforcement work: which action types
+// this build can execute, execution counts by status, the oldest row still
+// waiting, and the most recent failures.
 type OpsActionStatus struct {
 	Capabilities         []OpsActionCapability     `json:"capabilities"`
 	StatusCounts         map[string]int64          `json:"status_counts"`
@@ -31,14 +35,16 @@ type OpsActionStatus struct {
 	RecentFailures       []OpsRecentActionFailure  `json:"recent_failures"`
 }
 
-// OpsActionCapability groups the ops action capability state used to keep this package's responsibilities explicit.
+// OpsActionCapability reports whether one action type is executable by this
+// build and how ("implemented" directly or as a "staff_confirmed_reversal").
 type OpsActionCapability struct {
 	ActionType model.ActionType `json:"action_type"`
 	Executable bool             `json:"executable"`
 	Status     string           `json:"status"`
 }
 
-// OpsOldestActionExecution groups the ops oldest action execution state used to keep this package's responsibilities explicit.
+// OpsOldestActionExecution identifies the longest-waiting pending or retrying
+// execution so operators can tell a stalled queue from an empty one.
 type OpsOldestActionExecution struct {
 	ID          string                      `json:"id"`
 	CaseID      string                      `json:"case_id"`
@@ -49,7 +55,7 @@ type OpsOldestActionExecution struct {
 	NextRetryAt *time.Time                  `json:"next_retry_at,omitempty"`
 }
 
-// OpsRecentActionFailure groups the ops recent action failure state used to keep this package's responsibilities explicit.
+// OpsRecentActionFailure is one recently failed execution with its classified error.
 type OpsRecentActionFailure struct {
 	ID            string                      `json:"id"`
 	CaseID        string                      `json:"case_id"`
@@ -61,13 +67,10 @@ type OpsRecentActionFailure struct {
 	UpdatedAt     time.Time                   `json:"updated_at"`
 }
 
-// NewOpsService binds durable action health to an optional in-process queue snapshot.
-func NewOpsService(store OpsRepository, scheduler ...CaseWorkScheduler) *OpsService {
-	service := &OpsService{store: store}
-	if len(scheduler) > 0 {
-		service.scheduler = scheduler[0]
-	}
-	return service
+// NewOpsService returns a service over store. scheduler may be nil, in which
+// case responses carry zero queue statistics.
+func NewOpsService(store OpsRepository, scheduler CaseWorkScheduler) *OpsService {
+	return &OpsService{store: store, scheduler: scheduler}
 }
 
 // GlobalStatus returns process-wide queue and action health for privileged operators.
@@ -85,9 +88,6 @@ func (s *OpsService) GuildStatus(ctx context.Context, guildID string) (*OpsStatu
 
 // status combines durable action state with transient worker statistics so operators can distinguish backlog from queue health.
 func (s *OpsService) status(ctx context.Context, guildID, scope string) (*OpsStatusResponse, error) {
-	if s == nil || s.store == nil {
-		return nil, errors.New("ops service is not configured")
-	}
 	snapshot, err := s.store.ActionQueueSnapshot(ctx, guildID, 10)
 	if err != nil {
 		return nil, err
@@ -147,7 +147,8 @@ func opsActionStatus(snapshot *model.ActionQueueSnapshot) OpsActionStatus {
 	return status
 }
 
-// actionCapabilities encapsulates the action capabilities rule so callers share one consistent package implementation.
+// actionCapabilities lists the enforcement actions this build implements.
+// Reversals are executable but only ever queued after staff confirmation.
 func actionCapabilities() []OpsActionCapability {
 	return []OpsActionCapability{
 		{ActionType: model.ActionTimeoutUser, Executable: true, Status: "implemented"},

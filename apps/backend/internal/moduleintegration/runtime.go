@@ -1,14 +1,11 @@
-// Package moduleintegration composes optional v5 modules at process boundaries
-// without allowing their storage or delivery lifecycles into the moderation core.
 package moduleintegration
 
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 	"time"
-
-	"log/slog"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/modules"
@@ -29,7 +26,16 @@ const (
 	honeypotQueueWorkers    = 2
 )
 
-// Runtime owns the optional-module services and their process-scoped workers.
+// Runtime composes the optional-module services with their Discord adapters and
+// owns the process-scoped workers behind them: the general-logging delivery
+// queue, the bulk-delete drain, the honeypot worker pool and the hourly
+// transcript sweep. Each queue has its own capacity and shutdown so optional
+// traffic can never occupy the moderation action queue.
+//
+// New builds a complete Runtime. Tests assemble partial ones with only the
+// module components they exercise, which is why gateway handlers check each
+// exported component before routing to it; everything set by New (db, session,
+// registry, resolver, services) is assumed present elsewhere.
 type Runtime struct {
 	honeypotWarningLocks sync.Map
 	ticketSetupLocks     sync.Map
@@ -61,14 +67,18 @@ type Runtime struct {
 	closeDone           chan struct{}
 }
 
-// bulkDeleteEvent carries one bounded cache-aware bulk deletion job.
+// bulkDeleteEvent is one gateway bulk deletion waiting for the cache-aware
+// logging drain.
 type bulkDeleteEvent struct {
 	guildID, channelID string
 	messageIDs         []string
 }
 
-// New constructs the shared registry, immutable audit adapter, module stores,
-// Discord adapters, and bounded general-logging delivery workers.
+// New composes the module registry, stores, services, Discord adapters and
+// workers on top of the core repositories and services. It validates every
+// required dependency here so the methods on Runtime can assume them, and it
+// registers the Runtime as the core settings service's enablement validator.
+// The returned Runtime must be closed to stop its workers.
 func New(ctx context.Context, repositories *store.Store, session *discordgo.Session, services *quack.Services) (*Runtime, error) {
 	if repositories == nil || repositories.DB() == nil {
 		return nil, errors.New("optional module database is not configured")
@@ -76,7 +86,7 @@ func New(ctx context.Context, repositories *store.Store, session *discordgo.Sess
 	if session == nil {
 		return nil, errors.New("optional module Discord session is not configured")
 	}
-	if services == nil || services.Cases == nil || services.Templates == nil {
+	if services == nil || services.Cases == nil || services.Templates == nil || services.Guilds == nil {
 		return nil, errors.New("optional module core services are not configured")
 	}
 
@@ -97,7 +107,14 @@ func New(ctx context.Context, repositories *store.Store, session *discordgo.Sess
 	loggingService := generallogging.NewService(registry, auditor, loggingClient, nil)
 	honeypotTemplates := honeypotTemplateValidator{templates: services.Templates}
 	honeypotChannels := honeypotChannelValidator{session: session, resolver: resolver}
-	honeypotService := honeypot.NewService(registry, honeypot.NewStore(repositories.DB()), auditor, honeypotChannels, honeypotTemplates, honeypotCaseApplier{cases: services.Cases, session: session})
+	honeypotService := honeypot.NewService(
+		registry,
+		honeypot.NewStore(repositories.DB()),
+		auditor,
+		honeypotChannels,
+		honeypotTemplates,
+		honeypotCaseApplier{cases: services.Cases, session: session},
+	)
 	honeypotDiscord := honeypot.NewDiscordAdapter(honeypotService)
 	workerCtx, cancel := context.WithCancel(ctx)
 
@@ -118,8 +135,20 @@ func New(ctx context.Context, repositories *store.Store, session *discordgo.Sess
 		bulk:              make(chan bulkDeleteEvent, loggingQueueCapacity),
 		closeDone:         make(chan struct{}),
 	}
-	runtime.honeypotCounter = &honeypotCounter{templates: services.Templates, session: session, service: honeypotService, resolver: resolver, sharedLocks: &runtime.honeypotWarningLocks}
-	runtime.HoneypotRuntime = honeypot.NewRuntime(workerCtx, honeypotDiscord, honeypotQueueCapacity, honeypotQueueWorkers, runtime.honeypotCounter)
+	runtime.honeypotCounter = &honeypotCounter{
+		templates:   services.Templates,
+		session:     session,
+		service:     honeypotService,
+		resolver:    resolver,
+		sharedLocks: &runtime.honeypotWarningLocks,
+	}
+	runtime.HoneypotRuntime = honeypot.NewRuntime(
+		workerCtx,
+		honeypotDiscord,
+		honeypotQueueCapacity,
+		honeypotQueueWorkers,
+		runtime.honeypotCounter,
+	)
 	for range loggingQueueWorkers {
 		runtime.bulkWG.Add(1)
 		go runtime.runBulkDeletes(workerCtx)
@@ -135,17 +164,17 @@ func New(ctx context.Context, repositories *store.Store, session *discordgo.Sess
 	return runtime, nil
 }
 
-// Close cancels periodic work and drains already accepted logging deliveries.
+// Close stops the workers and waits for accepted work to drain with no deadline.
 func (r *Runtime) Close() {
-	_ = r.CloseContext(context.Background())
+	_ = r.CloseContext(context.Background()) // best-effort: only a cancelled ctx can fail, and Background never is
 }
 
-// CloseContext cancels module work, stops accepting deliveries, and waits only
-// through the caller's graceful-shutdown deadline.
+// CloseContext stops accepting bulk deletions, drains the bulk and honeypot
+// workers, closes the logging queue, cancels the transcript sweep and waits
+// until everything has exited or ctx expires. It is safe to call repeatedly and
+// on a zero-value Runtime; optional workers that were never started are
+// skipped. When ctx expires the workers are cancelled and ctx.Err is returned.
 func (r *Runtime) CloseContext(ctx context.Context) error {
-	if r == nil {
-		return nil
-	}
 	r.bulkMu.Lock()
 	if r.closeDone == nil {
 		r.closeDone = make(chan struct{})
@@ -184,15 +213,19 @@ func (r *Runtime) CloseContext(ctx context.Context) error {
 	}
 }
 
-// runBulkDeletes drains cache-aware bulk deletion work independently of case actions.
+// runBulkDeletes drains bulk deletions on a worker that is independent of case
+// actions. Delivery failures are already recorded in the logging service's
+// status counters.
 func (r *Runtime) runBulkDeletes(ctx context.Context) {
 	defer r.bulkWG.Done()
 	for event := range r.bulk {
-		_ = r.Logging.HandleBulkDelete(ctx, event.guildID, event.channelID, event.messageIDs)
+		_ = r.Logging.HandleBulkDelete(ctx, event.guildID, event.channelID, event.messageIDs) // best-effort: failures are visible in logging status
 	}
 }
 
-// submitBulkDelete sheds work when the isolated logging queue is saturated.
+// submitBulkDelete queues one bulk deletion, dropping it when the queue is
+// saturated or closing. Shedding general logging is deliberate: it must never
+// delay moderation.
 func (r *Runtime) submitBulkDelete(event bulkDeleteEvent) {
 	r.bulkMu.RLock()
 	defer r.bulkMu.RUnlock()
@@ -202,12 +235,12 @@ func (r *Runtime) submitBulkDelete(event bulkDeleteEvent) {
 	select {
 	case r.bulk <- event:
 	default:
-		// General logging is explicitly shed rather than delaying moderation.
 	}
 }
 
-// runTranscriptSweep purges expired private content promptly at startup and on
-// a bounded interval while leaving ticket timelines intact.
+// runTranscriptSweep purges expired private content once at startup and then
+// every transcriptSweepInterval until ctx is cancelled. Ticket timelines are
+// never touched.
 func (r *Runtime) runTranscriptSweep(ctx context.Context) {
 	r.purgeTranscripts(ctx)
 	ticker := time.NewTicker(transcriptSweepInterval)
@@ -222,23 +255,20 @@ func (r *Runtime) runTranscriptSweep(ctx context.Context) {
 	}
 }
 
-// purgeTranscripts reports cleanup failure operationally without terminating
-// unrelated moderation or logging workers.
+// purgeTranscripts logs a failed sweep instead of stopping unrelated workers.
 func (r *Runtime) purgeTranscripts(ctx context.Context) {
 	if _, err := r.Tickets.PurgeExpiredTranscripts(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		slog.Error("Failed to purge expired ticket transcripts", "error", err)
 	}
 }
 
-// moduleAuditor adapts module outcomes into the append-only core audit store.
+// moduleAuditor implements modules.Auditor on the core append-only audit store.
 type moduleAuditor struct{ repository quack.Repository }
 
-// RecordModuleAudit appends one module event and never routes general-log
-// payload delivery into audit history.
+// RecordModuleAudit appends one module audit entry, attributing the source from
+// the context (API, Discord or honeypot automation) and rejecting results the
+// core audit model does not define. Log payloads never pass through here.
 func (a moduleAuditor) RecordModuleAudit(ctx context.Context, event modules.AuditEvent) error {
-	if a.repository == nil {
-		return errors.New("module audit repository is not configured")
-	}
 	result := model.AuditResult(event.Result)
 	switch result {
 	case model.AuditResultSuccess, model.AuditResultFailure, model.AuditResultDenied:
@@ -247,22 +277,32 @@ func (a moduleAuditor) RecordModuleAudit(ctx context.Context, event modules.Audi
 	}
 	requestID, correlationID := quack.TraceIDsFromContext(ctx)
 	return a.repository.CreateAuditLogEntry(ctx, &model.AuditLogEntry{
-		GuildID: event.GuildID, ActorDiscordUserID: event.ActorDiscordUserID,
-		Source: quack.AuditSourceForModuleAction(ctx, event.Action), Action: event.Action,
-		ResourceType: event.ResourceType, ResourceID: event.ResourceID,
-		Result: result, FailureReason: event.FailureReason,
-		RequestID: requestID, CorrelationID: correlationID, MetadataJSON: event.MetadataJSON,
+		GuildID:            event.GuildID,
+		ActorDiscordUserID: event.ActorDiscordUserID,
+		Source:             quack.AuditSourceForModuleAction(ctx, event.Action),
+		Action:             event.Action,
+		ResourceType:       event.ResourceType,
+		ResourceID:         event.ResourceID,
+		Result:             result,
+		FailureReason:      event.FailureReason,
+		RequestID:          requestID,
+		CorrelationID:      correlationID,
+		MetadataJSON:       event.MetadataJSON,
 	})
 }
 
-// guildResolver translates Discord transport identities into Quack's internal
-// guild key without exposing persistence to feature modules.
+// guildResolver maps between Discord guild snowflakes and Quack's internal
+// guild IDs by reading the core guilds table directly. Modules only ever see
+// internal IDs.
 type guildResolver struct{ db *gorm.DB }
 
-// internalID returns the active internal guild identity for a Discord guild.
+// internalID returns the internal ID of an active guild, or an error when the
+// guild is unknown or inactive.
 func (r guildResolver) internalID(ctx context.Context, discordGuildID string) (string, error) {
 	var guild model.Guild
-	result := r.db.WithContext(ctx).Where("discord_guild_id = ? AND is_active = ?", discordGuildID, true).Limit(1).Find(&guild)
+	result := r.db.WithContext(ctx).
+		Where("discord_guild_id = ? AND is_active = ?", discordGuildID, true).
+		Limit(1).Find(&guild)
 	if result.Error != nil {
 		return "", result.Error
 	}
@@ -272,8 +312,8 @@ func (r guildResolver) internalID(ctx context.Context, discordGuildID string) (s
 	return guild.ID, nil
 }
 
-// internalIDAny resolves preserved guild identity for departure cleanup even
-// when another gateway handler has already marked the guild inactive.
+// internalIDAny resolves an internal ID regardless of the active flag so
+// departure cleanup still works after another handler marked the guild inactive.
 func (r guildResolver) internalIDAny(ctx context.Context, discordGuildID string) (string, error) {
 	var guild model.Guild
 	result := r.db.WithContext(ctx).Where("discord_guild_id = ?", discordGuildID).Limit(1).Find(&guild)
@@ -286,7 +326,7 @@ func (r guildResolver) internalIDAny(ctx context.Context, discordGuildID string)
 	return guild.ID, nil
 }
 
-// discordID returns the Discord guild identity for an internal module key.
+// discordID returns the Discord guild ID for an active internal guild.
 func (r guildResolver) discordID(ctx context.Context, guildID string) (string, error) {
 	var guild model.Guild
 	result := r.db.WithContext(ctx).Where("id = ? AND is_active = ?", guildID, true).Limit(1).Find(&guild)

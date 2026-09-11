@@ -6,7 +6,9 @@ import (
 	"unicode"
 )
 
-// traceContextKey groups the trace context key state used to keep this package's responsibilities explicit.
+// traceContextKey is the private context key type for trace identifiers so
+// other packages cannot collide with or read the values except through the
+// helpers below.
 type traceContextKey string
 
 const (
@@ -14,7 +16,8 @@ const (
 	correlationIDContextKey traceContextKey = "correlation_id"
 )
 
-// NewTraceID creates a sortable random identifier for tracing across HTTP, Discord, and workers.
+// NewTraceID returns a fresh ULID for use as a request or correlation ID when
+// the caller did not supply one.
 func NewTraceID() string {
 	id, err := NewULID()
 	if err != nil {
@@ -23,7 +26,9 @@ func NewTraceID() string {
 	return id
 }
 
-// ContextWithTrace returns a derived context carrying trace for cross-transport tracing.
+// ContextWithTrace attaches both trace identifiers to ctx. An unsafe or empty
+// request ID is replaced with a new one; an unsafe or empty correlation ID
+// defaults to the request ID so a single request always has a correlation ID.
 func ContextWithTrace(ctx context.Context, requestID, correlationID string) context.Context {
 	ctx = ContextWithRequestID(ctx, requestID)
 	if NormalizeTraceID(correlationID) == "" {
@@ -32,7 +37,8 @@ func ContextWithTrace(ctx context.Context, requestID, correlationID string) cont
 	return ContextWithCorrelationID(ctx, correlationID)
 }
 
-// ContextWithRequestID returns a derived context carrying request id for cross-transport tracing.
+// ContextWithRequestID attaches a request ID to ctx, generating a new one when
+// requestID is empty or fails NormalizeTraceID.
 func ContextWithRequestID(ctx context.Context, requestID string) context.Context {
 	requestID = NormalizeTraceID(requestID)
 	if requestID == "" {
@@ -41,7 +47,8 @@ func ContextWithRequestID(ctx context.Context, requestID string) context.Context
 	return context.WithValue(ctx, requestIDContextKey, requestID)
 }
 
-// ContextWithCorrelationID returns a derived context carrying correlation id for cross-transport tracing.
+// ContextWithCorrelationID attaches a correlation ID to ctx, generating a new
+// one when correlationID is empty or fails NormalizeTraceID.
 func ContextWithCorrelationID(ctx context.Context, correlationID string) context.Context {
 	correlationID = NormalizeTraceID(correlationID)
 	if correlationID == "" {
@@ -50,17 +57,22 @@ func ContextWithCorrelationID(ctx context.Context, correlationID string) context
 	return context.WithValue(ctx, correlationIDContextKey, correlationID)
 }
 
-// RequestIDFromContext reads request idfrom context from context without requiring callers to know the private key type.
+// RequestIDFromContext returns the request ID stored in ctx, or "" when none
+// is present. A nil ctx is tolerated and yields "".
 func RequestIDFromContext(ctx context.Context) string {
 	return traceIDFromContext(ctx, requestIDContextKey)
 }
 
-// CorrelationIDFromContext reads correlation idfrom context from context without requiring callers to know the private key type.
+// CorrelationIDFromContext returns the correlation ID stored in ctx, or ""
+// when none is present. A nil ctx is tolerated and yields "".
 func CorrelationIDFromContext(ctx context.Context) string {
 	return traceIDFromContext(ctx, correlationIDContextKey)
 }
 
-// TraceIDsFromContext reads trace ids from context without requiring callers to know the private key type.
+// TraceIDsFromContext returns the request and correlation IDs from ctx. When
+// only a request ID is present it is also returned as the correlation ID so
+// log lines and error envelopes never show a blank correlation for a traced
+// request.
 func TraceIDsFromContext(ctx context.Context) (string, string) {
 	requestID := RequestIDFromContext(ctx)
 	correlationID := CorrelationIDFromContext(ctx)
@@ -70,7 +82,10 @@ func TraceIDsFromContext(ctx context.Context) (string, string) {
 	return requestID, correlationID
 }
 
-// NormalizeTraceID accepts bounded letters, digits, and safe separators for trace propagation.
+// NormalizeTraceID trims value and returns it unchanged when it is a safe
+// trace identifier: at most 128 characters consisting only of letters, digits,
+// '-', '_', '.', or ':'. Anything else returns "" so caller-supplied header
+// values cannot inject log or response content.
 func NormalizeTraceID(value string) string {
 	value = strings.TrimSpace(value)
 	if value == "" || len(value) > 128 {
@@ -85,7 +100,6 @@ func NormalizeTraceID(value string) string {
 	return value
 }
 
-// traceIDFromContext reads trace idfrom context from context without requiring callers to know the private key type.
 func traceIDFromContext(ctx context.Context, key traceContextKey) string {
 	if ctx == nil {
 		return ""

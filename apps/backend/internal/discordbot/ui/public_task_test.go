@@ -43,7 +43,8 @@ func TestAsyncPublicKeepsOneAttributedSuccess(t *testing.T) {
 		_, err := r.EditOriginal(ui.EditMessage(ui.Content("Saved.", false)))
 		return err
 	})
-	if result.Response.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource || result.Response.Data != nil && result.Response.Data.Flags&discordgo.MessageFlagsEphemeral != 0 {
+	if result.Response.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource ||
+		result.Response.Data != nil && result.Response.Data.Flags&discordgo.MessageFlagsEphemeral != 0 {
 		t.Fatal("success did not start publicly")
 	}
 	responder := &publicTaskResponder{}
@@ -66,7 +67,8 @@ func TestAsyncPublicRemovesPlaceholderAndKeepsErrorPrivate(t *testing.T) {
 	if err := result.Task(context.Background(), responder); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(responder.calls, []string{"delete", "followup"}) || !responder.followup.Ephemeral || !strings.Contains(responder.followup.Content, "Manage Server") {
+	if !reflect.DeepEqual(responder.calls, []string{"delete", "followup"}) || !responder.followup.Ephemeral ||
+		!strings.Contains(responder.followup.Content, "Manage Server") {
 		t.Fatalf("error became public or duplicated: %+v", responder)
 	}
 }

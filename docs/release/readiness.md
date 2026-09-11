@@ -16,8 +16,8 @@ with no second review request. Release-infrastructure changes
 are explicitly deferred under the user's prohibition and are not represented
 as passes.
 
-[`v5.md`](../v5.md) is authoritative. [`TODO.md`](../TODO.md) and
-[`v5-scope-drift.md`](v5-scope-drift.md) are supporting inventories. Missing
+[`v5.md`](../planning/v5.md) is authoritative. [`TODO.md`](../planning/TODO.md) and
+[`v5-scope-drift.md`](../planning/v5-scope-drift.md) are supporting inventories. Missing
 credentials, infrastructure, authorization, or execution is recorded as **NOT
 EXECUTED**, never inferred from unit tests.
 
@@ -39,7 +39,7 @@ EXECUTED**, never inferred from unit tests.
 | R12 | Tickets, general logging and honeypots remain isolated; honeypot alone applies a normal template; utilities do not shape core | QP-C/QP-F modules, QI-2 registrars/workers/migrations, module integration/isolation/privacy tests | PASS |
 | R13 | V4 historical readable import with no escalation/action/notification; module-owned migrations; isolated coexistence and direct-command cutover | QP-G at `17f938b`, logical 0400/0410 registered as physical 10/11, importer/CLI/rollback/restore/command-scope tests and docs | PASS with sanitized fixtures; operator real-data import NOT EXECUTED |
 | R14 | Every firm boundary: no cross-guild/template escalation, public automation API, moderator level/reason override, multi-action, severity/weight/window, notes, hard delete, Quack staff roles, Discord builder or audit/logging conflation | Canonical contracts, archive-only record, 0410 constraints, source/API policy scan, package isolation and security tests | PASS |
-| R15 | Release quality: migrations, real storage, full test/vet/build/race, E2E, security, clean install/upgrade/restore/coexistence/shutdown and real-guild checklist | Strict `apps/backend/scripts/v5-readiness.sh --final` PASS; `apps/backend/internal/readiness/v5_rehearsal_test.go`; [`v5-rehearsal.md`](v5-rehearsal.md); storage/ops runbooks | PASS local gates; real guild NOT EXECUTED, therefore release evidence incomplete |
+| R15 | Release quality: migrations, real storage, full test/vet/build/race, E2E, security, clean install/upgrade/restore/coexistence/shutdown and real-guild checklist | Strict `apps/backend/scripts/v5-readiness.sh --final` PASS; `apps/backend/internal/readiness/v5_rehearsal_test.go`; [`v5-rehearsal.md`](rehearsal.md); storage/ops runbooks | PASS local gates; real guild NOT EXECUTED, therefore release evidence incomplete |
 
 ## Supporting inventory reconciliation
 
@@ -54,7 +54,7 @@ remains. The external rehearsal is explicitly adjudicated, but not passed:
 Infrastructure-only work is checked as explicitly deferred with its product and
 authorization reason in `TODO.md`: CI jobs, scanners, coverage enforcement,
 Docker/Compose mutation and Compose smoke. Exact proposed changes are in
-[`release-infrastructure-proposal-v5.md`](release-infrastructure-proposal-v5.md).
+[`release-infrastructure-proposal.md`](release-infrastructure-proposal.md).
 
 The final scope-drift audit records no unresolved implementation mismatch.
 Frozen legacy columns remain compatibility data only; logical 0410 converts

@@ -37,7 +37,7 @@ func (r *publicationUseCaseStore) ListCaseActionExecutions(context.Context, stri
 func TestRecordPublicReceiptKeepsBoundedRetries(t *testing.T) {
 	for _, failures := range []int{0, 2, 3} {
 		repository := &publicationUseCaseStore{failures: failures}
-		err := NewCaseService(repository).RecordPublicReceipt(context.Background(), model.CasePublication{})
+		err := NewCaseService(repository, nil).RecordPublicReceipt(context.Background(), model.CasePublication{})
 		want := failures + 1
 		if want > 3 {
 			want = 3
@@ -49,10 +49,10 @@ func TestRecordPublicReceiptKeepsBoundedRetries(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	repository := &publicationUseCaseStore{failures: 3}
-	if err := NewCaseService(repository).RecordPublicReceipt(ctx, model.CasePublication{}); err == nil || repository.attempts != 1 {
+	if err := NewCaseService(repository, nil).RecordPublicReceipt(ctx, model.CasePublication{}); err == nil || repository.attempts != 1 {
 		t.Fatalf("cancellation: %v, %d attempts", err, repository.attempts)
 	}
-	if err := NewCaseService(struct{ CaseRepository }{}).RecordPublicReceipt(context.Background(), model.CasePublication{}); err == nil {
+	if err := NewCaseService(struct{ CaseRepository }{}, nil).RecordPublicReceipt(context.Background(), model.CasePublication{}); err == nil {
 		t.Fatal("missing capability accepted")
 	}
 }
@@ -61,7 +61,7 @@ func TestRecordPublicReceiptKeepsBoundedRetries(t *testing.T) {
 // payloads out of the command-facing read boundary and propagates read failures.
 func TestPublicReceiptStatusesExcludeExecutionDetails(t *testing.T) {
 	repository := &publicationUseCaseStore{}
-	service := NewCaseService(repository)
+	service := NewCaseService(repository, nil)
 	got, err := service.PublicReceiptActionStatuses(context.Background(), "case")
 	want := []CaseActionResponse{{ID: "execution", Status: model.ActionExecutionSucceeded}}
 	if err != nil || !reflect.DeepEqual(got, want) {

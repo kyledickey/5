@@ -10,8 +10,10 @@ import (
 	"github.com/quackdiscord/bot/internal/httpapi/apierror"
 )
 
-// Recovery contains handler panics and emits a traceable error without dumping
-// the request, cookies, body, or arbitrary panic value into operational logs.
+// Recovery converts a handler panic into a 500 error envelope. Only the panic
+// value's type and the stack are logged; the value itself, the request, cookies,
+// and body are not, because a panic message may quote private moderation
+// content or credentials.
 func Recovery(c *gin.Context) {
 	defer func() {
 		if recovered := recover(); recovered != nil {

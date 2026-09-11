@@ -9,6 +9,7 @@ import (
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 )
 
+// TestPublicAndEphemeralResponses proves Public clears and Ephemeral sets the ephemeral flag.
 func TestPublicAndEphemeralResponses(t *testing.T) {
 	public := ui.Public(ui.Content("visible", false))
 	if public.Type != discordgo.InteractionResponseChannelMessageWithSource {
@@ -24,6 +25,7 @@ func TestPublicAndEphemeralResponses(t *testing.T) {
 	}
 }
 
+// TestDeferredResponses proves DeferPublic and DeferEphemeral differ only in visibility.
 func TestDeferredResponses(t *testing.T) {
 	public := ui.DeferPublic()
 	if public.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource {
@@ -42,6 +44,7 @@ func TestDeferredResponses(t *testing.T) {
 	}
 }
 
+// TestEmbedTruncatesByRuneLimit proves every embed field is cut at its Discord rune limit.
 func TestEmbedTruncatesByRuneLimit(t *testing.T) {
 	embed := ui.NewEmbed().
 		SetTitle(strings.Repeat("t", ui.EmbedTitleLimit+10)).
@@ -69,6 +72,8 @@ func TestEmbedTruncatesByRuneLimit(t *testing.T) {
 	}
 }
 
+// TestEmbedHelpersBuildPresetEmbedsAndMessages proves blank fields, named colours,
+// author and thumbnail setters, and that EmbedMessage keeps the ephemeral flag.
 func TestEmbedHelpersBuildPresetEmbedsAndMessages(t *testing.T) {
 	embed := ui.NewInfoEmbed("Title", "Description").
 		AddField("", "", true).
@@ -104,6 +109,8 @@ func TestEmbedHelpersBuildPresetEmbedsAndMessages(t *testing.T) {
 	}
 }
 
+// TestErrorResponsesUseConversationAndClearOldEmbeds proves errors are private
+// text with the error icon and that an error edit removes previous embeds.
 func TestErrorResponsesUseConversationAndClearOldEmbeds(t *testing.T) {
 	response := ui.Error("Nope")
 	if response.Data == nil || response.Data.Content != "{{quack:error}} Nope" || len(response.Data.Embeds) != 0 || response.Data.Flags&discordgo.MessageFlagsEphemeral == 0 {
@@ -115,6 +122,7 @@ func TestErrorResponsesUseConversationAndClearOldEmbeds(t *testing.T) {
 	}
 }
 
+// TestCustomIDCodec proves EncodeCustomID and DecodeCustomID round-trip a routing ID.
 func TestCustomIDCodec(t *testing.T) {
 	encoded, err := ui.EncodeCustomID(ui.CustomID{
 		Namespace: "case",
@@ -138,6 +146,8 @@ func TestCustomIDCodec(t *testing.T) {
 	}
 }
 
+// TestCustomIDRejectsInvalidAndTooLongValues proves malformed and oversized IDs
+// return their sentinel errors.
 func TestCustomIDRejectsInvalidAndTooLongValues(t *testing.T) {
 	if _, err := ui.DecodeCustomID("case:missing"); !errors.Is(err, ui.ErrCustomIDInvalid) {
 		t.Fatalf("expected invalid custom id error, got %v", err)
@@ -153,6 +163,7 @@ func TestCustomIDRejectsInvalidAndTooLongValues(t *testing.T) {
 	}
 }
 
+// FuzzCustomIDCodec proves any value DecodeCustomID accepts re-encodes to itself.
 func FuzzCustomIDCodec(f *testing.F) {
 	f.Add("case:next:v1:target=123")
 	f.Add("case:missing")

@@ -6,7 +6,8 @@ import (
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
-// AppealSettingsResponse returns the effective future form, including Quack's default when no override exists.
+// AppealSettingsResponse is the form new appeals in a guild will snapshot.
+// Default reports that it is Quack's built-in form rather than a guild override.
 type AppealSettingsResponse struct {
 	GuildID   string                 `json:"guild_id"`
 	Questions []model.AppealQuestion `json:"questions"`

@@ -22,47 +22,51 @@ const (
 	ContextUserIDKey  = "auth_user_id"
 )
 
-// RequireAuth is a middleware function that requires a valid authentication session
-// Accepts bearer token or auth cookie
+// sessionLookupTimeout bounds the session store round trips made per request.
+const sessionLookupTimeout = 5 * time.Second
+
+// RequireAuth resolves the caller's session from a Bearer token or the session
+// cookie and stores it on the Gin context under ContextSessionKey (with the
+// Discord user ID under ContextUserIDKey) for handlers to read via
+// GetAuthSession. Every successful request slides the session expiry forward
+// by auth.SessionTTLHours and refreshes the double-submit CSRF cookie when the
+// browser authenticated with the session cookie.
+//
+// It aborts with 401 authentication_required when no usable session exists,
+// 401 reauthentication_required (and deletes the stored session and expires
+// both cookies) when the session or its Discord token has expired, and 503
+// when the session store is unavailable.
 func RequireAuth(s quack.Repository, auth config.AuthConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		sessionID := ExtractSessionID(c, auth.SessionCookieName)
 		if sessionID == "" {
-			slog.Warn("authentication required", "request_id", quack.RequestIDFromContext(c.Request.Context()), "correlation_id", quack.CorrelationIDFromContext(c.Request.Context()))
+			slog.Warn("authentication required", traceAttrs(c)...)
 			apierror.Write(c, http.StatusUnauthorized, apierror.CodeAuthentication, "authentication required")
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(c.Request.Context(), sessionLookupTimeout)
 		defer cancel()
 
 		session, err := s.GetSession(ctx, sessionID)
 		if err != nil {
-			slog.Error("auth session dependency unavailable", "request_id", quack.RequestIDFromContext(c.Request.Context()), "correlation_id", quack.CorrelationIDFromContext(c.Request.Context()))
+			slog.Error("auth session dependency unavailable", traceAttrs(c)...)
 			apierror.Write(c, http.StatusServiceUnavailable, apierror.CodeDependency, "authentication service unavailable")
 			return
 		}
-
 		if session == nil || session.DiscordUserID == "" {
-			slog.Warn("invalid authentication session", "request_id", quack.RequestIDFromContext(c.Request.Context()), "correlation_id", quack.CorrelationIDFromContext(c.Request.Context()))
+			slog.Warn("invalid authentication session", traceAttrs(c)...)
 			expireAuthCookies(c, auth)
 			apierror.Write(c, http.StatusUnauthorized, apierror.CodeAuthentication, "authentication required")
 			return
 		}
 
 		now := time.Now().UTC()
-		if !session.SessionExpiresAt.IsZero() && !now.Before(session.SessionExpiresAt) {
-			slog.Warn("authentication session expired", "request_id", quack.RequestIDFromContext(c.Request.Context()), "correlation_id", quack.CorrelationIDFromContext(c.Request.Context()), "actor_discord_user_id", session.DiscordUserID)
-			_ = s.DeleteSession(ctx, sessionID)
+		if logMessage, message := sessionExpiry(session, now); message != "" {
+			slog.Warn(logMessage, traceAttrs(c, "actor_discord_user_id", session.DiscordUserID)...)
+			_ = s.DeleteSession(ctx, sessionID) // best-effort: the caller is told to sign in again regardless
 			expireAuthCookies(c, auth)
-			apierror.Write(c, http.StatusUnauthorized, apierror.CodeReauthenticate, "sign in again to continue")
-			return
-		}
-		if !session.TokenExpiresAt.IsZero() && !now.Before(session.TokenExpiresAt) {
-			slog.Warn("Discord authorization expired", "request_id", quack.RequestIDFromContext(c.Request.Context()), "correlation_id", quack.CorrelationIDFromContext(c.Request.Context()), "actor_discord_user_id", session.DiscordUserID)
-			_ = s.DeleteSession(ctx, sessionID)
-			expireAuthCookies(c, auth)
-			apierror.Write(c, http.StatusUnauthorized, apierror.CodeReauthenticate, "Discord authorization expired; sign in again")
+			apierror.Write(c, http.StatusUnauthorized, apierror.CodeReauthenticate, message)
 			return
 		}
 		if session.CSRFToken == "" {
@@ -79,7 +83,7 @@ func RequireAuth(s quack.Repository, auth config.AuthConfig) gin.HandlerFunc {
 		session.SessionExpiresAt = now.Add(ttl)
 		refreshed, err := s.RefreshSession(ctx, session, ttl)
 		if err != nil {
-			slog.Error("auth session refresh dependency unavailable", "request_id", quack.RequestIDFromContext(c.Request.Context()), "correlation_id", quack.CorrelationIDFromContext(c.Request.Context()))
+			slog.Error("auth session refresh dependency unavailable", traceAttrs(c)...)
 			apierror.Write(c, http.StatusServiceUnavailable, apierror.CodeDependency, "authentication service unavailable")
 			return
 		}
@@ -98,7 +102,22 @@ func RequireAuth(s quack.Repository, auth config.AuthConfig) gin.HandlerFunc {
 	}
 }
 
-// NewCSRFToken creates the non-secret random challenge used by the double-submit browser contract.
+// sessionExpiry returns the log line and client message to use when session
+// can no longer be used at now: the session itself has expired, or the Discord
+// token it was minted from has. Both return values are "" for a live session.
+// Zero expiry timestamps never expire.
+func sessionExpiry(session *model.AuthSession, now time.Time) (logMessage, message string) {
+	if !session.SessionExpiresAt.IsZero() && !now.Before(session.SessionExpiresAt) {
+		return "authentication session expired", "sign in again to continue"
+	}
+	if !session.TokenExpiresAt.IsZero() && !now.Before(session.TokenExpiresAt) {
+		return "Discord authorization expired", "Discord authorization expired; sign in again"
+	}
+	return "", ""
+}
+
+// NewCSRFToken returns a 64-hex-character random token for the double-submit
+// cookie. It is a challenge the browser must echo, not a secret in itself.
 func NewCSRFToken() (string, error) {
 	var body [32]byte
 	if _, err := rand.Read(body[:]); err != nil {
@@ -107,20 +126,23 @@ func NewCSRFToken() (string, error) {
 	return hex.EncodeToString(body[:]), nil
 }
 
-// setCSRFCookie repairs or refreshes the browser's host-only double-submit cookie.
+// setCSRFCookie writes the host-only, JavaScript-readable CSRF cookie so the
+// dashboard can copy it into the X-CSRF-Token header.
 func setCSRFCookie(c *gin.Context, auth config.AuthConfig, token string, maxAge int) {
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(auth.CSRFCookieName, token, maxAge, "/", "", auth.CookieSecure, false)
 }
 
-// expireAuthCookies invalidates both browser credentials without exposing their values.
+// expireAuthCookies tells the browser to drop both the session and CSRF
+// cookies without echoing their values.
 func expireAuthCookies(c *gin.Context, auth config.AuthConfig) {
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(auth.SessionCookieName, "", -1, "/", "", auth.CookieSecure, true)
 	c.SetCookie(auth.CSRFCookieName, "", -1, "/", "", auth.CookieSecure, false)
 }
 
-// GetAuthSession retrieves the auth session from Gin context
+// GetAuthSession returns the session stored by RequireAuth, or nil when the
+// request did not pass through RequireAuth.
 func GetAuthSession(c *gin.Context) *model.AuthSession {
 	v, ok := c.Get(ContextSessionKey)
 	if !ok {
@@ -135,7 +157,10 @@ func GetAuthSession(c *gin.Context) *model.AuthSession {
 	return session
 }
 
-// ExtractSessionID extracts a bearer token or session cookie, allowing dashboard and API clients to share authentication middleware.
+// ExtractSessionID returns the session identifier presented by the request: a
+// "Bearer" Authorization header takes precedence over the cookie named
+// cookieName. It returns "" when neither is present, so API clients and the
+// browser dashboard share one authentication middleware.
 func ExtractSessionID(c *gin.Context, cookieName string) string {
 	auth := c.GetHeader("Authorization")
 	if auth != "" {

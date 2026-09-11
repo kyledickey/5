@@ -25,7 +25,17 @@ func (s *TemplateService) EnsureHoneypotTemplate(ctx context.Context, guild *Gui
 		return s.Get(ctx, guild, existing.ID)
 	}
 	return s.Create(ctx, guild, TemplateInput{
-		Slug: "honeypot", Name: "Honeypot", Description: "Applied when a member posts in the honeypot channel.", ReasonTemplate: "Posted in the honeypot channel despite the warning.", Appealable: true,
-		Levels: []TemplateLevelInput{{Name: "Default", Position: 1, IsDefault: true, NotifyUser: true, Actions: []TemplateActionInput{{ActionType: model.ActionBanUser}}}},
+		Slug:           "honeypot",
+		Name:           "Honeypot",
+		Description:    "Applied when a member posts in the honeypot channel.",
+		ReasonTemplate: "Posted in the honeypot channel despite the warning.",
+		Appealable:     true,
+		Levels: []TemplateLevelInput{{
+			Name:       "Default",
+			Position:   1,
+			IsDefault:  true,
+			NotifyUser: true,
+			Actions:    []TemplateActionInput{{ActionType: model.ActionBanUser}},
+		}},
 	})
 }

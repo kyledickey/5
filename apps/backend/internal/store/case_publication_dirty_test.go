@@ -75,13 +75,13 @@ func exercisePublicationMutationRequests(t *testing.T, db *gorm.DB) {
 		}
 	}
 	prior := sleep()
-	claimed, err := s.ClaimNextCaseAction(ctx, ClaimCaseActionParams{CaseID: item.ID})
+	claimed, err := s.ClaimNextCaseAction(ctx, model.ClaimCaseActionParams{CaseID: item.ID})
 	if err != nil || claimed == nil {
 		t.Fatalf("claim: %+v %v", claimed, err)
 	}
 	check(prior)
 	prior = sleep()
-	if err := s.CompleteCaseAction(ctx, CompleteCaseActionParams{ExecutionID: action.ID, LeaseToken: claimed.Execution.LeaseToken, AttemptNumber: 1, ExecutionStatus: model.ActionExecutionFailed, AttemptStatus: model.ActionAttemptFailed}); err != nil {
+	if err := s.CompleteCaseAction(ctx, model.CompleteCaseActionParams{ExecutionID: action.ID, LeaseToken: claimed.Execution.LeaseToken, AttemptNumber: 1, ExecutionStatus: model.ActionExecutionFailed, AttemptStatus: model.ActionAttemptFailed}); err != nil {
 		t.Fatal(err)
 	}
 	check(prior)
@@ -90,12 +90,12 @@ func exercisePublicationMutationRequests(t *testing.T, db *gorm.DB) {
 		t.Fatal(err)
 	}
 	check(prior)
-	claimed, err = s.ClaimNextCaseAction(ctx, ClaimCaseActionParams{CaseID: item.ID})
+	claimed, err = s.ClaimNextCaseAction(ctx, model.ClaimCaseActionParams{CaseID: item.ID})
 	if err != nil || claimed == nil {
 		t.Fatalf("reclaim: %+v %v", claimed, err)
 	}
 	prior = sleep()
-	if err := s.CompleteCaseAction(ctx, CompleteCaseActionParams{ExecutionID: action.ID, LeaseToken: claimed.Execution.LeaseToken, AttemptNumber: 2, ExecutionStatus: model.ActionExecutionSucceeded, AttemptStatus: model.ActionAttemptSucceeded}); err != nil {
+	if err := s.CompleteCaseAction(ctx, model.CompleteCaseActionParams{ExecutionID: action.ID, LeaseToken: claimed.Execution.LeaseToken, AttemptNumber: 2, ExecutionStatus: model.ActionExecutionSucceeded, AttemptStatus: model.ActionAttemptSucceeded}); err != nil {
 		t.Fatal(err)
 	}
 	check(prior)
@@ -111,7 +111,7 @@ func exercisePublicationMutationRequests(t *testing.T, db *gorm.DB) {
 		t.Fatal(err)
 	}
 	prior = sleep()
-	if _, err := s.ClaimNextCaseAction(ctx, ClaimCaseActionParams{CaseID: item.ID}); err != nil {
+	if _, err := s.ClaimNextCaseAction(ctx, model.ClaimCaseActionParams{CaseID: item.ID}); err != nil {
 		t.Fatal(err)
 	}
 	check(prior)
@@ -120,7 +120,7 @@ func exercisePublicationMutationRequests(t *testing.T, db *gorm.DB) {
 		t.Fatal(err)
 	}
 	prior = sleep()
-	if err := s.SkipCaseActions(ctx, SkipCaseActionsParams{CaseID: item.ID, AfterPosition: 8}); err != nil {
+	if err := s.SkipCaseActions(ctx, model.SkipCaseActionsParams{CaseID: item.ID, AfterPosition: 8}); err != nil {
 		t.Fatal(err)
 	}
 	check(prior)

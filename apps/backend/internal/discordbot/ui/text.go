@@ -58,7 +58,11 @@ func (m Message) ForApplication(applicationID string) Message {
 	} else {
 		m.Content += "\n\n-# Full details are attached."
 	}
-	m.Files = append(append([]*discordgo.File(nil), m.Files...), &discordgo.File{Name: "message.txt", ContentType: "text/plain; charset=utf-8", Reader: strings.NewReader(full)})
+	m.Files = append(append([]*discordgo.File(nil), m.Files...), &discordgo.File{
+		Name:        "message.txt",
+		ContentType: "text/plain; charset=utf-8",
+		Reader:      strings.NewReader(full),
+	})
 	return m
 }
 
@@ -79,13 +83,24 @@ func (m Message) SendParams(applicationID string) *discordgo.MessageSend {
 	if mentions == nil {
 		mentions = &discordgo.MessageAllowedMentions{}
 	}
-	return &discordgo.MessageSend{Content: m.Content, Embeds: m.Embeds, Components: m.Components, Files: m.Files, AllowedMentions: mentions, Flags: discordgo.MessageFlagsSuppressEmbeds}
+	return &discordgo.MessageSend{
+		Content:         m.Content,
+		Embeds:          m.Embeds,
+		Components:      m.Components,
+		Files:           m.Files,
+		AllowedMentions: mentions,
+		Flags:           discordgo.MessageFlagsSuppressEmbeds,
+	}
 }
 
 // PrepareResponse resolves only message response payloads, preserving modal and
 // autocomplete structures as well as deferred acknowledgement visibility.
 func PrepareResponse(response *discordgo.InteractionResponse, applicationID string) *discordgo.InteractionResponse {
-	if response == nil || response.Data == nil || (response.Type != discordgo.InteractionResponseChannelMessageWithSource && response.Type != discordgo.InteractionResponseUpdateMessage) {
+	if response == nil || response.Data == nil {
+		return response
+	}
+	if response.Type != discordgo.InteractionResponseChannelMessageWithSource &&
+		response.Type != discordgo.InteractionResponseUpdateMessage {
 		return response
 	}
 	result, data := *response, *response.Data

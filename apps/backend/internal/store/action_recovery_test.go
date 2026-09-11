@@ -14,11 +14,11 @@ import (
 func TestActionLeaseFencingAndCrashRecovery(t *testing.T) {
 	ctx := context.Background()
 	repository, guildID := templateTestStore(t)
-	created, err := repository.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), ActionExecutions: []model.CaseActionExecution{{ActionType: model.ActionTimeoutUser, SafeForRetry: true, MaxRetries: 1, ConfigSnapshotJSON: `{"duration_seconds":60}`}}})
+	created, err := repository.CreateCase(ctx, model.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), ActionExecutions: []model.CaseActionExecution{{ActionType: model.ActionTimeoutUser, SafeForRetry: true, MaxRetries: 1, ConfigSnapshotJSON: `{"duration_seconds":60}`}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := repository.ClaimNextCaseAction(ctx, storage.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker-1"})
+	first, err := repository.ClaimNextCaseAction(ctx, model.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker-1"})
 	if err != nil || first == nil || first.Execution.LeaseToken == "" {
 		t.Fatalf("first claim: %+v err=%v", first, err)
 	}
@@ -26,11 +26,11 @@ func TestActionLeaseFencingAndCrashRecovery(t *testing.T) {
 	if err := repository.DB().Model(&model.CaseActionExecution{}).Where("id = ?", first.Execution.ID).Update("lease_expires_at", expired).Error; err != nil {
 		t.Fatal(err)
 	}
-	second, err := repository.ClaimNextCaseAction(ctx, storage.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker-2"})
+	second, err := repository.ClaimNextCaseAction(ctx, model.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker-2"})
 	if err != nil || second == nil || second.Execution.LeaseToken == first.Execution.LeaseToken {
 		t.Fatalf("reclaimed action: %+v err=%v", second, err)
 	}
-	stale := storage.CompleteCaseActionParams{ExecutionID: first.Execution.ID, LeaseToken: first.Execution.LeaseToken, AttemptNumber: first.Execution.AttemptCount, WorkerID: "worker-1", AttemptStatus: model.ActionAttemptSucceeded, ExecutionStatus: model.ActionExecutionSucceeded}
+	stale := model.CompleteCaseActionParams{ExecutionID: first.Execution.ID, LeaseToken: first.Execution.LeaseToken, AttemptNumber: first.Execution.AttemptCount, WorkerID: "worker-1", AttemptStatus: model.ActionAttemptSucceeded, ExecutionStatus: model.ActionExecutionSucceeded}
 	if err := repository.CompleteCaseAction(ctx, stale); err == nil {
 		t.Fatal("stale worker completed a reclaimed action")
 	}
@@ -46,7 +46,7 @@ func TestActionLeaseFencingAndCrashRecovery(t *testing.T) {
 func TestActionClaimIsSingleWinnerUnderConcurrency(t *testing.T) {
 	ctx := context.Background()
 	repository, guildID := templateTestStore(t)
-	created, err := repository.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), ActionExecutions: []model.CaseActionExecution{{ActionType: model.ActionTimeoutUser, ConfigSnapshotJSON: `{}`}}})
+	created, err := repository.CreateCase(ctx, model.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), ActionExecutions: []model.CaseActionExecution{{ActionType: model.ActionTimeoutUser, ConfigSnapshotJSON: `{}`}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestActionClaimIsSingleWinnerUnderConcurrency(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			claimed, claimErr := repository.ClaimNextCaseAction(ctx, storage.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker"})
+			claimed, claimErr := repository.ClaimNextCaseAction(ctx, model.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker"})
 			if claimErr == nil && claimed != nil {
 				winners.Add(1)
 			}
@@ -71,7 +71,7 @@ func TestActionClaimIsSingleWinnerUnderConcurrency(t *testing.T) {
 func TestActionRecoveryControlsAreIdempotentAndAuditable(t *testing.T) {
 	ctx := context.Background()
 	repository, guildID := templateTestStore(t)
-	created, err := repository.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), ActionExecutions: []model.CaseActionExecution{{ActionType: model.ActionTimeoutUser, Status: model.ActionExecutionSucceeded, ConfigSnapshotJSON: `{}`}, {Position: 1, ActionType: model.ActionKickUser, Status: model.ActionExecutionFailed, ConfigSnapshotJSON: `{}`}}})
+	created, err := repository.CreateCase(ctx, model.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), ActionExecutions: []model.CaseActionExecution{{ActionType: model.ActionTimeoutUser, Status: model.ActionExecutionSucceeded, ConfigSnapshotJSON: `{}`}, {Position: 1, ActionType: model.ActionKickUser, Status: model.ActionExecutionFailed, ConfigSnapshotJSON: `{}`}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestNotificationClaimRecoversBeforeSendButNeverRepeatsAmbiguousSend(t *test
 	ctx := context.Background()
 	repository, guildID := templateTestStore(t)
 	notification := &model.CaseNotification{Status: model.NotificationPending}
-	created, err := repository.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), Notification: notification})
+	created, err := repository.CreateCase(ctx, model.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), Notification: notification})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,18 +154,18 @@ func TestExpiredUnsafeActionRequiresReview(t *testing.T) {
 			ctx := context.Background()
 			repository, guildID := templateTestStore(t)
 			action.ConfigSnapshotJSON = `{}`
-			created, err := repository.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), ActionExecutions: []model.CaseActionExecution{action}})
+			created, err := repository.CreateCase(ctx, model.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), ActionExecutions: []model.CaseActionExecution{action}})
 			if err != nil {
 				t.Fatal(err)
 			}
-			first, err := repository.ClaimNextCaseAction(ctx, storage.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "old"})
+			first, err := repository.ClaimNextCaseAction(ctx, model.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "old"})
 			if err != nil || first == nil {
 				t.Fatalf("claim: %+v %v", first, err)
 			}
 			if err := repository.DB().Model(&model.CaseActionExecution{}).Where("id = ?", first.Execution.ID).Update("lease_expires_at", time.Now().Add(-time.Minute)).Error; err != nil {
 				t.Fatal(err)
 			}
-			second, err := repository.ClaimNextCaseAction(ctx, storage.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "new"})
+			second, err := repository.ClaimNextCaseAction(ctx, model.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "new"})
 			if err != nil || second != nil {
 				t.Fatalf("unsafe repeat: %+v %v", second, err)
 			}
@@ -173,7 +173,7 @@ func TestExpiredUnsafeActionRequiresReview(t *testing.T) {
 			if err != nil || current.Status != model.ActionExecutionFailed || current.AttemptCount != 1 || current.LeaseToken != "" {
 				t.Fatalf("review state: %+v %v", current, err)
 			}
-			err = repository.CompleteCaseAction(ctx, storage.CompleteCaseActionParams{ExecutionID: first.Execution.ID, LeaseToken: first.Execution.LeaseToken, AttemptNumber: 1, WorkerID: "old", AttemptStatus: model.ActionAttemptSucceeded, ExecutionStatus: model.ActionExecutionSucceeded})
+			err = repository.CompleteCaseAction(ctx, model.CompleteCaseActionParams{ExecutionID: first.Execution.ID, LeaseToken: first.Execution.LeaseToken, AttemptNumber: 1, WorkerID: "old", AttemptStatus: model.ActionAttemptSucceeded, ExecutionStatus: model.ActionExecutionSucceeded})
 			if err == nil {
 				t.Fatal("expired worker overwrote review state")
 			}
@@ -186,7 +186,7 @@ func TestExpiredUnsafeActionRequiresReview(t *testing.T) {
 func TestRetryCannotResurrectVoidedPunishment(t *testing.T) {
 	ctx := context.Background()
 	repository, guildID := templateTestStore(t)
-	created, err := repository.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), ActionExecutions: []model.CaseActionExecution{{ActionType: model.ActionBanUser, Status: model.ActionExecutionFailed, ConfigSnapshotJSON: `{}`}}})
+	created, err := repository.CreateCase(ctx, model.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), ActionExecutions: []model.CaseActionExecution{{ActionType: model.ActionBanUser, Status: model.ActionExecutionFailed, ConfigSnapshotJSON: `{}`}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +200,7 @@ func TestRetryCannotResurrectVoidedPunishment(t *testing.T) {
 	if _, err := repository.RetryCaseAction(ctx, model.RetryCaseActionParams{GuildID: guildID, ExecutionID: actions[0].ID, ActorDiscordUserID: "mod"}); err == nil {
 		t.Fatal("retried punishment on voided case")
 	}
-	claimed, err := repository.ClaimNextCaseAction(ctx, storage.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker"})
+	claimed, err := repository.ClaimNextCaseAction(ctx, model.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker"})
 	if err != nil || claimed != nil {
 		t.Fatalf("voided punishment became executable: %+v, %v", claimed, err)
 	}
@@ -213,17 +213,17 @@ func TestVoidQueuesReversalAcrossCompletionRace(t *testing.T) {
 		t.Run(map[bool]string{false: "completed", true: "in_flight"}[late], func(t *testing.T) {
 			ctx := context.Background()
 			repository, guildID := templateTestStore(t)
-			created, err := repository.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), ActionExecutions: []model.CaseActionExecution{{ActionType: model.ActionBanUser, ConfigSnapshotJSON: `{}`}}})
+			created, err := repository.CreateCase(ctx, model.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), ActionExecutions: []model.CaseActionExecution{{ActionType: model.ActionBanUser, ConfigSnapshotJSON: `{}`}}})
 			if err != nil {
 				t.Fatal(err)
 			}
-			claimed, err := repository.ClaimNextCaseAction(ctx, storage.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker"})
+			claimed, err := repository.ClaimNextCaseAction(ctx, model.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker"})
 			if err != nil || claimed == nil {
 				t.Fatalf("claim: %+v %v", claimed, err)
 			}
 			complete := func() {
 				t.Helper()
-				if err := repository.CompleteCaseAction(ctx, storage.CompleteCaseActionParams{ExecutionID: claimed.Execution.ID, LeaseToken: claimed.Execution.LeaseToken, AttemptNumber: claimed.Execution.AttemptCount, AttemptStatus: model.ActionAttemptSucceeded, ExecutionStatus: model.ActionExecutionSucceeded}); err != nil {
+				if err := repository.CompleteCaseAction(ctx, model.CompleteCaseActionParams{ExecutionID: claimed.Execution.ID, LeaseToken: claimed.Execution.LeaseToken, AttemptNumber: claimed.Execution.AttemptCount, AttemptStatus: model.ActionAttemptSucceeded, ExecutionStatus: model.ActionExecutionSucceeded}); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -261,11 +261,11 @@ func TestVoidedInFlightFailureCannotRetry(t *testing.T) {
 		t.Run(map[bool]string{false: "reported_failure", true: "expired_worker"}[expired], func(t *testing.T) {
 			ctx := context.Background()
 			repository, guildID := templateTestStore(t)
-			created, err := repository.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), ActionExecutions: []model.CaseActionExecution{{ActionType: model.ActionTimeoutUser, SafeForRetry: true, MaxRetries: 3, ConfigSnapshotJSON: `{}`}}})
+			created, err := repository.CreateCase(ctx, model.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), ActionExecutions: []model.CaseActionExecution{{ActionType: model.ActionTimeoutUser, SafeForRetry: true, MaxRetries: 3, ConfigSnapshotJSON: `{}`}}})
 			if err != nil {
 				t.Fatal(err)
 			}
-			claimed, err := repository.ClaimNextCaseAction(ctx, storage.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker"})
+			claimed, err := repository.ClaimNextCaseAction(ctx, model.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "worker"})
 			if err != nil || claimed == nil {
 				t.Fatalf("claim: %v", err)
 			}
@@ -277,11 +277,11 @@ func TestVoidedInFlightFailureCannotRetry(t *testing.T) {
 					t.Fatal(err)
 				}
 			} else {
-				if err := repository.CompleteCaseAction(ctx, storage.CompleteCaseActionParams{ExecutionID: claimed.Execution.ID, LeaseToken: claimed.Execution.LeaseToken, AttemptNumber: claimed.Execution.AttemptCount, AttemptStatus: model.ActionAttemptFailed, ExecutionStatus: model.ActionExecutionRetrying, ErrorCode: "transport_failed"}); err != nil {
+				if err := repository.CompleteCaseAction(ctx, model.CompleteCaseActionParams{ExecutionID: claimed.Execution.ID, LeaseToken: claimed.Execution.LeaseToken, AttemptNumber: claimed.Execution.AttemptCount, AttemptStatus: model.ActionAttemptFailed, ExecutionStatus: model.ActionExecutionRetrying, ErrorCode: "transport_failed"}); err != nil {
 					t.Fatal(err)
 				}
 			}
-			next, err := repository.ClaimNextCaseAction(ctx, storage.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "next"})
+			next, err := repository.ClaimNextCaseAction(ctx, model.ClaimCaseActionParams{CaseID: created.Case.ID, WorkerID: "next"})
 			if err != nil || next != nil {
 				t.Fatalf("void retried enforcement: %+v %v", next, err)
 			}
@@ -298,7 +298,7 @@ func TestVoidedInFlightFailureCannotRetry(t *testing.T) {
 func TestVoidRollsBackWhenRemovalCannotBeStored(t *testing.T) {
 	ctx := context.Background()
 	repository, guildID := templateTestStore(t)
-	created, err := repository.CreateCase(ctx, storage.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), ActionExecutions: []model.CaseActionExecution{{ActionType: model.ActionTimeoutUser, Status: model.ActionExecutionSucceeded, ConfigSnapshotJSON: `{}`}}})
+	created, err := repository.CreateCase(ctx, model.CreateCaseParams{Case: caseModel(guildID, nil), Event: caseEvent(), ActionExecutions: []model.CaseActionExecution{{ActionType: model.ActionTimeoutUser, Status: model.ActionExecutionSucceeded, ConfigSnapshotJSON: `{}`}}})
 	if err != nil {
 		t.Fatal(err)
 	}

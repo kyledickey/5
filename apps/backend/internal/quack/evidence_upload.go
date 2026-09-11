@@ -11,7 +11,13 @@ import (
 
 // CaptureUploads preserves files supplied by staff, without pretending they are
 // messages authored by the case target. Failure leaves a visible metadata record.
-func (s *EvidenceService) CaptureUploads(ctx context.Context, guildID, actorID, channelID string, files []DiscordAttachmentSnapshot) (*CapturedEvidence, error) {
+// Only the first ten files are kept; the first snapshot carries a warning when
+// more were supplied.
+func (s *EvidenceService) CaptureUploads(
+	ctx context.Context,
+	guildID, actorID, channelID string,
+	files []DiscordAttachmentSnapshot,
+) (*CapturedEvidence, error) {
 	result := &CapturedEvidence{}
 	truncated := len(files) > maxEvidenceAttachments
 	if truncated {
@@ -30,10 +36,14 @@ func (s *EvidenceService) CaptureUploads(ctx context.Context, guildID, actorID, 
 		}
 		record := s.preserveAttachment(ctx, guildID, channelID, id, file)
 		snapshot := model.CaseEvidenceSnapshot{
-			ULIDModel: model.ULIDModel{ID: id}, GuildID: guildID,
-			AuthorDiscordUserID: actorID, MessageDiscordID: file.ID,
-			MessageCreatedAt: time.Now().UTC(), EmbedsJSON: "[]",
-			CaptureOutcome: "uploaded", CaptureWarning: record.Warning,
+			ULIDModel:           model.ULIDModel{ID: id},
+			GuildID:             guildID,
+			AuthorDiscordUserID: actorID,
+			MessageDiscordID:    file.ID,
+			MessageCreatedAt:    time.Now().UTC(),
+			EmbedsJSON:          "[]",
+			CaptureOutcome:      "uploaded",
+			CaptureWarning:      record.Warning,
 		}
 		result.Snapshots = append(result.Snapshots, snapshot)
 		result.Attachments = append(result.Attachments, record)
@@ -51,8 +61,15 @@ func (s *EvidenceService) CaptureUploads(ctx context.Context, guildID, actorID, 
 
 // AddEvidence attaches files and message snapshots to an existing case. It never
 // selects another level or schedules enforcement, including for a voided case.
-func (s *CaseService) AddEvidence(ctx context.Context, guild *GuildStaffContext, caseRef string, links []string, files []DiscordAttachmentSnapshot) (*CaseDetailResponse, error) {
-	if s == nil || s.store == nil || guild == nil || guild.Guild == nil || !guild.Can(model.PermissionActionCaseCreate) {
+// Requires the case create permission; caseRef may be a case ID or number.
+func (s *CaseService) AddEvidence(
+	ctx context.Context,
+	guild *GuildStaffContext,
+	caseRef string,
+	links []string,
+	files []DiscordAttachmentSnapshot,
+) (*CaseDetailResponse, error) {
+	if guild == nil || guild.Guild == nil || !guild.Can(model.PermissionActionCaseCreate) {
 		return nil, ErrCasePermissionDenied
 	}
 	if len(links) == 0 && len(files) == 0 {
@@ -73,11 +90,12 @@ func (s *CaseService) AddEvidence(ctx context.Context, guild *GuildStaffContext,
 	if settings != nil {
 		channelID = settings.ManagedEvidenceChannelDiscordID
 	}
-	captured, err := s.evidence.Capture(ctx, guild.Guild.DiscordGuildID, guild.ActorDiscordUserID, item.TargetDiscordUserID, channelID, links)
+	evidence := s.evidenceCapture()
+	captured, err := evidence.Capture(ctx, guild.Guild.DiscordGuildID, guild.ActorDiscordUserID, item.TargetDiscordUserID, channelID, links)
 	if err != nil {
 		return nil, err
 	}
-	uploads, err := s.evidence.CaptureUploads(ctx, guild.Guild.DiscordGuildID, guild.ActorDiscordUserID, channelID, files)
+	uploads, err := evidence.CaptureUploads(ctx, guild.Guild.DiscordGuildID, guild.ActorDiscordUserID, channelID, files)
 	if err != nil {
 		return nil, err
 	}

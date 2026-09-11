@@ -12,14 +12,18 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// ClaimNextCaseAction atomically claims next case action so concurrent workers cannot execute it twice.
-func (s *Store) ClaimNextCaseAction(ctx context.Context, params ClaimCaseActionParams) (*ClaimedCaseAction, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
+// ClaimNextCaseAction leases the next runnable execution for one case so
+// concurrent workers cannot run it twice. Under the case row lock it returns
+// nil when the case is missing, when another lease is still live, or when
+// nothing is due. A running execution whose lease expired is reclaimed: the
+// stale attempt is closed as failed and, if repeating the request is unsafe or
+// retries ran out, the execution is parked for staff review instead of being
+// re-run. The new lease lasts two minutes and every later write is fenced on
+// the returned LeaseToken.
+func (s *Store) ClaimNextCaseAction(ctx context.Context, params model.ClaimCaseActionParams) (*model.ClaimedCaseAction, error) {
 
 	now := time.Now().UTC()
-	var claimed *ClaimedCaseAction
+	var claimed *model.ClaimedCaseAction
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var caseModel model.Case
 		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
@@ -45,7 +49,13 @@ func (s *Store) ClaimNextCaseAction(ctx context.Context, params ClaimCaseActionP
 
 		var execution model.CaseActionExecution
 		result = tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("case_id = ? AND ((status IN ? AND (next_retry_at IS NULL OR next_retry_at <= ?)) OR (status = ? AND lease_expires_at <= ?))", params.CaseID, []model.ActionExecutionStatus{model.ActionExecutionPending, model.ActionExecutionRetrying}, now, model.ActionExecutionRunning, now).
+			Where("case_id = ? AND ((status IN ? AND (next_retry_at IS NULL OR next_retry_at <= ?)) OR (status = ? AND lease_expires_at <= ?))",
+				params.CaseID,
+				[]model.ActionExecutionStatus{model.ActionExecutionPending, model.ActionExecutionRetrying},
+				now,
+				model.ActionExecutionRunning,
+				now,
+			).
 			Order("position ASC").
 			Limit(1).
 			Find(&execution)
@@ -59,7 +69,9 @@ func (s *Store) ClaimNextCaseAction(ctx context.Context, params ClaimCaseActionP
 		recovering := execution.Status == model.ActionExecutionRunning
 		if execution.AttemptCount > 0 {
 			var prior model.CaseActionAttempt
-			priorResult := tx.Where("execution_id = ? AND attempt_number = ? AND status = ?", execution.ID, execution.AttemptCount, model.ActionAttemptRunning).First(&prior)
+			priorResult := tx.
+				Where("execution_id = ? AND attempt_number = ? AND status = ?", execution.ID, execution.AttemptCount, model.ActionAttemptRunning).
+				First(&prior)
 			if priorResult.Error == nil {
 				prior.Status = model.ActionAttemptFailed
 				prior.FinishedAt = &now
@@ -70,14 +82,34 @@ func (s *Store) ClaimNextCaseAction(ctx context.Context, params ClaimCaseActionP
 				if err := tx.Select("*").Save(&prior).Error; err != nil {
 					return fmt.Errorf("close expired action attempt: %w", err)
 				}
-				if err := createAuditLogEntry(tx, &model.AuditLogEntry{GuildID: caseModel.GuildID, Source: model.AuditSourceSystem, Action: string(model.AuditActionActionRecovered), ResourceType: "case_action_execution", ResourceID: execution.ID, Result: model.AuditResultFailure, FailureReason: "lease_expired", CorrelationID: firstNonEmpty(execution.CorrelationID, caseModel.CorrelationID), MetadataJSON: marshalJSONObject(map[string]any{"case_id": caseModel.ID, "attempt_number": prior.AttemptNumber, "recovery": "lease_reclaimed"})}, now); err != nil {
+				recovered := model.AuditLogEntry{
+					GuildID:       caseModel.GuildID,
+					Source:        model.AuditSourceSystem,
+					Action:        string(model.AuditActionActionRecovered),
+					ResourceType:  "case_action_execution",
+					ResourceID:    execution.ID,
+					Result:        model.AuditResultFailure,
+					FailureReason: "lease_expired",
+					CorrelationID: firstNonEmpty(execution.CorrelationID, caseModel.CorrelationID),
+					MetadataJSON: marshalJSONObject(map[string]any{
+						"case_id":        caseModel.ID,
+						"attempt_number": prior.AttemptNumber,
+						"recovery":       "lease_reclaimed",
+					}),
+				}
+				if err := createAuditLogEntry(tx, &recovered, now); err != nil {
 					return err
 				}
 			} else if !errors.Is(priorResult.Error, gorm.ErrRecordNotFound) {
 				return priorResult.Error
 			}
 		}
-		if recovering && ((caseModel.Validity == model.CaseValidityVoided && execution.ReversalOfExecutionID == nil) || !execution.SafeForRetry || execution.Irreversible || execution.AttemptCount > execution.MaxRetries || execution.AttemptCount == 255) {
+		unsafeToRepeat := (caseModel.Validity == model.CaseValidityVoided && execution.ReversalOfExecutionID == nil) ||
+			!execution.SafeForRetry ||
+			execution.Irreversible ||
+			execution.AttemptCount > execution.MaxRetries ||
+			execution.AttemptCount == 255
+		if recovering && unsafeToRepeat {
 			// An expired lease proves only that a worker stopped reporting. It
 			// does not prove Discord rejected the request. Preserve the attempt
 			// and require review when repeating it is unsafe or retries ran out.
@@ -99,21 +131,43 @@ func (s *Store) ClaimNextCaseAction(ctx context.Context, params ClaimCaseActionP
 		if err := tx.Select("*").Save(&execution).Error; err != nil {
 			return fmt.Errorf("mark case action running: %w", err)
 		}
-		attempt := model.CaseActionAttempt{ExecutionID: execution.ID, AttemptNumber: execution.AttemptCount, Status: model.ActionAttemptRunning, WorkerID: params.WorkerID, StartedAt: now, RequestPayloadJSON: "{}", ResponsePayloadJSON: "{}"}
+		attempt := model.CaseActionAttempt{
+			ExecutionID:         execution.ID,
+			AttemptNumber:       execution.AttemptCount,
+			Status:              model.ActionAttemptRunning,
+			WorkerID:            params.WorkerID,
+			StartedAt:           now,
+			RequestPayloadJSON:  "{}",
+			ResponsePayloadJSON: "{}",
+		}
 		if err := prepareULIDModel(&attempt.ULIDModel, now); err != nil {
 			return err
 		}
 		if err := tx.Select("*").Create(&attempt).Error; err != nil {
 			return fmt.Errorf("create running action attempt: %w", err)
 		}
-		if err := createAuditLogEntry(tx, &model.AuditLogEntry{GuildID: caseModel.GuildID, Source: model.AuditSourceSystem, Action: string(model.AuditActionActionAttempt), ResourceType: "case_action_execution", ResourceID: execution.ID, Result: model.AuditResultSuccess, CorrelationID: firstNonEmpty(execution.CorrelationID, caseModel.CorrelationID), MetadataJSON: marshalJSONObject(map[string]any{"case_id": caseModel.ID, "attempt_number": attempt.AttemptNumber, "status": attempt.Status})}, now); err != nil {
+		attemptAudit := model.AuditLogEntry{
+			GuildID:       caseModel.GuildID,
+			Source:        model.AuditSourceSystem,
+			Action:        string(model.AuditActionActionAttempt),
+			ResourceType:  "case_action_execution",
+			ResourceID:    execution.ID,
+			Result:        model.AuditResultSuccess,
+			CorrelationID: firstNonEmpty(execution.CorrelationID, caseModel.CorrelationID),
+			MetadataJSON: marshalJSONObject(map[string]any{
+				"case_id":        caseModel.ID,
+				"attempt_number": attempt.AttemptNumber,
+				"status":         attempt.Status,
+			}),
+		}
+		if err := createAuditLogEntry(tx, &attemptAudit, now); err != nil {
 			return err
 		}
 
 		if err := requestCasePublicationRefresh(tx, execution.CaseID, now); err != nil {
 			return err
 		}
-		claimed = &ClaimedCaseAction{
+		claimed = &model.ClaimedCaseAction{
 			Case:      caseModel,
 			Execution: execution,
 		}
@@ -143,16 +197,30 @@ func failExpiredAction(tx *gorm.DB, item model.Case, execution *model.CaseAction
 	if err := requestCasePublicationRefresh(tx, execution.CaseID, now); err != nil {
 		return err
 	}
-	if err := appendCaseEvent(tx, &model.CaseEvent{CaseID: item.ID, EventType: model.CaseEventActionFailed,
-		ActorType: "system", Visibility: model.EventVisibilityPublic,
+	event := model.CaseEvent{
+		CaseID:       item.ID,
+		EventType:    model.CaseEventActionFailed,
+		ActorType:    "system",
+		Visibility:   model.EventVisibilityPublic,
 		Body:         "Discord enforcement could not be confirmed and requires staff review",
-		MetadataJSON: marshalJSONObject(map[string]any{"execution_id": execution.ID})}, now); err != nil {
+		MetadataJSON: marshalJSONObject(map[string]any{"execution_id": execution.ID}),
+	}
+	if err := appendCaseEvent(tx, &event, now); err != nil {
 		return err
 	}
-	return createAuditLogEntry(tx, &model.AuditLogEntry{GuildID: item.GuildID,
-		Source: model.AuditSourceSystem, Action: string(model.AuditActionActionFailed),
-		ResourceType: "case_action_execution", ResourceID: execution.ID,
-		Result: model.AuditResultFailure, FailureReason: execution.LastErrorCode,
+	audit := model.AuditLogEntry{
+		GuildID:       item.GuildID,
+		Source:        model.AuditSourceSystem,
+		Action:        string(model.AuditActionActionFailed),
+		ResourceType:  "case_action_execution",
+		ResourceID:    execution.ID,
+		Result:        model.AuditResultFailure,
+		FailureReason: execution.LastErrorCode,
 		CorrelationID: firstNonEmpty(execution.CorrelationID, item.CorrelationID),
-		MetadataJSON:  marshalJSONObject(map[string]any{"case_id": item.ID, "recovery": "staff_review_required"})}, now)
+		MetadataJSON: marshalJSONObject(map[string]any{
+			"case_id":  item.ID,
+			"recovery": "staff_review_required",
+		}),
+	}
+	return createAuditLogEntry(tx, &audit, now)
 }

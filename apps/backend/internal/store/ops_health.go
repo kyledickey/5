@@ -5,12 +5,11 @@ import (
 	"fmt"
 )
 
-// MigrationReadiness requires a completed direct initialization, or a current
-// historical migration ledger for databases not yet moved to the new schema path.
+// MigrationReadiness reports the schema version for readiness checks. A
+// database marked by InitializeSchema reports 1 without consulting the ledger;
+// otherwise the frozen migration ledger must be complete and clean, and the
+// newest applied version is returned (0 for an empty ledger).
 func (s *Store) MigrationReadiness(ctx context.Context) (uint64, error) {
-	if s == nil || s.db == nil {
-		return 0, fmt.Errorf("database not connected")
-	}
 	if s.db.WithContext(ctx).Migrator().HasTable(&currentSchema{}) {
 		var marker currentSchema
 		if err := s.db.WithContext(ctx).First(&marker, "id = ?", 1).Error; err != nil {
@@ -38,9 +37,6 @@ func (s *Store) MigrationReadiness(ctx context.Context) (uint64, error) {
 // OperationalMetricSnapshot returns aggregate, low-cardinality durable
 // workflow counters without exposing guild, member, content, or payload data.
 func (s *Store) OperationalMetricSnapshot(ctx context.Context) (map[string]int64, error) {
-	if s == nil || s.db == nil {
-		return nil, fmt.Errorf("database not connected")
-	}
 	tables := map[string]string{
 		"quack_cases_total":             "cases",
 		"quack_escalation_levels_total": "cases",

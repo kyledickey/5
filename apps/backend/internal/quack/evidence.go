@@ -56,16 +56,21 @@ type DiscordMessageSnapshot struct {
 // PreservedDiscordAttachment identifies a stable managed-channel copy.
 type PreservedDiscordAttachment struct{ URL, MessageID, AttachmentID string }
 
-// DiscordEvidenceClient defines live Discord reads and managed evidence-channel operations.
+// DiscordEvidenceClient is the Discord access the evidence service needs: a
+// live message read, a copy of one attachment into the managed evidence
+// channel, and creation of that channel when it is missing.
 type DiscordEvidenceClient interface {
 	FetchMessageEvidence(context.Context, DiscordMessageReference) (*DiscordMessageSnapshot, error)
 	PreserveEvidenceAttachment(context.Context, string, string, DiscordAttachmentSnapshot) (*PreservedDiscordAttachment, error)
 	EnsureEvidenceChannel(context.Context, string, string) (string, error)
 }
 
-// EvidenceUnavailableError classifies a link that was valid but could not be captured.
+// EvidenceUnavailableError classifies a link that was valid but could not be
+// captured. Outcome is the stored capture outcome (for example "deleted" or
+// "inaccessible"); Message is the staff-facing warning.
 type EvidenceUnavailableError struct{ Outcome, Message string }
 
+// Error returns the staff-facing message, falling back to the outcome code.
 func (e *EvidenceUnavailableError) Error() string {
 	if e.Message != "" {
 		return e.Message
@@ -73,35 +78,38 @@ func (e *EvidenceUnavailableError) Error() string {
 	return e.Outcome
 }
 
-// CapturedEvidence groups the immutable records staged for the atomic case transaction.
+// CapturedEvidence is the set of snapshot and attachment rows staged for one
+// case transaction plus the warnings explaining anything that was not captured.
 type CapturedEvidence struct {
 	Snapshots   []model.CaseEvidenceSnapshot
 	Attachments []model.CaseEvidenceAttachment
 	Warnings    []string
 }
 
-// EvidenceService implements shared HTTP and Discord message-link capture.
+// EvidenceService captures Discord message links and staff uploads as
+// immutable evidence rows before a case commits, and repairs the guild's
+// managed evidence channel when attachments need a home. Both collaborators
+// are optional: without a client every link is recorded as unavailable and
+// attachments keep metadata only; without a store no channel repair happens.
 type EvidenceService struct {
 	client       DiscordEvidenceClient
 	store        EvidenceRepository
 	storageLocks evidenceStorageLocks
 }
 
-// NewEvidenceService constructs the shared capture boundary.
-func NewEvidenceService(client DiscordEvidenceClient, stores ...EvidenceRepository) *EvidenceService {
-	service := &EvidenceService{client: client}
-	if len(stores) > 0 {
-		service.store = stores[0]
-	}
-	return service
+// NewEvidenceService wires the evidence capture service. Either argument may be
+// nil; see EvidenceService for the degraded behaviour that results.
+func NewEvidenceService(client DiscordEvidenceClient, store EvidenceRepository) *EvidenceService {
+	return &EvidenceService{client: client, store: store}
 }
 
 // EnsureGuildEvidenceChannel creates missing storage and saves only its receipt.
 // The lifecycle snapshot is intentionally ignored: settings are reloaded after
 // acquiring the guild creation lock so overlapping repairs use the winning ID.
+// It fails when the service has no Discord client or store to work with.
 func (s *EvidenceService) EnsureGuildEvidenceChannel(ctx context.Context, guild model.Guild, _ model.GuildSettings) (string, error) {
-	if s == nil || s.client == nil || s.store == nil {
-		return "", errors.New("evidence service is not configured")
+	if s.client == nil || s.store == nil {
+		return "", errors.New("evidence channel repair requires a discord client and a store")
 	}
 	release, err := s.storageLocks.acquire(ctx, guild.ID)
 	if err != nil {
@@ -122,10 +130,12 @@ func (s *EvidenceService) EnsureGuildEvidenceChannel(ctx context.Context, guild 
 	return s.store.CompareAndSetEvidenceChannel(ctx, guild.ID, current.ManagedEvidenceChannelDiscordID, channelID)
 }
 
-// RepairDiscordGuildEvidenceChannel reloads durable channel state and recreates storage after Discord deletes the channel.
+// RepairDiscordGuildEvidenceChannel reloads durable channel state and recreates
+// storage after Discord deletes the channel. An unknown guild or missing store
+// returns ("", nil) so gateway callers treat it as nothing to repair.
 func (s *EvidenceService) RepairDiscordGuildEvidenceChannel(ctx context.Context, discordGuildID string) (string, error) {
-	if s == nil || s.store == nil {
-		return "", errors.New("evidence service is not configured")
+	if s.store == nil {
+		return "", nil
 	}
 	guild, err := s.store.GetGuildByDiscordID(ctx, discordGuildID)
 	if err != nil || guild == nil {
@@ -141,7 +151,7 @@ func (s *EvidenceService) RepairDiscordGuildEvidenceChannel(ctx context.Context,
 // ParseDiscordMessageLink validates a canonical Discord message URL without accepting cross-origin lookalikes.
 func ParseDiscordMessageLink(raw string) (DiscordMessageReference, error) {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || parsed.Scheme != "https" || (parsed.Host != "discord.com" && parsed.Host != "www.discord.com" && parsed.Host != "ptb.discord.com" && parsed.Host != "canary.discord.com") {
+	if err != nil || parsed.Scheme != "https" || !discordMessageHost(parsed.Host) {
 		return DiscordMessageReference{}, fmt.Errorf("%w: invalid Discord message link", ErrEvidenceValidation)
 	}
 	match := discordMessageLinkPattern.FindStringSubmatch(parsed.EscapedPath())
@@ -151,16 +161,37 @@ func ParseDiscordMessageLink(raw string) (DiscordMessageReference, error) {
 	return DiscordMessageReference{GuildID: match[1], ChannelID: match[2], MessageID: match[3], URL: parsed.String()}, nil
 }
 
+// discordMessageHost reports whether host is one of Discord's own web hosts.
+func discordMessageHost(host string) bool {
+	switch host {
+	case "discord.com", "www.discord.com", "ptb.discord.com", "canary.discord.com":
+		return true
+	default:
+		return false
+	}
+}
+
 // Capture snapshots each unique message before case commit and preserves supported attachments when possible.
-func (s *EvidenceService) Capture(ctx context.Context, guildID, actorDiscordUserID, targetDiscordUserID, evidenceChannelID string, links []string) (*CapturedEvidence, error) {
+func (s *EvidenceService) Capture(
+	ctx context.Context,
+	guildID, actorDiscordUserID, targetDiscordUserID, evidenceChannelID string,
+	links []string,
+) (*CapturedEvidence, error) {
 	if actorDiscordUserID == "" && len(links) > 0 {
 		return nil, fmt.Errorf("%w: evidence actor is required", ErrEvidenceValidation)
 	}
 	return s.capture(ctx, guildID, actorDiscordUserID, targetDiscordUserID, evidenceChannelID, links)
 }
 
-// capture permits an empty actor only for the trusted system case path.
-func (s *EvidenceService) capture(ctx context.Context, guildID, actorDiscordUserID, targetDiscordUserID, evidenceChannelID string, links []string) (*CapturedEvidence, error) {
+// capture permits an empty actor only for the trusted system case path. Links
+// are deduplicated by message ID; a message whose author is not the case target
+// or whose identity Discord reports differently is a validation error, while a
+// message Discord cannot return becomes an "unavailable" snapshot with a warning.
+func (s *EvidenceService) capture(
+	ctx context.Context,
+	guildID, actorDiscordUserID, targetDiscordUserID, evidenceChannelID string,
+	links []string,
+) (*CapturedEvidence, error) {
 	if len(links) > maxEvidenceMessages {
 		return nil, fmt.Errorf("%w: at most %d message links can be captured", ErrEvidenceValidation, maxEvidenceMessages)
 	}
@@ -180,7 +211,7 @@ func (s *EvidenceService) capture(ctx context.Context, guildID, actorDiscordUser
 			continue
 		}
 		seen[ref.MessageID] = struct{}{}
-		if s == nil || s.client == nil {
+		if s.client == nil {
 			return nil, fmt.Errorf("%w: Discord evidence capture is unavailable", ErrEvidenceValidation)
 		}
 		ref.ActorDiscordUserID = actorDiscordUserID
@@ -191,6 +222,7 @@ func (s *EvidenceService) capture(ctx context.Context, guildID, actorDiscordUser
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
+			// best-effort: an unclassified failure keeps the generic "unavailable" warning
 			_ = errors.As(err, &unavailable)
 			warning := "Message could not be saved. You can add evidence later."
 			outcome := "unavailable"
@@ -203,10 +235,15 @@ func (s *EvidenceService) capture(ctx context.Context, guildID, actorDiscordUser
 				return nil, idErr
 			}
 			result.Snapshots = append(result.Snapshots, model.CaseEvidenceSnapshot{
-				ULIDModel: model.ULIDModel{ID: id}, GuildID: guildID,
-				ChannelDiscordID: ref.ChannelID, MessageDiscordID: ref.MessageID,
-				MessageURL: ref.URL, MessageCreatedAt: time.Now().UTC(),
-				CaptureOutcome: outcome, CaptureWarning: warning, EmbedsJSON: "[]",
+				ULIDModel:        model.ULIDModel{ID: id},
+				GuildID:          guildID,
+				ChannelDiscordID: ref.ChannelID,
+				MessageDiscordID: ref.MessageID,
+				MessageURL:       ref.URL,
+				MessageCreatedAt: time.Now().UTC(),
+				CaptureOutcome:   outcome,
+				CaptureWarning:   warning,
+				EmbedsJSON:       "[]",
 			})
 			result.Warnings = append(result.Warnings, warning)
 			continue
@@ -233,12 +270,25 @@ func (s *EvidenceService) capture(ctx context.Context, guildID, actorDiscordUser
 			result.Warnings = append(result.Warnings, "embed snapshot was truncated")
 			snapshotWarnings = append(snapshotWarnings, "embed snapshot was truncated")
 		}
+		// best-effort: embeds are plain decoded JSON from Discord, so encoding cannot fail in practice
 		embedJSON, _ := json.Marshal(embeds)
 		evidenceID, idErr := idutil.NewULID()
 		if idErr != nil {
 			return nil, idErr
 		}
-		snapshot := model.CaseEvidenceSnapshot{ULIDModel: model.ULIDModel{ID: evidenceID}, GuildID: guildID, ChannelDiscordID: message.ChannelID, MessageDiscordID: message.MessageID, AuthorDiscordUserID: message.AuthorDiscordUserID, MessageURL: message.URL, Content: content, MessageCreatedAt: message.CreatedAt, MessageEditedAt: message.EditedAt, EmbedsJSON: string(embedJSON), CaptureOutcome: "captured"}
+		snapshot := model.CaseEvidenceSnapshot{
+			ULIDModel:           model.ULIDModel{ID: evidenceID},
+			GuildID:             guildID,
+			ChannelDiscordID:    message.ChannelID,
+			MessageDiscordID:    message.MessageID,
+			AuthorDiscordUserID: message.AuthorDiscordUserID,
+			MessageURL:          message.URL,
+			Content:             content,
+			MessageCreatedAt:    message.CreatedAt,
+			MessageEditedAt:     message.EditedAt,
+			EmbedsJSON:          string(embedJSON),
+			CaptureOutcome:      "captured",
+		}
 		evidenceIndex := len(result.Snapshots)
 		result.Snapshots = append(result.Snapshots, snapshot)
 		attachments := message.Attachments
@@ -269,7 +319,11 @@ func (s *EvidenceService) capture(ctx context.Context, guildID, actorDiscordUser
 		result.Snapshots[evidenceIndex].CaptureWarning = strings.Join(snapshotWarnings, "; ")
 	}
 	if len(result.Warnings) > 0 {
-		slog.WarnContext(ctx, "Evidence capture incomplete", "discord_guild_id", guildID, "messages", len(result.Snapshots), "attachments", len(result.Attachments), "warnings", len(result.Warnings))
+		slog.WarnContext(ctx, "Evidence capture incomplete",
+			"discord_guild_id", guildID,
+			"messages", len(result.Snapshots),
+			"attachments", len(result.Attachments),
+			"warnings", len(result.Warnings))
 	}
 	return result, nil
 }
@@ -286,14 +340,29 @@ func truncateRunes(value string, limit int) string {
 // supportedEvidenceContentType limits managed copies to bounded, displayable staff evidence.
 func supportedEvidenceContentType(value string) bool {
 	value = strings.ToLower(strings.TrimSpace(strings.Split(value, ";")[0]))
-	return strings.HasPrefix(value, "image/") || strings.HasPrefix(value, "video/") || strings.HasPrefix(value, "audio/") || value == "text/plain" || value == "application/pdf"
+	return strings.HasPrefix(value, "image/") ||
+		strings.HasPrefix(value, "video/") ||
+		strings.HasPrefix(value, "audio/") ||
+		value == "text/plain" ||
+		value == "application/pdf"
 }
 
 // preserveAttachment records original metadata even when a managed copy fails.
 // Both message capture and direct uploads share these size and type limits.
-func (s *EvidenceService) preserveAttachment(ctx context.Context, guildID, evidenceChannelID, evidenceID string, attachment DiscordAttachmentSnapshot) model.CaseEvidenceAttachment {
-	record := model.CaseEvidenceAttachment{EvidenceID: evidenceID, Filename: truncateRunes(attachment.Filename, 255), ContentType: truncateRunes(attachment.ContentType, 191), SizeBytes: attachment.SizeBytes, OriginalURL: attachment.URL, CopyOutcome: "metadata_only"}
-	if s == nil || s.client == nil || evidenceChannelID == "" {
+func (s *EvidenceService) preserveAttachment(
+	ctx context.Context,
+	guildID, evidenceChannelID, evidenceID string,
+	attachment DiscordAttachmentSnapshot,
+) model.CaseEvidenceAttachment {
+	record := model.CaseEvidenceAttachment{
+		EvidenceID:  evidenceID,
+		Filename:    truncateRunes(attachment.Filename, 255),
+		ContentType: truncateRunes(attachment.ContentType, 191),
+		SizeBytes:   attachment.SizeBytes,
+		OriginalURL: attachment.URL,
+		CopyOutcome: "metadata_only",
+	}
+	if s.client == nil || evidenceChannelID == "" {
 		record.Warning = "managed evidence channel is unavailable"
 	} else if attachment.SizeBytes < 0 || attachment.SizeBytes > MaxPreservedAttachmentBytes {
 		record.Warning = "attachment exceeds the managed copy size limit"

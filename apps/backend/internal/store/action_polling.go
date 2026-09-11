@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -14,9 +13,6 @@ import (
 // and the cursor rotates across calls when the batch is smaller than the guild
 // count. ClaimNextCaseAction remains the authoritative transactional fence.
 func (s *Store) ListExecutableCaseIDs(ctx context.Context, limit int) ([]string, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("database not connected")
-	}
 	if limit <= 0 {
 		limit = 100
 	}
@@ -29,6 +25,7 @@ func (s *Store) ListExecutableCaseIDs(ctx context.Context, limit int) ([]string,
 		CaseID  string
 		GuildID string
 	}
+	// The window function needs MySQL 8 / SQLite 3.25; both are required anyway.
 	query := `
 WITH executable_cases AS (
     SELECT e.case_id,

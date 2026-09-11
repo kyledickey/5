@@ -242,7 +242,7 @@ func TestAppealServiceOwnershipSnapshotTimelineAndAtomicAcceptance(t *testing.T)
 	if _, err := service.Reject(ctx, moderator, appeal.ID, "late competing decision"); !errors.Is(err, quack.ErrAppealConflict) {
 		t.Fatalf("accepted appeal allowed competing decision: %v", err)
 	}
-	caseService := quack.NewCaseService(repository)
+	caseService := quack.NewCaseService(repository, nil)
 	memberDetail, err := caseService.GetMemberCase(ctx, caseModel.ID, "target")
 	if err != nil || memberDetail.Validity != model.CaseValidityVoided || memberDetail.AppealStatus != model.AppealStatusAccepted || memberDetail.Appealable {
 		t.Fatalf("member case projection did not retain voided accepted appeal: %+v err=%v", memberDetail, err)

@@ -53,7 +53,7 @@ func TestActionServiceProcessesSafeActions(t *testing.T) {
 	adminContext := templateGuildContext(t, store, "guild-1", "admin-1", uint64(discordgo.PermissionManageGuild))
 	modContext := templateGuildContext(t, store, "guild-1", "mod-1", uint64(discordgo.PermissionModerateMembers))
 	template := createAppTemplate(t, ctx, store, adminContext, validTemplateInput("safe-actions"))
-	created, err := quack.NewCaseService(store).Create(ctx, modContext, quack.CaseInput{
+	created, err := quack.NewCaseService(store, nil).Create(ctx, modContext, quack.CaseInput{
 		TemplateID:          template.ID,
 		TargetDiscordUserID: "target-1",
 	})
@@ -100,7 +100,7 @@ func TestActionServiceDoesNotAutomaticallyRetryNotificationFailure(t *testing.T)
 	modContext := templateGuildContext(t, store, "guild-1", "mod-1", uint64(discordgo.PermissionModerateMembers))
 
 	template := createAppTemplate(t, ctx, store, adminContext, validTemplateInput("retry-dm"))
-	created, err := quack.NewCaseService(store).Create(ctx, modContext, quack.CaseInput{
+	created, err := quack.NewCaseService(store, nil).Create(ctx, modContext, quack.CaseInput{
 		TemplateID:          template.ID,
 		TargetDiscordUserID: "target-1",
 	})
@@ -140,7 +140,7 @@ func TestActionServiceDoesNotNotifyForUnsupportedAction(t *testing.T) {
 	})
 	unsupportedInput.Levels[0].NotifyUser = false
 	template := createAppTemplate(t, ctx, store, adminContext, unsupportedInput)
-	created, err := quack.NewCaseService(store).Create(ctx, modContext, quack.CaseInput{
+	created, err := quack.NewCaseService(store, nil).Create(ctx, modContext, quack.CaseInput{
 		TemplateID:          template.ID,
 		TargetDiscordUserID: "target-1",
 	})
@@ -194,7 +194,7 @@ func TestActionServiceReversalResolvesCaseNumber(t *testing.T) {
 	admin := templateGuildContext(t, store, "guild-1", "admin-1", uint64(discordgo.PermissionManageGuild))
 	moderator := templateGuildContext(t, store, "guild-1", "mod-1", uint64(discordgo.PermissionModerateMembers))
 	template := createAppTemplate(t, ctx, store, admin, actionTemplateInput("numbered-reversal", []quack.TemplateActionInput{{ActionType: model.ActionTimeoutUser, TimeoutDurationSeconds: 60}}))
-	created, err := quack.NewCaseService(store).Create(ctx, moderator, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: "target-1"})
+	created, err := quack.NewCaseService(store, nil).Create(ctx, moderator, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: "target-1"})
 	if err != nil {
 		t.Fatalf("create reversal case: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestRetryUnbanRefreshesPermissionsForDepartedMember(t *testing.T) {
 	admin := templateGuildContext(t, store, "guild-1", "admin-1", uint64(discordgo.PermissionManageGuild))
 	moderator := templateGuildContext(t, store, "guild-1", "mod-1", uint64(discordgo.PermissionModerateMembers|discordgo.PermissionBanMembers))
 	template := createAppTemplate(t, ctx, store, admin, actionTemplateInput("retry-unban", []quack.TemplateActionInput{{ActionType: model.ActionBanUser}}))
-	created, err := quack.NewCaseService(store).Create(ctx, moderator, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: "target-1"})
+	created, err := quack.NewCaseService(store, nil).Create(ctx, moderator, quack.CaseInput{TemplateID: template.ID, TargetDiscordUserID: "target-1"})
 	if err != nil {
 		t.Fatal(err)
 	}

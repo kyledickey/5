@@ -2,13 +2,13 @@
 
 This document describes the current backend's readiness for controlled
 real-guild testing. It records implementation status rather than defining v5
-product scope; the product definition lives in [`v5.md`](../v5.md).
+product scope; the product definition lives in [`v5.md`](../planning/v5.md).
 
 ## Ops Status
 
 The final application-owned operations contract and failure runbook live in
-[`operations-security-v5.md`](operations-security-v5.md). Final evidence and
-the current verdict live in [`v5-readiness.md`](v5-readiness.md).
+[`operations-security.md`](../operations-security.md). Final evidence and
+the current verdict live in [`readiness.md`](readiness.md).
 
 Public process liveness and dependency readiness are separate:
 

@@ -130,9 +130,9 @@ Discord commands.
 
 - The `Legacy/` tree is still present but separate from the v5 runtime. The
   current process entrypoint is `apps/backend/cmd/quack/main.go`, not `Legacy/main.go`.
-- The authoritative product definition lives in `v5.md`.
+- The authoritative product definition lives in `docs/planning/v5.md`.
 - High-level differences between that definition and the current backend live
-  in `docs/v5-scope-drift.md`.
+  in `docs/planning/v5-scope-drift.md`.
 - Development CORS defaults to localhost port `3000`; production requires an
   explicit exact-origin allowlist and fails startup when it is absent.
 - Action execution is in-process, not an external worker service.
@@ -146,5 +146,5 @@ Relevant files:
 - `compose.yaml`
 - `apps/backend/Dockerfile`
 - `.env.example`
-- `v5.md`
-- `docs/v5-scope-drift.md`
+- `docs/planning/v5.md`
+- `docs/planning/v5-scope-drift.md`

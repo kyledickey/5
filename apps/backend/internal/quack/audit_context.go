@@ -7,6 +7,7 @@ import (
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
+// auditSourceContextKey is the private context key for the adapter audit source.
 type auditSourceContextKey struct{}
 
 // ContextWithAuditSource carries the authoritative adapter source across shared business services.
