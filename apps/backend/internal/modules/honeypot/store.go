@@ -12,7 +12,8 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// Trigger records one message claim and its terminal outcome without storing message content.
+// Trigger records one message claim and its terminal outcome. Message content is
+// never stored.
 type Trigger struct {
 	ID                   string    `gorm:"type:char(26);primaryKey"`
 	GuildID              string    `gorm:"type:char(26);not null;uniqueIndex:idx_honeypot_trigger,priority:1;index"`
@@ -29,20 +30,13 @@ type Trigger struct {
 // TableName keeps honeypot outcomes out of moderation case and optional-module tables.
 func (Trigger) TableName() string { return "honeypot_triggers" }
 
-// Store owns only honeypot trigger claims and derived statistics.
 type Store struct{ db *gorm.DB }
 
-// NewStore constructs isolated trigger persistence around a caller-owned connection.
 func NewStore(db *gorm.DB) *Store { return &Store{db: db} }
 
-// Migration exposes logical migration 0300 for integration into the production ledger.
-func Migration() modules.Migration {
-	return modules.Migration{Version: 300, Name: "honeypot_triggers", Apply: func(db *gorm.DB) error {
-		return db.AutoMigrate(&Trigger{}, &MessageCleanup{}, &WarningRefresh{})
-	}}
-}
+// SchemaTypes returns the tables this module owns for schema creation.
+func SchemaTypes() []any { return []any{&Trigger{}, &MessageCleanup{}, &WarningRefresh{}} }
 
-// Claim atomically deduplicates a Discord message before any moderation side effect.
 func (s *Store) Claim(ctx context.Context, message Message, templateID string, outcome Outcome) (*Trigger, bool, error) {
 	if s == nil || s.db == nil {
 		return nil, false, errors.New("honeypot database is not connected")
@@ -62,7 +56,6 @@ func (s *Store) Claim(ctx context.Context, message Message, templateID string, o
 	return &record, result.RowsAffected == 1, nil
 }
 
-// Complete transitions one claimed message to a terminal outcome.
 func (s *Store) Complete(ctx context.Context, id string, outcome Outcome, caseID, failureCode string) error {
 	var trigger Trigger
 	if err := s.db.WithContext(ctx).Where("id = ?", id).First(&trigger).Error; err != nil {
@@ -71,7 +64,6 @@ func (s *Store) Complete(ctx context.Context, id string, outcome Outcome, caseID
 	return s.completeIncident(ctx, &trigger, outcome, caseID, failureCode)
 }
 
-// Statistics derives per-guild counts without reading cases or other modules.
 func (s *Store) Statistics(ctx context.Context, guildID string) (Statistics, error) {
 	if s == nil || s.db == nil {
 		return Statistics{}, errors.New("honeypot database is not connected")
@@ -160,4 +152,49 @@ func (s *Store) ClaimIncident(ctx context.Context, message Message, templateID s
 		return NewStore(tx).scheduleCleanup(ctx, message, trigger.ID)
 	})
 	return trigger, claimed, err
+}
+
+// incidentLeaseDuration allows ordinary case preflight to finish before recovery
+// takes ownership. UpdatedAt is a persisted lease epoch, avoiding schema drift.
+const incidentLeaseDuration = time.Minute
+
+// claimPendingIncident leases one expired pending incident with an atomic epoch
+// comparison. Primary and recovery completion both fence against this epoch.
+func (s *Store) claimPendingIncident(ctx context.Context) (*Trigger, error) {
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	var candidates []Trigger
+	if err := s.db.WithContext(ctx).Where("outcome = ? AND updated_at <= ?", OutcomePending, now.Add(-incidentLeaseDuration)).Order("updated_at ASC").Limit(10).Find(&candidates).Error; err != nil {
+		return nil, err
+	}
+	for _, candidate := range candidates {
+		result := s.db.WithContext(ctx).Model(&Trigger{}).Where("id = ? AND outcome = ? AND updated_at = ?", candidate.ID, OutcomePending, candidate.UpdatedAt).Update("updated_at", now)
+		if result.Error != nil {
+			return nil, result.Error
+		}
+		if result.RowsAffected == 1 {
+			candidate.UpdatedAt = now
+			return &candidate, nil
+		}
+	}
+	return nil, nil
+}
+
+// completeIncident fences a saved case or terminal failure against the current
+// attempt's lease. A timed-out original worker cannot overwrite its recovery.
+// Created outcomes atomically request warning refresh; failure leaves recovery due.
+func (s *Store) completeIncident(ctx context.Context, trigger *Trigger, outcome Outcome, caseID, failureCode string) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&Trigger{}).Where("id = ? AND outcome = ? AND updated_at = ?", trigger.ID, OutcomePending, trigger.UpdatedAt).
+			Updates(map[string]any{"outcome": outcome, "case_id": caseID, "failure_code": failureCode, "updated_at": time.Now().UTC()})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return ErrDuplicate
+		}
+		if outcome == OutcomeCreated {
+			return requestWarningRefresh(ctx, tx, trigger.GuildID)
+		}
+		return nil
+	})
 }

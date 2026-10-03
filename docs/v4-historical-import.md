@@ -42,10 +42,8 @@ Source fixtures: `Legacy/SQL/cases.sql` and
 1. Restore the legacy snapshot into an isolated source database. Prefer an account
    with SELECT permission only. Determine the legacy **Discord guild ID** and the
    matching target **v5 guild ULID** explicitly; they are different identifiers.
-2. Initialize an empty target with `go run ./cmd/quack-migrate init`, supplying its
-   isolated `DATABASE_DSN` explicitly. Current schema includes import ledgers;
-   do not replay historical migrations. Existing unmarked prerelease databases
-   require the separate adoption procedure in [migrations.md](migrations.md).
+2. Initialize an empty target with `go run ./cmd/quack-migrate`, supplying its
+   isolated `DATABASE_DSN` explicitly. The schema includes the import ledgers.
 3. Provision the target guild through the normal v5 guild lifecycle in the test
    environment and read its `guilds.id` by matching `guilds.discord_guild_id`.
    Schema initialization alone does not create guilds; this CLI does not create

@@ -2,10 +2,14 @@ package views
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"strings"
 
+	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
+	"github.com/quackdiscord/bot/internal/quack"
+	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 // logAttachment renders available HTTPS download links without implying that
@@ -184,4 +188,100 @@ func StaffLogMessage(payload string) ui.Message {
 		icon = "info"
 	}
 	return ui.Conversation(icon, lead, "", strings.Join(parts, "\n\n"), meta, false)
+}
+
+// AuditMirrorMessage summarizes a redacted staff event with human case context.
+// Internal storage identifiers stay in delivery state and controls, not the copy.
+func AuditMirrorMessage(message quack.AuditMirrorMessage) ui.Message {
+	actor := "Quack"
+	if message.ActorDiscordUserID != "" && message.ActorDiscordUserID != "quack-system" {
+		actor = "<@" + message.ActorDiscordUserID + ">"
+	}
+	action := strings.NewReplacer("_", " ", ".", " ").Replace(message.Action)
+	verb := auditPhrases[message.Action].verb
+	if verb == "" {
+		verb = "recorded **" + ui.PlainText(action) + "**"
+	}
+	body := fmt.Sprintf("%s %s.", actor, verb)
+	if string(message.Result) != "success" {
+		body = fmt.Sprintf("%s couldn’t %s.", actor, ui.PlainText(action))
+	}
+	if message.ActionType != "" {
+		label := ui.PlainText(message.ActionType.Label())
+		switch message.Action {
+		case "case_action.succeeded":
+			body = fmt.Sprintf("%s action completed.", label)
+		case "case_action.failed":
+			body = fmt.Sprintf("%s action failed.", label)
+		case "case_action.skipped":
+			body = fmt.Sprintf("%s action skipped.", label)
+		}
+	}
+	if message.ReversalNoop && message.Action == "case_action.succeeded" {
+		body = "The punishment had already ended."
+	}
+	context := ""
+	if message.CaseID != "" {
+		context = fmt.Sprintf("Case #%d", message.CaseNumber)
+		if message.TargetDiscordUserID != "" {
+			context += " · <@" + message.TargetDiscordUserID + ">"
+		}
+		if message.TemplateName != "" {
+			context += " · " + ui.PlainText(message.TemplateName)
+		}
+	}
+	if message.Action == string(model.AuditActionCaseCreate) && message.SelectedOutcome != "" {
+		if message.SelectedLevelName != "" {
+			context += "\nLevel: " + ui.PlainText(message.SelectedLevelName)
+		}
+		context += "\nOutcome: " + ui.PlainText(message.SelectedOutcome)
+	}
+	meta := []string{}
+	if date := ui.RelativeTime(message.OccurredAt); date != "" {
+		meta = append(meta, date)
+	}
+	icon := auditPhrases[message.Action].icon
+	if icon == "" {
+		icon = "shield"
+	}
+	if string(message.Result) != "success" {
+		icon = "error"
+	}
+	// Every supporting line stays directly beneath the event in Discord subtext.
+	// A single content block avoids the visual gap of the general conversation layout.
+	details := []string{context, ui.PlainText(message.FailureReason)}
+	if strings.HasPrefix(message.Action, "case_action.") {
+		details = append(details, "By "+actor)
+	}
+	details = append(details, strings.Join(meta, " · "))
+	for _, detail := range details {
+		for _, line := range strings.Split(detail, "\n") {
+			if strings.TrimSpace(line) != "" {
+				body += "\n-# " + line
+			}
+		}
+	}
+	notice := ui.Signal(icon, body, false)
+	if message.RetryExecutionID != "" && message.Result == model.AuditResultFailure {
+		id, err := ui.EncodeCustomID(ui.CustomID{Namespace: "case", Action: "retry", Version: "v1", Payload: message.RetryExecutionID})
+		if err == nil {
+			notice.Components = []discordgo.MessageComponent{ui.Row(ui.Button(id, "Retry action", discordgo.SecondaryButton, false))}
+		}
+	}
+	return notice
+}
+
+// auditPhrase maps stable audit contracts to human actions and a matching icon.
+type auditPhrase struct{ verb, icon string }
+
+// auditPhrases covers the core mirror events without changing their redacted data contract.
+var auditPhrases = map[string]auditPhrase{
+	"case.update": {"updated a case", "edit"}, "case.create": {"added a case", "case_add"}, "case.void": {"voided a case", "case_void"}, "case.void.appeal": {"voided a case after an appeal", "case_void"},
+	"case_template.create": {"created a template", "spark"}, "case_template.update": {"updated a template", "edit"}, "case_template.archive": {"archived a template", "lock"}, "case_template.restore": {"restored a template", "unlock"}, "case_template.import": {"imported templates", "case_add"}, "case_template.export": {"exported templates", "case"},
+	"guild_settings.update": {"updated Quack settings", "settings"},
+	"case_action.attempt":   {"started an action attempt", "running"}, "case_action.succeeded": {"completed a Discord action", "success"}, "case_action.failed": {"recorded a failed Discord action", "error"}, "case_action.skipped": {"skipped a Discord action", "info"}, "case_action.retrying": {"scheduled another action attempt", "retry"}, "case_action.retry": {"queued another action attempt", "retry"}, "case_action.dismiss": {"dismissed an action failure", "review"}, "case_action.reverse": {"queued an action reversal", "retry"}, "case_action.recovered": {"recovered a stalled action", "retry"},
+	"case_notification.sent": {"sent the member a DM", "message"}, "case_notification.failed": {"couldn’t deliver the member’s DM", "error"},
+	"appeal.submit": {"submitted an appeal", "appeal"}, "appeal.information.submit": {"added information to an appeal", "reply"}, "appeal.information_requested": {"asked for more information on an appeal", "reply"}, "appeal.reopened": {"reopened an appeal", "appeal"}, "appeal.accepted": {"accepted an appeal", "accept"}, "appeal.rejected": {"declined an appeal", "decline"}, "appeal.close": {"closed an appeal", "lock"}, "appeal.closed": {"closed an appeal", "lock"}, "appeal.settings.update": {"updated the appeal settings", "settings"},
+	"ticket.open": {"opened a ticket", "ticket"}, "ticket.reply": {"replied to a ticket", "reply"}, "ticket.resolve": {"closed a ticket", "lock"}, "ticket.cancel": {"cancelled a ticket", "lock"},
+	"honeypot.trigger": {"recorded a honeypot trigger", "shield"}, "v4_import.batch": {"imported historical records", "history"},
 }

@@ -11,12 +11,11 @@ import (
 
 	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/quackdiscord/bot/internal/quack/model"
-	"gorm.io/gorm"
 )
 
 func newAppealTestStore(t *testing.T) (*Store, *model.Guild) {
 	t.Helper()
-	db := openSQLiteMigrationDB(t)
+	db := openSQLiteTestDB(t)
 	sqlDB, err := db.DB()
 	if err != nil {
 		t.Fatalf("open appeal test connection: %v", err)
@@ -25,11 +24,10 @@ func newAppealTestStore(t *testing.T) (*Store, *model.Guild) {
 	// transition tests model MySQL's row-lock serialization instead of failing
 	// both transactions with shared-cache table-lock errors.
 	sqlDB.SetMaxOpenConns(1)
-	migrations := registeredMigrations()
-	if err := runMigrations(db, migrations); err != nil {
-		t.Fatalf("migrate appeals schema: %v", err)
-	}
 	repository := New(db, nil)
+	if err := repository.InitializeSchema(); err != nil {
+		t.Fatalf("create appeals schema: %v", err)
+	}
 	guild, err := repository.UpsertGuild(context.Background(), model.UpsertGuildParams{DiscordGuildID: "appeal-guild", Name: "Appeal Guild", OwnerDiscordUserID: "owner"})
 	if err != nil {
 		t.Fatalf("create guild: %v", err)
@@ -53,89 +51,27 @@ func createAppealableCase(t *testing.T, repository *Store, guildID, target strin
 	return &created.Case
 }
 
-func TestLogical0200MigrationCreatesAppealContracts(t *testing.T) {
+func TestAppealSchemaContracts(t *testing.T) {
 	repository, _ := newAppealTestStore(t)
-	for _, table := range []any{&AppealRecord{}, &AppealEventRecord{}, &GuildAppealSettingsRecord{}, &AppealNotificationRecord{}} {
+	for _, table := range []any{&model.Appeal{}, &model.AppealEvent{}, &model.GuildAppealSettings{}, &model.AppealNotification{}} {
 		if !repository.db.Migrator().HasTable(table) {
 			t.Fatalf("missing appeal table for %T", table)
 		}
 	}
-	if !repository.db.Migrator().HasIndex(&AppealRecord{}, "CaseID") {
+	if !repository.db.Migrator().HasIndex(&model.Appeal{}, "CaseID") {
 		t.Fatal("missing one-appeal-per-case unique index")
 	}
 }
 
-func TestLogical0200MigrationPreservesPlaceholderAppealsSafely(t *testing.T) {
-	db := openSQLiteMigrationDB(t)
-	if err := runMigrations(db, registeredMigrations()[:8]); err != nil {
-		t.Fatalf("migrate baseline: %v", err)
-	}
+func TestMySQLAppealAcceptanceAtomicallyVoidsCase(t *testing.T) {
+	db := openMySQLTestDB(t)
 	repository := New(db, nil)
-	guild, err := repository.UpsertGuild(context.Background(), model.UpsertGuildParams{DiscordGuildID: "legacy-appeal", Name: "Legacy Appeal", OwnerDiscordUserID: "owner"})
-	if err != nil {
-		t.Fatalf("create guild: %v", err)
+	if err := repository.InitializeSchema(); err != nil {
+		t.Fatalf("create MySQL schema: %v", err)
 	}
-	item := createAppealableCase(t, repository, guild.ID, "target", true)
-	now := time.Now().UTC()
-	legacy := migration0200LegacyAppeal{ID: "01KXLEGACYAPPEAL0000000001", GuildID: guild.ID, CaseID: &item.ID, TargetDiscordUserID: "target", Status: string(model.AppealStatusPending), Content: "legacy content", MetadataJSON: "{}", CreatedAt: now, UpdatedAt: now}
-	if err := insertLegacyAppeal(db, &legacy); err != nil {
-		t.Fatalf("insert legacy appeal: %v", err)
-	}
-	legacyEvent := AppealEventRecord{ULIDModelRecord: ULIDModelRecord{ID: "01KXLEGACYAPPEALEVENT0001", CreatedAt: now, UpdatedAt: now}, AppealID: legacy.ID, GuildID: guild.ID, EventType: "reviewed", ActorDiscordUserID: "legacy-moderator", Body: "legacy review", MetadataJSON: "{}"}
-	// The pre-appeals placeholder predates actor classification; keep this fixture
-	// faithful to that historical table while production uses the current record.
-	if err := db.Omit("ActorType").Create(&legacyEvent).Error; err != nil {
-		t.Fatalf("insert legacy event: %v", err)
-	}
-	migrations := registeredMigrations()
-	if err := runMigrations(db, migrations); err != nil {
-		t.Fatalf("upgrade legacy appeal: %v", err)
-	}
-	var upgraded AppealRecord
-	if err := db.First(&upgraded, "id = ?", legacy.ID).Error; err != nil {
-		t.Fatalf("read upgraded appeal: %v", err)
-	}
-	if upgraded.Content != legacy.Content || !strings.Contains(upgraded.QuestionSnapshotJSON, "legacy_content") || !strings.Contains(upgraded.AnswersJSON, legacy.Content) || upgraded.Version != 1 {
-		t.Fatalf("legacy appeal was not preserved and backfilled: %+v", upgraded)
-	}
-	legacyResponse, err := quack.NewAppealService(repository).GetMember(context.Background(), legacy.ID, "target")
-	if err != nil || len(legacyResponse.Questions) != 1 || len(legacyResponse.Answers) != 1 {
-		t.Fatalf("upgraded legacy appeal is not readable: %+v err=%v", legacyResponse, err)
-	}
-	var upgradedEvent AppealEventRecord
-	if err := db.First(&upgradedEvent, "id = ?", legacyEvent.ID).Error; err != nil || upgradedEvent.ActorType != "staff" {
-		t.Fatalf("legacy staff identity was not safely classified: %+v err=%v", upgradedEvent, err)
-	}
-}
-
-func TestMySQLLogical0200AppealMigrationAndAcceptance(t *testing.T) {
-	db := openMySQLMigrationDB(t)
-	if err := runMigrations(db, registeredMigrations()[:8]); err != nil {
-		t.Fatalf("migrate MySQL baseline: %v", err)
-	}
-	repository := New(db, nil)
 	guild, err := repository.UpsertGuild(context.Background(), model.UpsertGuildParams{DiscordGuildID: "mysql-appeal", Name: "MySQL Appeal", OwnerDiscordUserID: "owner"})
 	if err != nil {
 		t.Fatalf("create MySQL guild: %v", err)
-	}
-	legacyCase := createAppealableCase(t, repository, guild.ID, "legacy-target", true)
-	now := time.Now().UTC()
-	legacy := migration0200LegacyAppeal{ID: "01KXMYSQLLEGACYAPPEAL00001", GuildID: guild.ID, CaseID: &legacyCase.ID, TargetDiscordUserID: "legacy-target", Status: string(model.AppealStatusPending), Content: "preserved MySQL content", MetadataJSON: "{}", CreatedAt: now, UpdatedAt: now}
-	if err := insertLegacyAppeal(db, &legacy); err != nil {
-		t.Fatalf("insert MySQL legacy appeal: %v", err)
-	}
-	migrations := registeredMigrations()
-	if err := runMigrations(db, migrations); err != nil {
-		t.Fatalf("migrate MySQL appeal schema: %v", err)
-	}
-	var upgraded AppealRecord
-	if err := db.First(&upgraded, "id = ?", legacy.ID).Error; err != nil || upgraded.Content != legacy.Content || upgraded.Version != 1 {
-		t.Fatalf("MySQL legacy appeal was not preserved: %+v err=%v", upgraded, err)
-	}
-	// Historical migration verification above is complete. Current acceptance
-	// transactions also write durable public-receipt refresh requests.
-	if err := db.AutoMigrate(&model.CasePublication{}); err != nil {
-		t.Fatalf("prepare current publication runtime schema: %v", err)
 	}
 	item := createAppealableCase(t, repository, guild.ID, "target", true)
 	service := quack.NewAppealService(repository)
@@ -156,12 +92,6 @@ func TestMySQLLogical0200AppealMigrationAndAcceptance(t *testing.T) {
 func TestAppealServiceOwnershipSnapshotTimelineAndAtomicAcceptance(t *testing.T) {
 	ctx := context.Background()
 	repository, guild := newAppealTestStore(t)
-	// The shared fixture intentionally tests historical migrations; this service
-	// test additionally needs the current publication transaction dependency.
-	if err := repository.db.AutoMigrate(&model.CasePublication{}); err != nil {
-		t.Fatalf("prepare current publication runtime schema: %v", err)
-	}
-
 	caseModel := createAppealableCase(t, repository, guild.ID, "target", true)
 	now := time.Now().UTC()
 	originalAction := model.CaseActionExecution{ULIDModel: model.ULIDModel{ID: "01KXAPPEALACTION0000000001", CreatedAt: now, UpdatedAt: now}, CaseID: caseModel.ID, Position: 0, ActionType: model.ActionBanUser, Status: model.ActionExecutionSucceeded, IdempotencyKey: "appeal-original-ban", ConfigSnapshotJSON: "{}", SafeForRetry: false, Irreversible: true}
@@ -215,7 +145,7 @@ func TestAppealServiceOwnershipSnapshotTimelineAndAtomicAcceptance(t *testing.T)
 			t.Fatalf("member timeline leaked staff identity: %+v", event)
 		}
 	}
-	if err := repository.db.Create(&GuildSettingsRecord{ULIDModelRecord: ULIDModelRecord{ID: "01KXAPPEALSETTINGS000000001"}, GuildID: guild.ID, AppealRejoinURL: "https://discord.gg/pond"}).Error; err != nil {
+	if err := repository.db.Create(&model.GuildSettings{ULIDModel: model.ULIDModel{ID: "01KXAPPEALSETTINGS000000001"}, GuildID: guild.ID, AppealRejoinURL: "https://discord.gg/pond"}).Error; err != nil {
 		t.Fatal(err)
 	}
 	accepted, err := service.Accept(ctx, moderator, appeal.ID, "The statement changes the decision.")
@@ -255,12 +185,8 @@ func TestAppealServiceOwnershipSnapshotTimelineAndAtomicAcceptance(t *testing.T)
 	if strings.Contains(string(encodedMember), "moderator") || strings.Contains(string(encodedMember), "worker") || strings.Contains(string(encodedMember), "last_error") {
 		t.Fatalf("member case projection exposed staff or internal fields: %s", encodedMember)
 	}
-	var notificationRecords []AppealNotificationRecord
-	err = repository.db.Where("status = ?", model.AppealNotificationPending).Order("created_at ASC").Find(&notificationRecords).Error
-	notifications := make([]model.AppealNotification, 0, len(notificationRecords))
-	for _, record := range notificationRecords {
-		notifications = append(notifications, appealNotificationModel(record))
-	}
+	var notifications []model.AppealNotification
+	err = repository.db.Where("status = ?", model.AppealNotificationPending).Order("created_at ASC").Find(&notifications).Error
 	if err != nil || len(notifications) < 2 {
 		t.Fatalf("expected staff and member notifications, got %+v err=%v", notifications, err)
 	}
@@ -294,7 +220,7 @@ func TestAppealServiceOwnershipSnapshotTimelineAndAtomicAcceptance(t *testing.T)
 		}
 	}
 	var remaining int64
-	err = repository.db.Model(&AppealNotificationRecord{}).Where("status IN ?", []model.AppealNotificationStatus{model.AppealNotificationPending, model.AppealNotificationClaimed}).Count(&remaining).Error
+	err = repository.db.Model(&model.AppealNotification{}).Where("status IN ?", []model.AppealNotificationStatus{model.AppealNotificationPending, model.AppealNotificationClaimed}).Count(&remaining).Error
 	if client.lastStaff == nil || client.lastStaff.CaseNumber != caseModel.CaseNumber || client.lastStaff.Status != model.AppealStatusAccepted || len(client.lastStaff.Answers) != 1 {
 		t.Fatalf("delayed queue delivery lost current appeal context: %+v", client.lastStaff)
 	}
@@ -358,7 +284,7 @@ func TestAppealNotificationClaimRecoversExpiredLeaseAndRejectsStaleCompletion(t 
 		t.Fatalf("first claim: %+v err=%v", first, err)
 	}
 	expired := time.Now().UTC().Add(-time.Minute)
-	if err := repository.db.Model(&AppealNotificationRecord{}).Where("id = ?", first[0].ID).Update("lease_expires_at", expired).Error; err != nil {
+	if err := repository.db.Model(&model.AppealNotification{}).Where("id = ?", first[0].ID).Update("lease_expires_at", expired).Error; err != nil {
 		t.Fatalf("expire first claim: %v", err)
 	}
 	second, err := repository.ClaimPendingAppealNotifications(ctx, 1)
@@ -460,10 +386,6 @@ type appealNotificationClientStub struct {
 	lastStaff *quack.AppealResponse
 }
 
-func insertLegacyAppeal(db *gorm.DB, appeal *migration0200LegacyAppeal) error {
-	return db.Select("id", "guild_id", "case_id", "target_discord_user_id", "status", "content", "decision_reason", "reviewed_by_discord_user_id", "reviewed_at", "review_message_discord_id", "metadata_json", "created_at", "updated_at").Create(appeal).Error
-}
-
 func (c *appealNotificationClientStub) SendAppealMemberNotification(context.Context, string, quack.AppealMemberNotification) (string, error) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
@@ -508,7 +430,7 @@ func TestAppealNotificationRecoverySeparatesSafeFailureFromUnknownSend(t *testin
 	if immediate, err := repository.ClaimPendingAppealNotifications(ctx, 1); err != nil || len(immediate) != 0 {
 		t.Fatalf("retry ignored backoff: %+v %v", immediate, err)
 	}
-	if err := repository.db.Model(&AppealNotificationRecord{}).Where("id = ?", first.ID).Update("updated_at", time.Now().Add(-2*time.Minute)).Error; err != nil {
+	if err := repository.db.Model(&model.AppealNotification{}).Where("id = ?", first.ID).Update("updated_at", time.Now().Add(-2*time.Minute)).Error; err != nil {
 		t.Fatal(err)
 	}
 	retried, err := repository.ClaimPendingAppealNotifications(ctx, 1)
@@ -518,14 +440,14 @@ func TestAppealNotificationRecoverySeparatesSafeFailureFromUnknownSend(t *testin
 	if err := repository.BeginAppealNotificationDelivery(ctx, first.ID, retried[0].LeaseToken); err != nil {
 		t.Fatal(err)
 	}
-	if err := repository.db.Model(&AppealNotificationRecord{}).Where("id = ?", first.ID).Update("lease_expires_at", time.Now().Add(-time.Minute)).Error; err != nil {
+	if err := repository.db.Model(&model.AppealNotification{}).Where("id = ?", first.ID).Update("lease_expires_at", time.Now().Add(-time.Minute)).Error; err != nil {
 		t.Fatal(err)
 	}
 	next, err := repository.ClaimPendingAppealNotifications(ctx, 1)
 	if err != nil || len(next) != 0 {
 		t.Fatalf("ambiguous send repeated: %+v %v", next, err)
 	}
-	var failed AppealNotificationRecord
+	var failed model.AppealNotification
 	if err := repository.db.First(&failed, "id = ?", first.ID).Error; err != nil || failed.Status != model.AppealNotificationFailed || failed.LastErrorCode != "delivery_outcome_unknown" {
 		t.Fatalf("unknown outcome lost: %+v %v", failed, err)
 	}
@@ -590,7 +512,7 @@ func TestAppealDecisionRefreshSurvivesInFlightDelivery(t *testing.T) {
 			if !found {
 				t.Fatal("decision did not queue staff refresh")
 			}
-			var stored AppealNotificationRecord
+			var stored model.AppealNotification
 			if err := repository.db.First(&stored, "id = ?", notification.ID).Error; err != nil || stored.Status != model.AppealNotificationSent {
 				t.Fatalf("refresh did not settle: %+v %v", stored, err)
 			}

@@ -2,6 +2,7 @@ package quack
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -16,7 +17,6 @@ import (
 // accept staff events. It does not authorize erasing administrator configuration.
 var ErrAuditMirrorChannelUnavailable = errors.New("audit mirror channel unavailable")
 
-// AuditMirrorMessage is the redacted transport-neutral event sent to the configured staff channel.
 type AuditMirrorMessage struct {
 	CaseID              string
 	CaseNumber          uint64
@@ -52,7 +52,6 @@ type AuditMirrorSender interface {
 	SendAuditMirror(context.Context, AuditMirrorMessage) error
 }
 
-// AuditMirrorRepository supplies immutable events and the managed destination.
 type AuditMirrorRepository interface {
 	GetCaseByID(context.Context, string) (*model.Case, error)
 	GetCaseActionExecution(context.Context, string, string) (*model.CaseActionExecution, error)
@@ -76,12 +75,8 @@ type AuditMirrorWorker struct {
 
 // NewAuditMirrorWorker returns a worker over store. sender may be nil, in
 // which case every pending entry is recorded as a failed delivery and retried
-// later; a non-positive interval defaults to five seconds. It panics on a nil
-// store because the worker cannot poll without one.
+// later; a non-positive interval defaults to five seconds.
 func NewAuditMirrorWorker(store AuditMirrorRepository, sender AuditMirrorSender, interval time.Duration) *AuditMirrorWorker {
-	if store == nil {
-		panic("quack: NewAuditMirrorWorker requires a repository")
-	}
 	if interval <= 0 {
 		interval = 5 * time.Second
 	}
@@ -177,9 +172,95 @@ func (w *AuditMirrorWorker) recordDelivery(ctx context.Context, original model.A
 	return w.store.SaveAuditMirrorDelivery(ctx, original.ID, finished, retryAt)
 }
 
-// FormatAuditMirrorLine returns a bounded fallback description for adapters without embeds.
-func FormatAuditMirrorLine(message AuditMirrorMessage) string {
-	return fmt.Sprintf(
-		"%s · %s · %s/%s · %s", message.Action, message.Result, message.ResourceType, message.ResourceID, message.CorrelationID,
-	)
+// enrichCase resolves case references through guild-scoped records. It exposes
+// only identifiers and the snapshotted policy decision, never evidence or staff context.
+func (w *AuditMirrorWorker) enrichCase(ctx context.Context, entry model.AuditLogEntry, message *AuditMirrorMessage) error {
+	var caseID string
+	var execution *model.CaseActionExecution
+	switch entry.ResourceType {
+	case "case":
+		caseID = entry.ResourceID
+	case "case_action_execution":
+		var err error
+		execution, err = w.store.GetCaseActionExecution(ctx, entry.GuildID, entry.ResourceID)
+		if err != nil {
+			return err
+		}
+		if execution != nil {
+			caseID = execution.CaseID
+		}
+	case "appeal":
+		appeal, err := w.store.GetAppealByID(ctx, entry.ResourceID)
+		if err != nil {
+			return err
+		}
+		if appeal != nil && appeal.GuildID == entry.GuildID && appeal.CaseID != nil {
+			caseID = *appeal.CaseID
+		}
+	}
+	if caseID == "" {
+		return nil
+	}
+	item, err := w.store.GetCaseByID(ctx, caseID)
+	if err != nil {
+		return err
+	}
+	if item == nil || item.GuildID != entry.GuildID {
+		return nil
+	}
+	message.CaseID, message.CaseNumber = item.ID, item.CaseNumber
+	message.TargetDiscordUserID = item.TargetDiscordUserID
+	message.TemplateName = memberTemplateName(*item)
+	if entry.Action == string(model.AuditActionCaseCreate) {
+		message.SelectedLevelName, message.SelectedOutcome = auditSelectedOutcome(item.TemplateSnapshotJSON)
+	}
+	if execution != nil {
+		message.ActionType = execution.ActionType
+		if entry.Action == string(model.AuditActionActionSucceeded) && execution.ReversalOfExecutionID != nil {
+			var metadata struct {
+				ReversalNoop bool `json:"reversal_noop"`
+			}
+			if json.Unmarshal([]byte(entry.MetadataJSON), &metadata) == nil {
+				message.ReversalNoop = metadata.ReversalNoop
+			}
+		}
+		// A failed punishment on a voided case must not be retried; a failed
+		// reversal still needs one so the member is not left punished.
+		retryable := execution.Status == model.ActionExecutionFailed && execution.DismissedAt == nil &&
+			(item.Validity != model.CaseValidityVoided || execution.ReversalOfExecutionID != nil)
+		if entry.Action == string(model.AuditActionActionFailed) && retryable {
+			message.RetryExecutionID = execution.ID
+		}
+	}
+	return nil
+}
+
+// auditSelectedOutcome summarizes the policy chosen when a case was created.
+// Later template edits and action completion do not rewrite this decision. Old
+// records without a selected-level snapshot omit it rather than invent a warning.
+func auditSelectedOutcome(snapshotJSON string) (string, string) {
+	snapshot := templateSnapshotResponse(snapshotJSON)
+	if snapshot == nil || snapshot.SelectedLevel.ID == "" {
+		return "", ""
+	}
+	outcomes := make([]string, 0, len(snapshot.Actions))
+	for _, action := range snapshot.Actions {
+		label := action.ActionType.Label()
+		if action.ActionType == model.ActionTimeoutUser && action.TimeoutDurationSeconds > 0 {
+			seconds := action.TimeoutDurationSeconds
+			switch {
+			case seconds%3600 == 0:
+				label += fmt.Sprintf(" (%dh)", seconds/3600)
+			case seconds%60 == 0:
+				label += fmt.Sprintf(" (%dm)", seconds/60)
+			default:
+				label += fmt.Sprintf(" (%ds)", seconds)
+			}
+		}
+		outcomes = append(outcomes, label)
+	}
+	if len(outcomes) == 0 {
+		outcomes = append(outcomes, "Warning")
+	}
+	return snapshot.SelectedLevel.Name, strings.Join(outcomes, ", ")
 }

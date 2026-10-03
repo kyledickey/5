@@ -8,6 +8,10 @@ import (
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
+type OpsRepository interface {
+	ActionQueueSnapshot(context.Context, string, int) (*model.ActionQueueSnapshot, error)
+}
+
 // OpsService assembles queue health and action capability data for operational endpoints.
 type OpsService struct {
 	store     OpsRepository
@@ -55,7 +59,6 @@ type OpsOldestActionExecution struct {
 	NextRetryAt *time.Time                  `json:"next_retry_at,omitempty"`
 }
 
-// OpsRecentActionFailure is one recently failed execution with its classified error.
 type OpsRecentActionFailure struct {
 	ID            string                      `json:"id"`
 	CaseID        string                      `json:"case_id"`
@@ -67,8 +70,6 @@ type OpsRecentActionFailure struct {
 	UpdatedAt     time.Time                   `json:"updated_at"`
 }
 
-// NewOpsService returns a service over store. scheduler may be nil, in which
-// case responses carry zero queue statistics.
 func NewOpsService(store OpsRepository, scheduler CaseWorkScheduler) *OpsService {
 	return &OpsService{store: store, scheduler: scheduler}
 }
@@ -107,7 +108,6 @@ func (s *OpsService) status(ctx context.Context, guildID, scope string) (*OpsSta
 	}, nil
 }
 
-// opsActionStatus maps the repository snapshot into the stable operations response and always includes current action capabilities.
 func opsActionStatus(snapshot *model.ActionQueueSnapshot) OpsActionStatus {
 	status := OpsActionStatus{
 		Capabilities: actionCapabilities(),

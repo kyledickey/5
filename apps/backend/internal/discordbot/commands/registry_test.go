@@ -28,12 +28,13 @@ func TestDefaultRegistryIncludesCaseCommand(t *testing.T) {
 	if err := registry.Register(CaseCommandSpec()); err != nil {
 		t.Fatalf("register case command: %v", err)
 	}
-	spec, ok := registry.Lookup("case")
-	if !ok {
+	handler, ok := registry.LookupCommand("case")
+	if !ok || handler == nil {
 		t.Fatalf("expected case command to be registered")
 	}
-	if spec.Definition == nil || spec.Handler == nil {
-		t.Fatalf("expected complete case command spec, got %+v", spec)
+	specs := registry.Specs()
+	if len(specs) != 1 || specs[0].Definition == nil || specs[0].Handler == nil {
+		t.Fatalf("expected complete case command spec, got %+v", specs)
 	}
 }
 

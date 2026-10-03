@@ -9,7 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ActorResolver resolves authenticated request context into current ticket authority.
 type ActorResolver func(*gin.Context) (Actor, error)
 
 // Closer captures and publishes the real thread transcript before deleting it.
@@ -18,7 +17,6 @@ type Closer interface {
 	Close(context.Context, Actor, string) (*Ticket, error)
 }
 
-// RegisterRoutes exposes ticket settings, status, queue, detail, transcript, and lifecycle APIs.
 func RegisterRoutes(group *gin.RouterGroup, service *Service, resolve ActorResolver, closer Closer) {
 	module := group.Group("/tickets")
 	module.GET("/settings", func(c *gin.Context) {

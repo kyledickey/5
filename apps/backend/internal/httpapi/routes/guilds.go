@@ -3,14 +3,12 @@ package routes
 import (
 	"net/http"
 
-	"github.com/quackdiscord/bot/internal/httpapi/apierror"
-
 	"github.com/gin-gonic/gin"
+	"github.com/quackdiscord/bot/internal/httpapi/apierror"
 	"github.com/quackdiscord/bot/internal/httpapi/middleware"
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
-// listUserGuilds returns user guilds subject to authorization, ordering, and filtering constraints.
 // @Summary List manageable Discord guilds
 // @Tags Guilds
 // @Produce json
@@ -35,7 +33,6 @@ func listUserGuilds(c *gin.Context, services *quack.Services) {
 	c.JSON(http.StatusOK, gin.H{"guilds": guilds})
 }
 
-// guildMe encapsulates the guild me rule so callers share one consistent package implementation.
 // @Summary Get current guild staff context
 // @Tags Guilds
 // @Produce json

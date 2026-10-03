@@ -28,13 +28,10 @@ func RequiredIntents(anyGuildEnabled bool) IntentRequirements {
 	return IntentRequirements{Guilds: true, GuildMessages: true}
 }
 
-// DiscordAdapter translates dependency-neutral gateway projections into module operations.
 type DiscordAdapter struct{ service *Service }
 
-// NewDiscordAdapter constructs the honeypot gateway adapter without central registration.
 func NewDiscordAdapter(service *Service) *DiscordAdapter { return &DiscordAdapter{service: service} }
 
-// HandleMessage processes one projected Discord message.
 func (a *DiscordAdapter) HandleMessage(ctx context.Context, message Message) (ApplyResult, error) {
 	if a == nil || a.service == nil {
 		return ApplyResult{}, errors.New("honeypot Discord adapter is not configured")
@@ -42,7 +39,6 @@ func (a *DiscordAdapter) HandleMessage(ctx context.Context, message Message) (Ap
 	return a.service.HandleMessage(ctx, message)
 }
 
-// HandleDeletedChannel disables an affected guild without touching any other module.
 func (a *DiscordAdapter) HandleDeletedChannel(ctx context.Context, guildID, channelID string) error {
 	if a == nil || a.service == nil {
 		return errors.New("honeypot Discord adapter is not configured")
@@ -50,7 +46,6 @@ func (a *DiscordAdapter) HandleDeletedChannel(ctx context.Context, guildID, chan
 	return a.service.HandleDeletedChannel(ctx, guildID, channelID)
 }
 
-// HandleTemplateUnavailable disables an affected configuration after template archive or compatibility drift.
 func (a *DiscordAdapter) HandleTemplateUnavailable(ctx context.Context, guildID, templateID string) error {
 	if a == nil || a.service == nil {
 		return errors.New("honeypot Discord adapter is not configured")
@@ -68,7 +63,6 @@ type IncidentObserver interface {
 // moderation and message cleanup. Cancellation must interrupt transport work.
 type PresentationWorker interface{ RunPresentation(context.Context) }
 
-// Runtime is a bounded, independently drainable honeypot gateway worker pool.
 type Runtime struct {
 	observer      IncidentObserver
 	adapter       *DiscordAdapter
@@ -81,8 +75,10 @@ type Runtime struct {
 	cancelCleanup context.CancelFunc
 }
 
-// NewRuntime starts isolated workers so gateway handling never runs on a moderation action queue.
-func NewRuntime(ctx context.Context, adapter *DiscordAdapter, capacity, workers int, observers ...IncidentObserver) *Runtime {
+// NewRuntime starts isolated workers so gateway handling never runs on the
+// moderation action queue.
+// observer may be nil when no derived presentation work is wired.
+func NewRuntime(ctx context.Context, adapter *DiscordAdapter, capacity, workers int, observer IncidentObserver) *Runtime {
 	if capacity < 1 {
 		capacity = 256
 	}
@@ -90,10 +86,7 @@ func NewRuntime(ctx context.Context, adapter *DiscordAdapter, capacity, workers 
 		workers = 1
 	}
 	cleanupCtx, cancelCleanup := context.WithCancel(ctx)
-	runtime := &Runtime{adapter: adapter, events: make(chan Message, capacity), cleanupCtx: cleanupCtx, cancelCleanup: cancelCleanup}
-	if len(observers) > 0 {
-		runtime.observer = observers[0]
-	}
+	runtime := &Runtime{observer: observer, adapter: adapter, events: make(chan Message, capacity), cleanupCtx: cleanupCtx, cancelCleanup: cancelCleanup}
 	if presenter, ok := runtime.observer.(PresentationWorker); ok {
 		runtime.cleanupWG.Add(1)
 		go func() { defer runtime.cleanupWG.Done(); presenter.RunPresentation(cleanupCtx) }()
@@ -125,7 +118,7 @@ func NewRuntime(ctx context.Context, adapter *DiscordAdapter, capacity, workers 
 	return runtime
 }
 
-// Submit accepts a message without blocking the Discord gateway.
+// Submit accepts a message without blocking the Discord gateway, shedding when full.
 func (r *Runtime) Submit(message Message) error {
 	if r == nil {
 		return errors.New("honeypot runtime is not configured")

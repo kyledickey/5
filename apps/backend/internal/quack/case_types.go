@@ -2,6 +2,9 @@ package quack
 
 import (
 	"encoding/json"
+	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/quackdiscord/bot/internal/quack/model"
@@ -23,7 +26,6 @@ type CaseInput struct {
 	IdempotencyKey          string                      `json:"-"`
 }
 
-// CaseContextValueInput carries one typed value keyed by its template definition.
 type CaseContextValueInput struct {
 	Key   string          `json:"key"`
 	Value json.RawMessage `json:"value" swaggertype:"object"`
@@ -53,7 +55,6 @@ type CaseListInput struct {
 	CreatedBefore          string
 }
 
-// CaseListResponse returns a stable case page with the total matching count.
 type CaseListResponse struct {
 	Cases  []CaseResponse `json:"cases"`
 	Total  int64          `json:"total"`
@@ -203,7 +204,6 @@ type CaseActionAttemptResponse struct {
 	ResponsePayload any                       `json:"response_payload"`
 }
 
-// CaseEventResponse presents an attributed case timeline event with its visibility.
 type CaseEventResponse struct {
 	ID                 string                `json:"id"`
 	CreatedAt          time.Time             `json:"created_at"`
@@ -218,15 +218,6 @@ type CaseEventResponse struct {
 
 // CaseTemplateSnapshotResponse preserves the policy version, context schema, and selected outcome used by a case.
 type CaseTemplateSnapshotResponse struct {
-	Template      templateSnapshotTemplate       `json:"template"`
-	SelectedLevel CaseSelectedLevel              `json:"selected_level"`
-	Actions       []templateSnapshotAction       `json:"actions"`
-	ContextFields []TemplateContextFieldResponse `json:"context_fields"`
-	ContextValues []CaseContextValueResponse     `json:"context_values"`
-}
-
-// templateSnapshot is the durable JSON record of the exact policy and selected outcome used at creation.
-type templateSnapshot struct {
 	Template      templateSnapshotTemplate       `json:"template"`
 	SelectedLevel CaseSelectedLevel              `json:"selected_level"`
 	Actions       []templateSnapshotAction       `json:"actions"`
@@ -275,7 +266,108 @@ type caseCreatePreflight struct {
 // caseCreateAttribution distinguishes a live staff request from the one
 // product-approved system automation path without widening generic case APIs.
 type caseCreateAttribution struct {
-	actorType   string
-	auditSource model.AuditSource
-	system      bool
+	actorType string
+	system    bool
+}
+
+// normalizeOptionalTime validates stable RFC3339 staff-search boundaries.
+func normalizeOptionalTime(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", nil
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return "", validationCaseError("date filter must use RFC3339")
+	}
+	return parsed.UTC().Format(time.RFC3339Nano), nil
+}
+
+func validActionExecutionStatus(value model.ActionExecutionStatus) bool {
+	switch value {
+	case model.ActionExecutionPending, model.ActionExecutionRunning, model.ActionExecutionSucceeded,
+		model.ActionExecutionFailed, model.ActionExecutionRetrying, model.ActionExecutionSkipped,
+		model.ActionExecutionCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
+func validAppealStatus(value model.AppealStatus) bool {
+	switch value {
+	case model.AppealStatusPending, model.AppealStatusNeedsInformation, model.AppealStatusAccepted,
+		model.AppealStatusRejected, model.AppealStatusClosed:
+		return true
+	default:
+		return false
+	}
+}
+
+// pagination parses the raw limit and offset query values shared by every case
+// list endpoint. An empty limit defaults to 50 and is capped at 100; an empty
+// offset defaults to 0. Non-numeric, zero, or negative values are validation errors.
+func pagination(limitValue, offsetValue string) (int, int, error) {
+	limit := 50
+	if strings.TrimSpace(limitValue) != "" {
+		parsed, err := strconv.Atoi(strings.TrimSpace(limitValue))
+		if err != nil || parsed <= 0 {
+			return 0, 0, validationCaseError("limit must be a positive integer")
+		}
+		limit = parsed
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	offset := 0
+	if strings.TrimSpace(offsetValue) != "" {
+		parsed, err := strconv.Atoi(strings.TrimSpace(offsetValue))
+		if err != nil || parsed < 0 {
+			return 0, 0, validationCaseError("offset must be a non-negative integer")
+		}
+		offset = parsed
+	}
+
+	return limit, offset, nil
+}
+
+func validCaseValidity(validity model.CaseValidity) bool {
+	switch validity {
+	case model.CaseValidityValid, model.CaseValidityVoided:
+		return true
+	default:
+		return false
+	}
+}
+
+func caseValiditySummary(source map[model.CaseValidity]int64) map[string]int64 {
+	out := make(map[string]int64, len(source))
+	for status, count := range source {
+		out[string(status)] = count
+	}
+	return out
+}
+
+func validationCaseError(message string) error {
+	return fmt.Errorf("%w: %s", ErrCaseValidation, message)
+}
+
+func validCaseSource(source model.CaseSource) bool {
+	switch source {
+	case model.CaseSourceDashboard, model.CaseSourceDiscord, model.CaseSourceHoneypot, model.CaseSourceV4Import:
+		return true
+	default:
+		return false
+	}
+}
+
+// irreversibleAction marks membership removals whose ambiguous failures require staff review.
+func irreversibleAction(actionType model.ActionType) bool {
+	switch actionType {
+	case model.ActionTimeoutUser, model.ActionKickUser, model.ActionBanUser:
+		return true
+	default:
+		return false
+	}
 }

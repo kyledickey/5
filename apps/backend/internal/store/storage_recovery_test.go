@@ -22,9 +22,6 @@ func TestRecoveryManifestDetectsRestoredDataDrift(t *testing.T) {
 	if err := repositories.Migrate(); err != nil {
 		t.Fatal(err)
 	}
-	if err := migration0400V4HistoricalImport(10).Up(db); err != nil {
-		t.Fatal(err)
-	}
 	manifest, err := repositories.BuildRecoveryManifest(context.Background())
 	if err != nil {
 		t.Fatal(err)

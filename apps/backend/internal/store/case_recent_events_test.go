@@ -24,7 +24,7 @@ func TestRecentCaseEvents(t *testing.T) {
 }
 
 // TestMySQLRecentCaseEvents verifies the same query against actual MySQL.
-func TestMySQLRecentCaseEvents(t *testing.T) { exerciseRecentCaseEvents(t, openMySQLMigrationDB(t)) }
+func TestMySQLRecentCaseEvents(t *testing.T) { exerciseRecentCaseEvents(t, openMySQLTestDB(t)) }
 
 // exerciseRecentCaseEvents checks filtering before the limit, timestamp ties,
 // chronological output, case isolation, and rejection of unbounded reads.
@@ -35,7 +35,7 @@ func exerciseRecentCaseEvents(t *testing.T, db *gorm.DB) {
 	}
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	for i := 0; i < 20; i++ {
-		event := model.CaseEvent{ULIDModel: model.ULIDModel{ID: fmt.Sprintf("event-%02d", i), CreatedAt: now}, CaseID: "case", EventType: model.CaseEventCreated}
+		event := model.CaseEvent{ULIDModel: model.ULIDModel{ID: fmt.Sprintf("event-%02d", i), CreatedAt: now}, CaseID: "case", EventType: model.CaseEventCreated, MetadataJSON: "{}"}
 		if i >= 15 {
 			event.EventType = model.CaseEventType(retiredCaseEventTypes[0])
 		}
@@ -43,7 +43,7 @@ func exerciseRecentCaseEvents(t *testing.T, db *gorm.DB) {
 			t.Fatal(err)
 		}
 	}
-	other := model.CaseEvent{ULIDModel: model.ULIDModel{ID: "zz-other", CreatedAt: now}, CaseID: "other", EventType: model.CaseEventCreated}
+	other := model.CaseEvent{ULIDModel: model.ULIDModel{ID: "zz-other", CreatedAt: now}, CaseID: "other", EventType: model.CaseEventCreated, MetadataJSON: "{}"}
 	if err := db.Create(&other).Error; err != nil {
 		t.Fatal(err)
 	}

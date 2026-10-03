@@ -5,33 +5,17 @@ import (
 	"fmt"
 )
 
-// MigrationReadiness reports the schema version for readiness checks. A
-// database marked by InitializeSchema reports 1 without consulting the ledger;
-// otherwise the frozen migration ledger must be complete and clean, and the
-// newest applied version is returned (0 for an empty ledger).
-func (s *Store) MigrationReadiness(ctx context.Context) (uint64, error) {
-	if s.db.WithContext(ctx).Migrator().HasTable(&currentSchema{}) {
-		var marker currentSchema
-		if err := s.db.WithContext(ctx).First(&marker, "id = ?", 1).Error; err != nil {
-			return 0, fmt.Errorf("current schema initialization is incomplete: %w", err)
+// SchemaReady reports whether the moderation schema exists. Startup creates it
+// before serving traffic, so a missing table means the process is pointed at an
+// uninitialized or wrong database.
+func (s *Store) SchemaReady(ctx context.Context) error {
+	migrator := s.db.WithContext(ctx).Migrator()
+	for _, table := range []string{"guilds", "guild_settings", "cases", "case_action_executions", "audit_log_entries"} {
+		if !migrator.HasTable(table) {
+			return fmt.Errorf("schema table %s is missing", table)
 		}
-		return 1, nil
 	}
-	applied, err := loadAppliedMigrations(s.db.WithContext(ctx))
-	if err != nil {
-		return 0, err
-	}
-	registry := registeredMigrations()
-	if err := validateAppliedMigrations(applied, registry); err != nil {
-		return 0, err
-	}
-	if len(applied) != len(registry) {
-		return 0, fmt.Errorf("migration ledger is behind: applied=%d required=%d", len(applied), len(registry))
-	}
-	if len(applied) == 0 {
-		return 0, nil
-	}
-	return applied[len(applied)-1].Version, nil
+	return nil
 }
 
 // OperationalMetricSnapshot returns aggregate, low-cardinality durable

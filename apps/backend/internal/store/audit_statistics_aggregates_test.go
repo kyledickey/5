@@ -45,7 +45,7 @@ func TestMySQLStatisticsAggregatesMatchSourceSemantics(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Setenv("QUACK_TEST_MYSQL_DSN", cfg.FormatDSN())
-			exerciseStatisticsAggregates(t, openMySQLMigrationDB(t))
+			exerciseStatisticsAggregates(t, openMySQLTestDB(t))
 		})
 	}
 }
@@ -77,7 +77,7 @@ func exerciseStatisticsAggregates(t *testing.T, db *gorm.DB) {
 		{"old", "guild", "Rule", "valid", "discord", from.Add(-time.Second)},
 		{"end", "guild", "Rule", "valid", "discord", to},
 	} {
-		values := map[string]any{"id": row.id, "guild_id": row.guild, "case_number": i + 1, "template_id": row.template, "status": row.status, "source": row.source, "created_at": row.at, "reason": "unneeded case payload", "metadata_json": "{}"}
+		values := map[string]any{"id": row.id, "guild_id": row.guild, "case_number": i + 1, "template_id": row.template, "status": row.status, "source": row.source, "created_at": row.at, "updated_at": row.at, "reason": "unneeded case payload", "context_values_json": "[]", "metadata_json": "{}", "template_snapshot_json": "{}", "target_discord_user_id": "member", "moderator_discord_user_id": "moderator", "template_version": 1}
 		if row.id == "third" {
 			values["template_id"] = nil
 		}
@@ -85,7 +85,7 @@ func exerciseStatisticsAggregates(t *testing.T, db *gorm.DB) {
 	}
 	// Empty template IDs map to the same historical bucket as NULL, while spaces
 	// and exact case-sensitive labels retain the former Go grouping behavior.
-	insert("cases", map[string]any{"id": "empty", "guild_id": "guild", "case_number": 8, "template_id": "", "status": "valid", "source": "discord", "created_at": from})
+	insert("cases", map[string]any{"id": "empty", "guild_id": "guild", "case_number": 8, "template_id": "", "status": "valid", "source": "discord", "created_at": from, "updated_at": from, "reason": "unneeded case payload", "context_values_json": "[]", "metadata_json": "{}", "template_snapshot_json": "{}", "target_discord_user_id": "member", "moderator_discord_user_id": "moderator", "template_version": 1})
 	for _, row := range []struct {
 		id, caseID, status, action string
 		at                         time.Time
@@ -95,19 +95,19 @@ func exerciseStatisticsAggregates(t *testing.T, db *gorm.DB) {
 		{"c", "other", "failed", "kick", from},
 		{"d", "first", "pending", "ban", to},
 	} {
-		insert("case_action_executions", map[string]any{"id": row.id, "case_id": row.caseID, "status": row.status, "action_type": row.action, "created_at": row.at, "config_snapshot_json": "unneeded action payload"})
+		insert("case_action_executions", map[string]any{"id": row.id, "case_id": row.caseID, "status": row.status, "action_type": row.action, "created_at": row.at, "updated_at": row.at, "idempotency_key": row.id, "config_snapshot_json": "{}", "position": 0, "safe_for_retry": true})
 	}
 	for _, row := range []struct {
 		id, guild, status string
 		at                time.Time
 	}{{"appeal1", "guild", "submitted", from}, {"appeal2", "guild", "accepted", from.Add(48 * time.Hour)}, {"appeal3", "other", "rejected", from}, {"appeal4", "guild", "rejected", to}} {
-		insert("appeals", map[string]any{"id": row.id, "guild_id": row.guild, "status": row.status, "created_at": row.at})
+		insert("appeals", map[string]any{"id": row.id, "guild_id": row.guild, "status": row.status, "created_at": row.at, "updated_at": row.at, "content": "", "question_snapshot_json": "[]", "answers_json": "[]", "metadata_json": "{}", "target_discord_user_id": "member", "version": 1})
 	}
 	for _, row := range []struct {
 		id, guild, action, result, source string
 		at                                time.Time
 	}{{"audit1", "guild", "case.create", "success", "discord", from}, {"audit2", "guild", "settings.update", "failure", "api", from.Add(24 * time.Hour)}, {"audit3", "guild", "audit.read", "success", "api", from}, {"audit4", "other", "case.create", "success", "discord", from}, {"audit5", "guild", "case.create", "success", "discord", to}} {
-		insert("audit_log_entries", map[string]any{"id": row.id, "guild_id": row.guild, "action": row.action, "result": row.result, "source": row.source, "created_at": row.at, "metadata_json": "unneeded audit payload"})
+		insert("audit_log_entries", map[string]any{"id": row.id, "guild_id": row.guild, "action": row.action, "result": row.result, "source": row.source, "created_at": row.at, "updated_at": row.at, "metadata_json": "{}", "resource_type": "case", "resource_id": row.id})
 	}
 	var statements []string
 	if err := db.Callback().Row().After("gorm:row").Register("statistics_projection_check", func(tx *gorm.DB) { statements = append(statements, tx.Statement.SQL.String()) }); err != nil {

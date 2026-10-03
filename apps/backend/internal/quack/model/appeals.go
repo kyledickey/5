@@ -54,9 +54,9 @@ type AppealAnswer struct {
 // GuildAppealSettings stores the validated form used for future submissions.
 type GuildAppealSettings struct {
 	ULIDModel
-	GuildID                string
-	QuestionsJSON          string
-	UpdatedByDiscordUserID string
+	GuildID                string `gorm:"type:char(26);not null;uniqueIndex"`
+	QuestionsJSON          string `gorm:"type:json;not null"`
+	UpdatedByDiscordUserID string `gorm:"size:32;not null"`
 }
 
 // AppealNotificationAudience identifies whether an outbox message targets the member or staff queue.
@@ -81,20 +81,20 @@ const (
 // AppealNotification is an idempotent outbox item without staff identity in its member-facing body.
 type AppealNotification struct {
 	ULIDModel
-	AppealID            string
-	EventID             string
-	GuildID             string
-	TargetDiscordUserID string
-	Audience            AppealNotificationAudience
-	Status              AppealNotificationStatus
-	Body                string
-	DecisionIntentJSON  string
-	DeliveryChannelID   string
-	RefreshRequested    bool
-	DeliveryMessageID   string
-	LastErrorCode       string
-	LeaseToken          string
-	LeaseExpiresAt      *time.Time
+	AppealID            string                     `gorm:"type:char(26);not null;index"`
+	EventID             string                     `gorm:"type:char(26);not null;uniqueIndex"`
+	GuildID             string                     `gorm:"type:char(26);not null;index"`
+	TargetDiscordUserID string                     `gorm:"size:32;not null;index"`
+	Audience            AppealNotificationAudience `gorm:"size:32;not null;index"`
+	Status              AppealNotificationStatus   `gorm:"size:32;not null;index"`
+	Body                string                     `gorm:"type:text;not null"`
+	DecisionIntentJSON  string                     `gorm:"type:text"`
+	DeliveryChannelID   string                     `gorm:"size:32;not null;default:''"`
+	RefreshRequested    bool                       `gorm:"not null;default:false"`
+	DeliveryMessageID   string                     `gorm:"size:32;not null"`
+	LastErrorCode       string                     `gorm:"size:64;not null"`
+	LeaseToken          string                     `gorm:"size:64;not null;index"`
+	LeaseExpiresAt      *time.Time                 `gorm:"index"`
 }
 
 // AppealDecisionIntent freezes member-facing decision facts at the transition.
@@ -108,4 +108,51 @@ type AppealDecisionIntent struct {
 	Status     AppealStatus `json:"status"`
 	Reason     string       `json:"reason"`
 	RejoinURL  string       `json:"rejoin_url,omitempty"`
+}
+
+// CreateAppealParams carries one validated, case-owned submission and its atomic history evidence.
+type CreateAppealParams struct {
+	Appeal       Appeal
+	Event        AppealEvent
+	CaseEvent    CaseEvent
+	Audit        AuditLogEntry
+	Notification AppealNotification
+}
+
+// TransitionAppealParams carries one staff state change and its atomic case/audit/notification effects.
+type TransitionAppealParams struct {
+	GuildID, AppealID, ActorDiscordUserID string
+	AllowedFrom                           []AppealStatus
+	To                                    AppealStatus
+	Reason                                string
+	Event                                 AppealEvent
+	AppealAudit                           AuditLogEntry
+	CaseAudit                             *AuditLogEntry
+	Notification                          AppealNotification
+	VoidCase                              bool
+}
+
+// AppealListParams bounds a stable guild-owned staff queue.
+type AppealListParams struct {
+	GuildID       string
+	Status        AppealStatus
+	Limit, Offset int
+}
+
+// AppealListResult returns stable staff queue pagination.
+type AppealListResult struct {
+	Appeals []Appeal
+	Total   int64
+}
+
+// UpdateGuildAppealSettingsParams carries a validated future form and its audit evidence.
+type UpdateGuildAppealSettingsParams struct {
+	Settings GuildAppealSettings
+	Audit    AuditLogEntry
+}
+
+// CompleteAppealNotificationParams records one delivery outcome without mutating its timeline event.
+type CompleteAppealNotificationParams struct {
+	NotificationID, LeaseToken, DeliveryMessageID, DeliveryChannelID, ErrorCode string
+	Status                                                                      AppealNotificationStatus
 }

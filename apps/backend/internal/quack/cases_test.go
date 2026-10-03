@@ -10,6 +10,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/quack"
+	"github.com/quackdiscord/bot/internal/quack/idutil"
 	"github.com/quackdiscord/bot/internal/quack/model"
 	storage "github.com/quackdiscord/bot/internal/store"
 )
@@ -141,7 +142,7 @@ func TestCaseServiceRejectsEmptyFinalReason(t *testing.T) {
 	ctx := context.Background()
 	store := newMigratedStore(t)
 	guildContext := templateGuildContext(t, store, "guild-1", "mod-1", uint64(discordgo.PermissionModerateMembers))
-	created, err := store.CreateCaseTemplate(ctx, storage.CreateCaseTemplateParams{
+	created, err := store.CreateCaseTemplate(ctx, model.CreateCaseTemplateParams{
 		Template: model.CaseTemplate{
 			GuildID:                guildContext.Guild.ID,
 			Slug:                   "empty-reason",
@@ -150,7 +151,7 @@ func TestCaseServiceRejectsEmptyFinalReason(t *testing.T) {
 			CreatedByDiscordUserID: "admin-1",
 			UpdatedByDiscordUserID: "admin-1",
 		},
-		Levels: []storage.ExpandedCaseTemplateLevel{
+		Levels: []model.ExpandedCaseTemplateLevel{
 			{
 				Level: model.CaseTemplateLevel{Position: 1, Name: "Default", IsDefault: true},
 			},
@@ -478,7 +479,7 @@ func TestCaseServiceReadValidationAndPermissions(t *testing.T) {
 }
 
 func TestCaseServiceTraceIDsPropagateToCaseActionsAndAudit(t *testing.T) {
-	ctx := quack.ContextWithTrace(context.Background(), "req-case-1", "corr-case-1")
+	ctx := idutil.ContextWithTrace(context.Background(), "req-case-1", "corr-case-1")
 	store := newMigratedStore(t)
 	adminContext := templateGuildContext(t, store, "guild-1", "admin-1", uint64(discordgo.PermissionManageGuild))
 	modContext := templateGuildContext(t, store, "guild-1", "mod-1", uint64(discordgo.PermissionModerateMembers))

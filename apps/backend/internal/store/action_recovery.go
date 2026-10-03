@@ -246,9 +246,7 @@ func queueCaseReversal(tx *gorm.DB, params model.QueueCaseReversalParams, now ti
 	} else if !errors.Is(existingResult.Error, gorm.ErrRecordNotFound) {
 		return existingResult.Error
 	}
-	if err := prepareULIDModel(&reversal.ULIDModel, now); err != nil {
-		return err
-	}
+	prepareULIDModel(&reversal.ULIDModel, now)
 	if err := tx.Select("*").Create(reversal).Error; err != nil {
 		return fmt.Errorf("queue reversal: %w", err)
 	}
@@ -315,10 +313,7 @@ func (s *Store) ClaimCaseNotification(ctx context.Context, params model.ClaimCas
 		if result.Error != nil {
 			return result.Error
 		}
-		token, err := idutil.NewULID()
-		if err != nil {
-			return err
-		}
+		token := idutil.NewULID()
 		expires := now.Add(2 * time.Minute)
 		item.Status = model.NotificationClaimed
 		item.AttemptCount++

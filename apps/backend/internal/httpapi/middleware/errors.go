@@ -10,10 +10,11 @@ import (
 	"github.com/quackdiscord/bot/internal/quack/idutil"
 )
 
-// bufferedResponseWriter holds the handler's status and body in memory so
-// ErrorEnvelope can replace an unstructured failure body before anything
-// reaches the client. Nothing is flushed until ErrorEnvelope decides.
-type bufferedResponseWriter struct {
+// BufferedWriter holds a handler's status and body in memory instead of
+// sending them, so the middleware that installed it can rewrite or record the
+// response before anything reaches the client. Nothing is flushed until the
+// installer writes it through the original gin.ResponseWriter.
+type BufferedWriter struct {
 	gin.ResponseWriter
 	status int
 	body   bytes.Buffer
@@ -21,7 +22,7 @@ type bufferedResponseWriter struct {
 
 // WriteHeader records the first status a handler selects; later calls are
 // ignored, matching net/http semantics.
-func (w *bufferedResponseWriter) WriteHeader(status int) {
+func (w *BufferedWriter) WriteHeader(status int) {
 	if w.status == 0 {
 		w.status = status
 	}
@@ -29,37 +30,37 @@ func (w *bufferedResponseWriter) WriteHeader(status int) {
 
 // WriteHeaderNow records an implicit 200 when a handler writes a body without
 // choosing a status.
-func (w *bufferedResponseWriter) WriteHeaderNow() {
+func (w *BufferedWriter) WriteHeaderNow() {
 	if w.status == 0 {
 		w.status = http.StatusOK
 	}
 }
 
-// Write buffers body bytes instead of sending them.
-func (w *bufferedResponseWriter) Write(body []byte) (int, error) {
+func (w *BufferedWriter) Write(body []byte) (int, error) {
 	w.WriteHeaderNow()
 	return w.body.Write(body)
 }
 
-// WriteString buffers body text instead of sending it.
-func (w *bufferedResponseWriter) WriteString(body string) (int, error) {
+func (w *BufferedWriter) WriteString(body string) (int, error) {
 	w.WriteHeaderNow()
 	return w.body.WriteString(body)
 }
 
 // Status reports the recorded status, defaulting to 200 when none was chosen.
-func (w *bufferedResponseWriter) Status() int {
+func (w *BufferedWriter) Status() int {
 	if w.status == 0 {
 		return http.StatusOK
 	}
 	return w.status
 }
 
-// Size reports the buffered body length.
-func (w *bufferedResponseWriter) Size() int { return w.body.Len() }
+func (w *BufferedWriter) Size() int { return w.body.Len() }
 
 // Written reports whether the handler selected a status or wrote any body.
-func (w *bufferedResponseWriter) Written() bool { return w.status != 0 || w.body.Len() > 0 }
+func (w *BufferedWriter) Written() bool { return w.status != 0 || w.body.Len() > 0 }
+
+// Body returns the buffered response bytes.
+func (w *BufferedWriter) Body() []byte { return w.body.Bytes() }
 
 // ErrorEnvelope guarantees every 4xx/5xx response is an apierror.Response.
 // A failure body that already decodes as the envelope is passed through; any
@@ -69,13 +70,13 @@ func (w *bufferedResponseWriter) Written() bool { return w.status != 0 || w.body
 // Content-Length, which is dropped because the body may have been rewritten.
 func ErrorEnvelope(c *gin.Context) {
 	original := c.Writer
-	buffered := &bufferedResponseWriter{ResponseWriter: original}
+	buffered := &BufferedWriter{ResponseWriter: original}
 	c.Writer = buffered
 	defer func() { c.Writer = original }()
 	c.Next()
 
 	status := buffered.Status()
-	body := buffered.body.Bytes()
+	body := buffered.Body()
 	if status >= http.StatusBadRequest {
 		var structured apierror.Response
 		if err := json.Unmarshal(body, &structured); err != nil || structured.Error.Code == "" {

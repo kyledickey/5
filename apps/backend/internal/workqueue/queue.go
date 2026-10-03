@@ -2,17 +2,16 @@ package workqueue
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"log/slog"
 
 	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/quackdiscord/bot/internal/quack/idutil"
 )
 
-// Handler handles one unit of work through the package's transport-neutral callback contract.
+// Handler processes one case's due work.
 type Handler func(context.Context, string) error
 
 // DueSource discovers persisted actions whose initial attempt or retry is due.
@@ -20,7 +19,9 @@ type DueSource interface {
 	ListExecutableCaseIDs(context.Context, int) ([]string, error)
 }
 
-// Queue combines a bounded latency queue with database polling, leaving persisted action rows as durable truth.
+// Queue combines a bounded in-memory queue with database polling. Persisted
+// action rows remain the durable source of truth; the channel is only a latency
+// optimization, so dropping a submission never loses work.
 type Queue struct {
 	jobs       chan job
 	workers    int
@@ -40,14 +41,14 @@ type Queue struct {
 	stats      quack.QueueStats
 }
 
-// job carries the case and trace identifiers needed by an action worker.
 type job struct {
 	caseID        string
 	requestID     string
 	correlationID string
 }
 
-// New creates a bounded queue with defensive defaults. The handler and durable source are supplied at Start so construction has no background side effects.
+// New creates a bounded queue. The handler and durable source are supplied at
+// Start so construction has no background side effects.
 func New(size, workers int) *Queue {
 	if size <= 0 {
 		size = 1000
@@ -83,7 +84,7 @@ func (q *Queue) Start(ctx context.Context, handler Handler, source DueSource) {
 	q.cancelPoll = cancelPoll
 	q.cancelWork = cancelWork
 	q.workerCtx = workerCtx
-	for i := 0; i < q.workers; i++ {
+	for range q.workers {
 		q.wg.Add(1)
 		go q.worker()
 	}
@@ -92,7 +93,8 @@ func (q *Queue) Start(ctx context.Context, handler Handler, source DueSource) {
 	q.mu.Unlock()
 }
 
-// Submit offers immediate work to the queue as a latency optimization; persisted rows remain the durable source of truth.
+// Submit offers immediate work to the queue. A rejected submission stays
+// discoverable through polling.
 func (q *Queue) Submit(ctx context.Context, caseID string) bool {
 	if q == nil || caseID == "" {
 		return false
@@ -125,7 +127,8 @@ func (q *Queue) Submit(ctx context.Context, caseID string) bool {
 	}
 }
 
-// poll discovers persisted due work so actions recover after saturation or process restart.
+// poll discovers persisted due work so actions recover after saturation or
+// process restart.
 func (q *Queue) poll(ctx context.Context) {
 	defer q.wg.Done()
 	q.enqueueDue(ctx)
@@ -141,7 +144,6 @@ func (q *Queue) poll(ctx context.Context) {
 	}
 }
 
-// enqueueDue discovers persisted due work so actions recover after saturation or process restart.
 func (q *Queue) enqueueDue(ctx context.Context) {
 	q.mu.RLock()
 	source := q.source
@@ -160,7 +162,6 @@ func (q *Queue) enqueueDue(ctx context.Context) {
 	}
 }
 
-// worker consumes queued case work until graceful shutdown closes the work channel.
 func (q *Queue) worker() {
 	defer q.wg.Done()
 	for next := range q.jobs {
@@ -168,7 +169,8 @@ func (q *Queue) worker() {
 	}
 }
 
-// process restores trace context, invokes the configured case handler, and updates queue metrics while containing handler panics inside the worker.
+// process restores the submitter's trace context onto the worker context and
+// contains handler panics so one bad job cannot kill a worker.
 func (q *Queue) process(next job) {
 	defer func() {
 		q.mu.Lock()
@@ -190,9 +192,6 @@ func (q *Queue) process(next job) {
 	q.mu.RLock()
 	workerCtx := q.workerCtx
 	q.mu.RUnlock()
-	if workerCtx == nil {
-		workerCtx = context.Background()
-	}
 	ctx := idutil.ContextWithTrace(workerCtx, next.requestID, next.correlationID)
 	if err := handler(ctx, next.caseID); err != nil {
 		atomic.AddUint64(&q.stats.FailedTotal, 1)
@@ -206,7 +205,7 @@ func (q *Queue) process(next job) {
 	q.mu.Unlock()
 }
 
-// Stop stops accepting queue work, halts polling, and drains workers before returning.
+// Stop drains workers without a deadline.
 func (q *Queue) Stop() {
 	_ = q.StopContext(context.Background())
 }
@@ -244,7 +243,6 @@ func (q *Queue) StopContext(ctx context.Context) error {
 	}
 }
 
-// IsActive reports whether the queue currently accepts immediate submissions.
 func (q *Queue) IsActive() bool {
 	if q == nil {
 		return false
@@ -254,7 +252,7 @@ func (q *Queue) IsActive() bool {
 	return q.active
 }
 
-// Stats returns a race-safe snapshot of queue counters and the most recently processed job.
+// Stats returns a race-safe snapshot of the queue counters.
 func (q *Queue) Stats() quack.QueueStats {
 	if q == nil {
 		return quack.QueueStats{}

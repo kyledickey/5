@@ -14,8 +14,8 @@ import (
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
-// errModuleNotSetUp is returned when core settings try to enable a module that
-// has never been configured natively; the copy points administrators at /setup.
+// errModuleNotSetUp points administrators at /setup when core settings try to
+// enable a module that has never been configured natively.
 var errModuleNotSetUp = errors.New("module is not configured; run /setup first")
 
 // ValidateGuildModuleEnablement is the hook core guild settings call before
@@ -109,8 +109,6 @@ func (r *Runtime) validateLoggingEnablement(ctx context.Context, guild *quack.Gu
 	return nil
 }
 
-// validateHoneypotEnablement checks the stored trap channel and template
-// against live Discord and current template policy.
 func (r *Runtime) validateHoneypotEnablement(ctx context.Context, guild *quack.GuildStaffContext, configJSON string) error {
 	if err := honeypot.ValidateEnabledConfiguration(configJSON); err != nil {
 		return err
@@ -132,8 +130,6 @@ var errAuditLogAccessRequired = errors.New(
 	"enabling logging requires the View Audit Log permission so bans by other moderators can be logged without duplicating Quack's own actions",
 )
 
-// requireAuditLogAccess loads the bot's current guild membership and fails when
-// it cannot read the audit log.
 func requireAuditLogAccess(ctx context.Context, session *discordgo.Session, discordGuildID string) error {
 	guild, member, err := currentBotMember(ctx, session, discordGuildID)
 	if err != nil {

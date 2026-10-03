@@ -25,7 +25,8 @@ const (
 	Honeypots ID = "honeypots"
 )
 
-// Configuration is one guild's canonical enablement and opaque module settings.
+// Configuration is one guild's enablement flag plus the module's opaque settings
+// JSON, which the registry never interprets.
 type Configuration struct {
 	ID         string    `gorm:"type:char(26);primaryKey" json:"id"`
 	GuildID    string    `gorm:"type:char(26);not null;uniqueIndex:idx_module_configuration,priority:1" json:"guild_id"`
@@ -39,26 +40,23 @@ type Configuration struct {
 // TableName keeps optional-module configuration out of core guild settings.
 func (Configuration) TableName() string { return "module_configurations" }
 
-// SettingsStore persists the shared enablement envelope without interpreting module configuration.
 type SettingsStore interface {
 	GetModuleConfiguration(context.Context, string, ID) (*Configuration, error)
 	PutModuleConfiguration(context.Context, Configuration) (*Configuration, error)
 }
 
-// Descriptor supplies an isolated module's status and integration hooks.
 type Descriptor struct {
 	ID          ID
 	DisplayName string
 	Validate    func(string) error
 }
 
-// Registry owns immutable module descriptors and guild-scoped enablement queries.
 type Registry struct {
 	store       SettingsStore
 	descriptors map[ID]Descriptor
 }
 
-// NewRegistry builds a registry from explicit descriptors and rejects duplicate module ownership.
+// NewRegistry rejects duplicate module ownership.
 func NewRegistry(store SettingsStore, descriptors ...Descriptor) (*Registry, error) {
 	if store == nil {
 		return nil, errors.New("module settings store is required")
@@ -76,7 +74,6 @@ func NewRegistry(store SettingsStore, descriptors ...Descriptor) (*Registry, err
 	return r, nil
 }
 
-// IDs returns the registered module identifiers in stable order.
 func (r *Registry) IDs() []ID {
 	ids := make([]ID, 0, len(r.descriptors))
 	for id := range r.descriptors {
@@ -86,7 +83,8 @@ func (r *Registry) IDs() []ID {
 	return ids
 }
 
-// Configuration returns one guild/module envelope and never falls back across guilds.
+// Configuration returns one guild/module envelope and never falls back across
+// guilds. A guild that has never configured the module yields (nil, nil).
 func (r *Registry) Configuration(ctx context.Context, guildID string, moduleID ID) (*Configuration, error) {
 	if r == nil || r.store == nil {
 		return nil, errors.New("module registry is not configured")
@@ -121,13 +119,10 @@ func (r *Registry) SetConfiguration(ctx context.Context, configuration Configura
 	return r.store.PutModuleConfiguration(ctx, configuration)
 }
 
-// SQLSettingsStore implements the shared configuration boundary with a caller-owned GORM handle.
 type SQLSettingsStore struct{ db *gorm.DB }
 
-// NewSQLSettingsStore constructs a module configuration store without exposing core repositories.
 func NewSQLSettingsStore(db *gorm.DB) *SQLSettingsStore { return &SQLSettingsStore{db: db} }
 
-// GetModuleConfiguration reads one exact guild/module row.
 func (s *SQLSettingsStore) GetModuleConfiguration(ctx context.Context, guildID string, moduleID ID) (*Configuration, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("module database is not connected")
@@ -143,7 +138,8 @@ func (s *SQLSettingsStore) GetModuleConfiguration(ctx context.Context, guildID s
 	return &configuration, nil
 }
 
-// PutModuleConfiguration upserts one exact guild/module row while preserving its identity.
+// PutModuleConfiguration upserts one guild/module row, preserving the existing
+// row's ID and CreatedAt so audit references stay stable across edits.
 func (s *SQLSettingsStore) PutModuleConfiguration(ctx context.Context, configuration Configuration) (*Configuration, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("module database is not connected")
@@ -168,19 +164,11 @@ func (s *SQLSettingsStore) PutModuleConfiguration(ctx context.Context, configura
 	return &configuration, nil
 }
 
-// Migration is an integration-safe optional-module schema contribution.
-type Migration struct {
-	Version uint64
-	Name    string
-	Apply   func(*gorm.DB) error
-}
-
-// AuditEvent is an immutable optional-module operation outcome destined for Quack's core audit sink.
+// AuditEvent is one optional-module operation outcome for the core audit sink.
 type AuditEvent struct {
 	GuildID, ActorDiscordUserID, Action, ResourceType, ResourceID, Result, FailureReason, MetadataJSON string
 }
 
-// Auditor records module configuration and lifecycle evidence without exposing core audit storage to modules.
 type Auditor interface {
 	RecordModuleAudit(context.Context, AuditEvent) error
 }
@@ -195,12 +183,9 @@ type ImportRecord struct {
 	CreatedAt time.Time `gorm:"not null"`
 }
 
-// TableName provides one cross-module ledger without mixing imported data into core history.
+// TableName provides one cross-module ledger without mixing imported data into
+// core history.
 func (ImportRecord) TableName() string { return "module_import_records" }
 
-// RegistryMigration exposes the shared configuration schema in the reserved module range.
-func RegistryMigration() Migration {
-	return Migration{Version: 100, Name: "optional_module_registry", Apply: func(db *gorm.DB) error {
-		return db.AutoMigrate(&Configuration{}, &ImportRecord{})
-	}}
-}
+// SchemaTypes returns the shared optional-module tables for schema creation.
+func SchemaTypes() []any { return []any{&Configuration{}, &ImportRecord{}} }

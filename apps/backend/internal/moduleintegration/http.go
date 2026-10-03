@@ -45,8 +45,8 @@ func (r *Runtime) RegisterHTTP(group *gin.RouterGroup, services *quack.Services,
 	return nil
 }
 
-// resolveHoneypotActor maps the live guild context into honeypot authority;
-// only Manage Guild (guild settings write) grants CanManage.
+// resolveHoneypotActor maps the live guild context into honeypot authority; only
+// Manage Guild (guild settings write) grants CanManage.
 func resolveHoneypotActor(c *gin.Context) (honeypot.Actor, error) {
 	guildContext := middleware.GetGuildContext(c)
 	if guildContext == nil || guildContext.Guild == nil {
@@ -59,8 +59,6 @@ func resolveHoneypotActor(c *gin.Context) (honeypot.Actor, error) {
 	}, nil
 }
 
-// moduleRateLimit applies the member-read policy to every module request,
-// keyed by internal guild and actor.
 func moduleRateLimit(primitives httpplatform.Primitives, cfg config.Config) gin.HandlerFunc {
 	limit := httpplatform.RateLimit{
 		Maximum: cfg.RateLimits.MemberRead.Maximum,
@@ -122,7 +120,6 @@ func moduleSubject(c *gin.Context) string {
 	return guildContext.Guild.ID + ":" + guildContext.ActorDiscordUserID
 }
 
-// resolveTicketActor maps the live guild context into ticket authority.
 func resolveTicketActor(c *gin.Context) (tickets.Actor, error) {
 	guildContext := middleware.GetGuildContext(c)
 	if guildContext == nil || guildContext.Guild == nil {
@@ -136,7 +133,6 @@ func resolveTicketActor(c *gin.Context) (tickets.Actor, error) {
 	}, nil
 }
 
-// resolveLoggingActor maps the live guild context into logging authority.
 func resolveLoggingActor(c *gin.Context) (generallogging.Actor, error) {
 	guildContext := middleware.GetGuildContext(c)
 	if guildContext == nil || guildContext.Guild == nil {

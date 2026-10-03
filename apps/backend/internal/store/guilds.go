@@ -75,9 +75,7 @@ func (s *Store) UpsertGuild(ctx context.Context, params model.UpsertGuildParams)
 		OwnerDiscordUserID: params.OwnerDiscordUserID,
 		IsActive:           true,
 	}
-	if err := prepareULIDModel(&guild.ULIDModel, now); err != nil {
-		return nil, fmt.Errorf("prepare guild model: %w", err)
-	}
+	prepareULIDModel(&guild.ULIDModel, now)
 
 	if err := s.db.WithContext(ctx).Create(guild).Error; err != nil {
 		return nil, fmt.Errorf("create guild: %w", err)
@@ -134,9 +132,7 @@ func (s *Store) UpsertStaffMember(ctx context.Context, params model.UpsertStaffM
 		LastKnownDisplayName:   params.LastKnownDisplayName,
 		LastActiveAt:           &activeAt,
 	}
-	if err := prepareULIDModel(&staff.ULIDModel, now); err != nil {
-		return nil, fmt.Errorf("prepare staff member model: %w", err)
-	}
+	prepareULIDModel(&staff.ULIDModel, now)
 
 	if err := s.db.WithContext(ctx).Create(&staff).Error; err != nil {
 		return nil, fmt.Errorf("create staff member: %w", err)

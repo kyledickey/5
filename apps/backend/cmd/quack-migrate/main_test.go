@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-func TestRunRejectsUnknownMigrationDirection(t *testing.T) {
-	for _, args := range [][]string{nil, {"sideways"}, {"up", "down"}} {
+func TestRunRejectsArguments(t *testing.T) {
+	for _, args := range [][]string{{"up"}, {"sideways"}, {"up", "down"}} {
 		err := run(args)
 		if err == nil || !strings.Contains(err.Error(), "usage:") {
 			t.Fatalf("run(%v) expected usage error, got %v", args, err)
@@ -14,13 +14,11 @@ func TestRunRejectsUnknownMigrationDirection(t *testing.T) {
 	}
 }
 
-// TestRunAcceptsExplicitSchemaOperations verifies command parsing before any
-// connection, including the historical replay that normal startup cannot invoke.
-func TestRunAcceptsExplicitSchemaOperations(t *testing.T) {
+// TestRunRequiresDSN verifies the command reaches connection validation before
+// touching a database.
+func TestRunRequiresDSN(t *testing.T) {
 	t.Setenv("DATABASE_DSN", "")
-	for _, operation := range []string{"init", "up", "adopt", "legacy-up", "down"} {
-		if err := run([]string{operation}); err == nil || err.Error() != "DATABASE_DSN is required" {
-			t.Fatalf("operation %q did not reach connection validation: %v", operation, err)
-		}
+	if err := run(nil); err == nil || err.Error() != "DATABASE_DSN is required" {
+		t.Fatalf("expected DSN validation, got %v", err)
 	}
 }

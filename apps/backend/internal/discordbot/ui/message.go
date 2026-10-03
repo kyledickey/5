@@ -1,32 +1,34 @@
+// Package ui owns the Discord response model shared by every command, component
+// and worker in the bot: Message and Edit, the handler contract (Context,
+// Handler, HandlerResult, Task, Responder), custom-ID routing for components,
+// button builders, text pagination, command-mention resolution and SetupChannel.
+// It depends on discordgo and discordtext only; it must not import quack
+// services, commands, interactions or views.
+//
+// Response lifecycle. A Handler returns a HandlerResult: Immediate sends one
+// InteractionResponse and finishes; Async sends the acknowledgement (DeferPublic,
+// DeferEphemeral or DeferUpdate) and then runs a Task on a goroutine with a
+// Responder. Discord fixes a reply's visibility at acknowledgement time, so a
+// Task cannot make a public defer private. AsyncPublic encodes the rule used by
+// every slash command: success edits the original public response in place
+// (Publish), while an error marked with ErrorEdit deletes the public placeholder
+// and sends one ephemeral followup instead. Errors are never edited into a shared
+// message. In DMs the dispatcher strips ephemeral flags because Discord rejects them.
+//
+// UserError carries copy that is safe to show to the invoking user; every other
+// error is internal and must be mapped to copy by the caller.
 package ui
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"github.com/bwmarrin/discordgo"
-)
-
-// Discord's documented size limits for embed fields and component custom IDs.
-const (
-	EmbedTitleLimit       = 256
-	EmbedDescriptionLimit = 4096
-	EmbedFieldNameLimit   = 256
-	EmbedFieldValueLimit  = 1024
-	EmbedFieldLimit       = 25
-	EmbedFooterLimit      = 2048
-	CustomIDLimit         = 100
-)
-
-// Embed colours. Every non-error state uses the brand colour so cards read as one
-// product; only errors get Discord's red.
-const (
-	ColorMain    = 0xE5AA2C
-	ColorSuccess = ColorMain
-	ColorWarning = ColorMain
-	ColorError   = 0xED4245
-	ColorMuted   = ColorMain
+	"github.com/quackdiscord/bot/internal/discordtext"
+	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 // Message is the transport-neutral body shared by initial responses, followups,
@@ -50,6 +52,70 @@ type Edit struct {
 	Components      *[]discordgo.MessageComponent
 	Files           []*discordgo.File
 	AllowedMentions *discordgo.MessageAllowedMentions
+}
+
+// Content constructs a text-only Discord message.
+func Content(content string, ephemeral bool) Message {
+	return Message{Content: content, Ephemeral: ephemeral}
+}
+
+// Conversation applies the approved text layout while retaining message controls.
+func Conversation(icon, lead, quote, detail, meta string, ephemeral bool) Message {
+	return Content(discordtext.Conversation(icon, lead, quote, detail, meta), ephemeral)
+}
+
+// Signal decorates a short result or an older queued notification exactly once.
+func Signal(icon, body string, ephemeral bool) Message {
+	return Content(discordtext.WithIcon(icon, body), ephemeral)
+}
+
+// Quote renders already-escaped context consistently across commands and logs.
+func Quote(body string) string { return discordtext.Quote(body) }
+
+// PlainText escapes member-controlled text before placing it inside bot-authored Markdown.
+// Mention parsing is suppressed separately by the transport's AllowedMentions policy.
+func PlainText(value string) string {
+	return discordtext.Plain(value)
+}
+
+// RelativeTime uses Discord's localized live timestamp, omitting unknown dates.
+func RelativeTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return fmt.Sprintf("<t:%d:R>", value.Unix())
+}
+
+// ActionSentence shares enforcement wording with durable member notifications.
+func ActionSentence(action model.ActionType, status model.ActionExecutionStatus) string {
+	return discordtext.ActionSentence(action, status)
+}
+
+// TruncateRunes enforces Discord text limits without splitting a UTF-8 code point.
+func TruncateRunes(value string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	return string(runes[:limit])
+}
+
+// EditMessage converts a Message into an Edit that replaces content, embeds and
+// components (each pointer is set, so previous values are cleared, not merged).
+func EditMessage(m Message) Edit {
+	content := m.Content
+	embeds := append([]*discordgo.MessageEmbed{}, m.Embeds...)
+	components := append([]discordgo.MessageComponent{}, m.Components...)
+	return Edit{
+		Content:         &content,
+		Embeds:          &embeds,
+		Components:      &components,
+		Files:           m.Files,
+		AllowedMentions: m.AllowedMentions,
+	}
 }
 
 // ResponseData converts Message into Discord's initial interaction response payload.
@@ -98,6 +164,8 @@ func (e Edit) WebhookEdit() *discordgo.WebhookEdit {
 		Files:           e.Files,
 		AllowedMentions: e.AllowedMentions,
 	}
+	// An edit that rewrites the body drops the previous attachments; Discord keeps
+	// them unless the request sends an explicit empty attachment list.
 	if e.Content != nil {
 		attachments := []*discordgo.MessageAttachment{}
 		edit.Attachments = &attachments
@@ -108,230 +176,150 @@ func (e Edit) WebhookEdit() *discordgo.WebhookEdit {
 	return edit
 }
 
-// EditMessage converts a Message into an Edit that replaces content, embeds and
-// components (each pointer is set, so previous values are cleared, not merged).
-func EditMessage(m Message) Edit {
-	content := m.Content
-	embeds := append([]*discordgo.MessageEmbed{}, m.Embeds...)
-	components := append([]discordgo.MessageComponent{}, m.Components...)
-	return Edit{
-		Content:         &content,
-		Embeds:          &embeds,
-		Components:      &components,
+// SendParams prepares a channel or DM message with mention and link-preview suppression.
+func (m Message) SendParams(applicationID string) *discordgo.MessageSend {
+	m = m.ForApplication(applicationID)
+	mentions := m.AllowedMentions
+	if mentions == nil {
+		mentions = &discordgo.MessageAllowedMentions{}
+	}
+	return &discordgo.MessageSend{
+		Content:         m.Content,
+		Embeds:          m.Embeds,
+		Components:      m.Components,
 		Files:           m.Files,
-		AllowedMentions: m.AllowedMentions,
+		AllowedMentions: mentions,
+		Flags:           discordgo.MessageFlagsSuppressEmbeds,
 	}
 }
 
-// Content constructs a text-only Discord message.
-func Content(content string, ephemeral bool) Message {
-	return Message{Content: content, Ephemeral: ephemeral}
-}
-
-// WithEmbeds returns a copy of a message with the supplied embeds, preserving value-style composition.
-func WithEmbeds(embeds ...*discordgo.MessageEmbed) Message {
-	return Message{Embeds: embeds}
-}
-
-// EmbedMessage wraps a single embed in a Message.
-func EmbedMessage(embed *discordgo.MessageEmbed, ephemeral bool) Message {
-	return Message{Embeds: []*discordgo.MessageEmbed{embed}, Ephemeral: ephemeral}
-}
-
-// EmbedsMessage wraps several embeds in a Message.
-func EmbedsMessage(ephemeral bool, embeds ...*discordgo.MessageEmbed) Message {
-	return Message{Embeds: embeds, Ephemeral: ephemeral}
-}
-
-// SuccessEmbed builds a titled embed in the success colour.
-func SuccessEmbed(title, description string) *discordgo.MessageEmbed {
-	return NewEmbed().SetTitle(title).SetDescription(description).SetColor(ColorSuccess).Build()
-}
-
-// ErrorEmbed builds a red embed with the standard "Couldn’t do that" title.
-func ErrorEmbed(description string) *discordgo.MessageEmbed {
-	return NewEmbed().SetTitle("Couldn’t do that").SetDescription(description).SetColor(ColorError).Build()
-}
-
-// WarningEmbed builds a titled embed in the warning colour.
-func WarningEmbed(title, description string) *discordgo.MessageEmbed {
-	return NewEmbed().SetTitle(title).SetDescription(description).SetColor(ColorWarning).Build()
-}
-
-// InfoEmbed builds a titled embed in the brand colour.
-func InfoEmbed(title, description string) *discordgo.MessageEmbed {
-	return NewEmbed().SetTitle(title).SetDescription(description).SetColor(ColorMain).Build()
-}
-
-// TruncateRunes enforces Discord text limits without splitting a UTF-8 code point.
-func TruncateRunes(value string, limit int) string {
-	if limit <= 0 {
+// SessionApplicationID reads the connected bot identity without a profile request.
+func SessionApplicationID(session *discordgo.Session) string {
+	if session == nil || session.State == nil {
 		return ""
 	}
-	runes := []rune(value)
-	if len(runes) <= limit {
-		return value
+	session.State.RLock()
+	defer session.State.RUnlock()
+	if session.State.User == nil {
+		return ""
 	}
-	return string(runes[:limit])
+	return session.State.User.ID
 }
 
-// Embed is a fluent builder that applies Discord's per-field limits on every
-// setter and the 6000-character aggregate limit in Build. The builder is reusable:
-// Build returns a copy and leaves the builder's fields intact.
-type Embed struct {
-	embed *discordgo.MessageEmbed
-}
-
-// NewEmbed starts an empty embed in the brand colour.
-func NewEmbed() *Embed {
-	return &Embed{embed: &discordgo.MessageEmbed{Color: ColorMain}}
-}
-
-// NewInfoEmbed starts a titled embed in the brand colour.
-func NewInfoEmbed(title, description string) *Embed {
-	return NewEmbed().SetTitle(title).SetDescription(description).SetColor(ColorMain)
-}
-
-// NewSuccessEmbed starts a titled embed in the success colour.
-func NewSuccessEmbed(title, description string) *Embed {
-	return NewEmbed().SetTitle(title).SetDescription(description).SetColor(ColorSuccess)
-}
-
-// NewErrorEmbed starts a red embed with the standard "Couldn’t do that" title.
-func NewErrorEmbed(description string) *Embed {
-	return NewEmbed().SetTitle("Couldn’t do that").SetDescription(description).SetColor(ColorError)
-}
-
-// SetTitle trims and truncates the title to EmbedTitleLimit runes.
-func (e *Embed) SetTitle(title string) *Embed {
-	e.embed.Title = TruncateRunes(strings.TrimSpace(title), EmbedTitleLimit)
-	return e
-}
-
-// SetDescription truncates the description to EmbedDescriptionLimit runes.
-func (e *Embed) SetDescription(description string) *Embed {
-	e.embed.Description = TruncateRunes(description, EmbedDescriptionLimit)
-	return e
-}
-
-// AddField appends one field, substituting a zero-width space for blank names or
-// values (Discord rejects empty strings) and ignoring fields past EmbedFieldLimit.
-func (e *Embed) AddField(name string, value any, inline bool) *Embed {
-	if len(e.embed.Fields) >= EmbedFieldLimit {
-		return e
+// ForApplication resolves the sending bot's icons and keeps long staff records
+// complete in an attachment sent to the same authorized destination.
+func (m Message) ForApplication(applicationID string) Message {
+	m.Content = ResolveCommandMentions(discordtext.Resolve(m.Content, applicationID), applicationID)
+	if len(utf16.Encode([]rune(m.Content))) <= 2000 {
+		return m
 	}
-	name = strings.TrimSpace(name)
-	if name == "" {
-		name = "\u200b"
-	}
-	fieldValue := fmt.Sprint(value)
-	if strings.TrimSpace(fieldValue) == "" {
-		fieldValue = "\u200b"
-	}
-	e.embed.Fields = append(e.embed.Fields, &discordgo.MessageEmbedField{
-		Name:   TruncateRunes(name, EmbedFieldNameLimit),
-		Value:  TruncateRunes(fieldValue, EmbedFieldValueLimit),
-		Inline: inline,
-	})
-	return e
-}
-
-// AddFields appends prebuilt fields through AddField, skipping nil entries.
-func (e *Embed) AddFields(fields ...*discordgo.MessageEmbedField) *Embed {
-	for _, field := range fields {
-		if field == nil {
-			continue
-		}
-		e.AddField(field.Name, field.Value, field.Inline)
-	}
-	return e
-}
-
-// SetFooter truncates the footer text to EmbedFooterLimit runes.
-func (e *Embed) SetFooter(text string) *Embed {
-	e.embed.Footer = &discordgo.MessageEmbedFooter{Text: TruncateRunes(text, EmbedFooterLimit)}
-	return e
-}
-
-// SetAuthor sets the author line; the name is bounded like a title.
-func (e *Embed) SetAuthor(name, iconURL string) *Embed {
-	e.embed.Author = &discordgo.MessageEmbedAuthor{
-		Name:    TruncateRunes(strings.TrimSpace(name), EmbedTitleLimit),
-		IconURL: strings.TrimSpace(iconURL),
-	}
-	return e
-}
-
-// SetThumbnail sets the thumbnail image URL.
-func (e *Embed) SetThumbnail(url string) *Embed {
-	e.embed.Thumbnail = &discordgo.MessageEmbedThumbnail{URL: strings.TrimSpace(url)}
-	return e
-}
-
-// SetTimestamp records t in RFC 3339 UTC, defaulting a zero time to now.
-func (e *Embed) SetTimestamp(t time.Time) *Embed {
-	if t.IsZero() {
-		t = time.Now()
-	}
-	e.embed.Timestamp = t.UTC().Format(time.RFC3339)
-	return e
-}
-
-// SetColor sets the embed's accent colour.
-func (e *Embed) SetColor(color int) *Embed {
-	e.embed.Color = color
-	return e
-}
-
-// SetNamedColor maps a human colour name ("success", "error", "muted", ...) to a
-// palette colour; unknown names fall back to the brand colour.
-func (e *Embed) SetNamedColor(name string) *Embed {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "success", "green":
-		return e.SetColor(ColorSuccess)
-	case "warning", "yellow":
-		return e.SetColor(ColorWarning)
-	case "error", "red", "danger":
-		return e.SetColor(ColorError)
-	case "muted", "gray", "grey":
-		return e.SetColor(ColorMuted)
-	default:
-		return e.SetColor(ColorMain)
-	}
-}
-
-// Field builds an unbounded embed field for use with AddFields, which applies the limits.
-func Field(name string, value any, inline bool) *discordgo.MessageEmbedField {
-	return &discordgo.MessageEmbedField{
-		Name:   fmt.Sprint(name),
-		Value:  fmt.Sprint(value),
-		Inline: inline,
-	}
-}
-
-// Build bounds the aggregate card text as well as each field. Discord rejects
-// an entire message above 6000 characters, so optional trailing details yield first.
-func (e *Embed) Build() *discordgo.MessageEmbed {
-	result := *e.embed
-	remaining := 6000 - len([]rune(result.Title))
-	if result.Author != nil {
-		remaining -= len([]rune(result.Author.Name))
-	}
-	if result.Footer != nil {
-		remaining -= len([]rune(result.Footer.Text))
-	}
-	result.Description = TruncateRunes(result.Description, remaining)
-	remaining -= len([]rune(result.Description))
-	result.Fields = nil
-	for _, field := range e.embed.Fields {
-		cost := len([]rune(field.Name))
-		if remaining <= cost {
+	full := m.Content
+	// Prefer complete paragraphs so a link, quote, or emoji is never cut in half.
+	paragraphs := strings.Split(full, "\n\n")
+	kept := []string{}
+	for _, paragraph := range paragraphs {
+		candidate := strings.Join(append(append([]string(nil), kept...), paragraph), "\n\n")
+		if len(utf16.Encode([]rune(candidate))) > 1750 {
 			break
 		}
-		copy := *field
-		copy.Value = TruncateRunes(copy.Value, remaining-cost)
-		result.Fields = append(result.Fields, &copy)
-		remaining -= cost + len([]rune(copy.Value))
+		kept = append(kept, paragraph)
 	}
+	m.Content = strings.Join(kept, "\n\n")
+	if m.Content == "" {
+		m.Content = "The full message is attached."
+	} else {
+		m.Content += "\n\n-# Full details are attached."
+	}
+	m.Files = append(append([]*discordgo.File(nil), m.Files...), &discordgo.File{
+		Name:        "message.txt",
+		ContentType: "text/plain; charset=utf-8",
+		Reader:      strings.NewReader(full),
+	})
+	return m
+}
+
+// ForApplication prepares an edit without changing which fields it replaces.
+func (e Edit) ForApplication(applicationID string) Edit {
+	if e.Content == nil {
+		return e
+	}
+	m := (Message{Content: *e.Content, Files: e.Files}).ForApplication(applicationID)
+	e.Content, e.Files = &m.Content, m.Files
+	return e
+}
+
+// PrepareResponse resolves only message response payloads, preserving modal and
+// autocomplete structures as well as deferred acknowledgement visibility.
+func PrepareResponse(response *discordgo.InteractionResponse, applicationID string) *discordgo.InteractionResponse {
+	if response == nil || response.Data == nil {
+		return response
+	}
+	if response.Type != discordgo.InteractionResponseChannelMessageWithSource &&
+		response.Type != discordgo.InteractionResponseUpdateMessage {
+		return response
+	}
+	result, data := *response, *response.Data
+	m := (Message{Content: data.Content, Files: data.Files}).ForApplication(applicationID)
+	data.Content, data.Files = m.Content, m.Files
+	data.Flags |= discordgo.MessageFlagsSuppressEmbeds
+	if data.AllowedMentions == nil {
+		data.AllowedMentions = &discordgo.MessageAllowedMentions{}
+	}
+	result.Data = &data
 	return &result
+}
+
+// pageLink matches the single-line Markdown links emitted by Quack's record views.
+var pageLink = regexp.MustCompile(`\[[^\n]*?\]\([^\n]*?\)`)
+
+// TextPages splits rendered text into lossless UTF-16-bounded pages. It prefers
+// whole lines, then spaces, and only splits an uninterrupted line when necessary.
+// Callers reserve room for their heading and controls before choosing the limit.
+func TextPages(text string, limit int) []string {
+	if limit < 2 {
+		panic("text page limit must accommodate a Unicode character")
+	}
+	if text == "" {
+		return []string{""}
+	}
+	var pages []string
+	for text != "" {
+		units, end := 0, len(text)
+		for index, char := range text {
+			width := 1
+			if char > 0xffff {
+				width = 2
+			}
+			if units+width > limit {
+				end = index
+				break
+			}
+			units += width
+		}
+		if end < len(text) {
+			if split := strings.LastIndexByte(text[:end], '\n'); split >= 0 {
+				end = split + 1
+			} else if split := strings.LastIndexByte(text[:end], ' '); split >= 0 {
+				end = split + 1
+			}
+			// Move a link to the next page rather than cutting its label or URL.
+			// A single link longer than the entire budget still has to be split.
+			for _, link := range pageLink.FindAllStringIndex(text, -1) {
+				if link[0] >= end {
+					break
+				}
+				if link[1] > end {
+					if link[0] > 0 {
+						end = link[0]
+					} else if len(utf16.Encode([]rune(text[:link[1]]))) <= limit {
+						end = link[1]
+					}
+					break
+				}
+			}
+		}
+		pages = append(pages, text[:end])
+		text = text[end:]
+	}
+	return pages
 }

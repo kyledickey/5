@@ -15,6 +15,8 @@ import (
 	"github.com/quackdiscord/bot/internal/v4import"
 )
 
+const usage = "usage: quack-v4-import export|import|rollback|check-scope"
+
 func main() {
 	if err := run(context.Background(), os.Args[1:], os.Stdout); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
@@ -24,7 +26,7 @@ func main() {
 
 func run(ctx context.Context, args []string, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: quack-v4-import export|import|rollback|check-scope")
+		return errors.New(usage)
 	}
 	if args[0] == "export" {
 		return exportLegacy(ctx, args[1:], output)
@@ -88,7 +90,7 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 		}
 		return importer.Rollback(ctx, *guild, *batch, *actor)
 	default:
-		return errors.New("usage: quack-v4-import export|import|rollback|check-scope")
+		return errors.New(usage)
 	}
 }
 

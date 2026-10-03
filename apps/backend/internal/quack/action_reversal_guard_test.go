@@ -2,9 +2,10 @@ package quack
 
 import (
 	"context"
+	"testing"
+
 	"github.com/quackdiscord/bot/internal/quack/actionmods"
 	"github.com/quackdiscord/bot/internal/quack/model"
-	"testing"
 )
 
 // guardRepository isolates provenance reads; any unrelated operation panics.
@@ -58,7 +59,7 @@ func TestReversalGuardFailsClosed(t *testing.T) {
 				current.Execution.ActionType = model.ActionUnbanUser
 			}
 			client := &guardClient{}
-			service := NewActionService(repository, client)
+			service := NewActionService(repository, client, nil, nil, "")
 			if scenario == "no_capability" {
 				service.store = struct{ ActionRepository }{}
 			}
@@ -96,7 +97,7 @@ func (s *guardRoutingStore) CompleteCaseAction(_ context.Context, p model.Comple
 func TestUnlinkedReversalNeverReachesUnconditionalHandler(t *testing.T) {
 	for _, kind := range []model.ActionType{model.ActionRemoveTimeout, model.ActionUnbanUser} {
 		repository := &guardRoutingStore{}
-		service := NewActionService(repository, &guardClient{})
+		service := NewActionService(repository, &guardClient{}, nil, nil, "")
 		called := false
 		service.handlers[kind] = actionmods.Func(func(context.Context, actionmods.Context) actionmods.Result { called = true; return actionmods.Result{} })
 		err := service.processClaimedAction(context.Background(), "worker", model.ClaimedCaseAction{Case: model.Case{GuildID: "guild"}, Execution: model.CaseActionExecution{ActionType: kind}})

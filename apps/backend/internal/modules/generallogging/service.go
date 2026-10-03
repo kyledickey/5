@@ -18,19 +18,17 @@ import (
 
 var secretPattern = regexp.MustCompile(`(?i)(bot\s+[A-Za-z0-9._-]{20,}|https://(?:discord(?:app)?\.com/api/)?webhooks/[^\s]+|(?:token|secret|authorization)\s*[:=]\s*[^\s]+)`)
 
-// DeliveryClient sends one already-redacted staff-only log message.
 type DeliveryClient interface {
 	SendStaffLog(context.Context, string, string, string) error
 	ValidateStaffOnlyChannel(context.Context, string, string) error
 }
 
-// RetryAfterError exposes a Discord rate-limit delay.
 type RetryAfterError interface {
 	error
 	RetryAfter() time.Duration
 }
 
-// Status describes non-durable delivery health without becoming an event archive.
+// Status is in-memory delivery health; it is not an event archive.
 type Status struct {
 	Delivered      uint64     `json:"delivered"`
 	Failed         uint64     `json:"failed"`
@@ -39,7 +37,6 @@ type Status struct {
 	CachedMessages int        `json:"cached_messages"`
 }
 
-// Service owns general logging configuration, ephemeral formatting/cache, and bounded delivery retry.
 type Service struct {
 	registry *modules.Registry
 	auditor  modules.Auditor
@@ -50,7 +47,6 @@ type Service struct {
 	status   map[string]Status
 }
 
-// NewService constructs general logging with explicit Discord and shared settings boundaries.
 func NewService(registry *modules.Registry, auditor modules.Auditor, client DeliveryClient, cache *MessageCache) *Service {
 	if cache == nil {
 		cache = NewMessageCache(1000)
@@ -67,7 +63,6 @@ func NewService(registry *modules.Registry, auditor modules.Auditor, client Deli
 	}, status: map[string]Status{}}
 }
 
-// Settings returns one guild's configuration and transient delivery status to current managers.
 func (s *Service) Settings(ctx context.Context, actor Actor) (Settings, bool, Status, error) {
 	if !actor.CanManage {
 		return Settings{}, false, Status{}, ErrPermissionDenied
@@ -76,7 +71,8 @@ func (s *Service) Settings(ctx context.Context, actor Actor) (Settings, bool, St
 	return settings, enabled, s.Status(actor.GuildID), err
 }
 
-// UpdateSettings validates staff-only destinations before replacing only this module's configuration.
+// UpdateSettings validates every staff-only destination before replacing this
+// module's configuration.
 func (s *Service) UpdateSettings(ctx context.Context, actor Actor, enabled bool, settings Settings) (Settings, error) {
 	if !actor.CanManage {
 		s.audit(ctx, actor, "general_logging.settings.update", "denied", ErrPermissionDenied)
@@ -104,7 +100,6 @@ func (s *Service) UpdateSettings(ctx context.Context, actor Actor, enabled bool,
 	return settings, nil
 }
 
-// CacheMessage applies persisted guild limits before retaining edit/delete context.
 func (s *Service) CacheMessage(ctx context.Context, message CachedMessage) error {
 	settings, enabled, err := s.loadSettings(ctx, message.GuildID)
 	if err != nil {
@@ -118,7 +113,6 @@ func (s *Service) CacheMessage(ctx context.Context, message CachedMessage) error
 	return nil
 }
 
-// Handle formats, redacts, routes, and retries one configured event without storing it permanently.
 func (s *Service) Handle(ctx context.Context, event Event) error {
 	if s == nil || s.client == nil {
 		return errors.New("general logging service is not configured")
@@ -162,7 +156,6 @@ func (s *Service) Handle(ctx context.Context, event Event) error {
 	return fmt.Errorf("deliver general log after %d attempts: %w", settings.MaxDeliveryAttempts, last)
 }
 
-// HandleBulkDelete consumes cached context for a configured bulk deletion without retaining a permanent archive.
 func (s *Service) HandleBulkDelete(ctx context.Context, guildID, channelID string, messageIDs []string) error {
 	if len(messageIDs) > 100 {
 		return errors.New("bulk logging accepts at most 100 Discord message IDs")
@@ -189,7 +182,8 @@ func (s *Service) HandleBulkDelete(ctx context.Context, guildID, channelID strin
 	return nil
 }
 
-// RepairDeletedChannel removes every route to a deleted channel and disables the module when no routes remain.
+// RepairDeletedChannel removes every route to a deleted channel and disables the
+// module when no routes remain.
 func (s *Service) RepairDeletedChannel(ctx context.Context, actor Actor, channelID string) (Settings, bool, error) {
 	if !actor.CanManage {
 		return Settings{}, false, ErrPermissionDenied
@@ -214,7 +208,6 @@ func (s *Service) RepairDeletedChannel(ctx context.Context, actor Actor, channel
 	return updated, enabled, nil
 }
 
-// Status returns a copy of in-memory delivery health counters.
 func (s *Service) Status(guildID string) Status {
 	s.mu.Lock()
 	status := s.status[guildID]

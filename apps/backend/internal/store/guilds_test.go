@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/quackdiscord/bot/internal/quack/model"
 	storage "github.com/quackdiscord/bot/internal/store"
 	"github.com/quackdiscord/bot/internal/testutil"
 )

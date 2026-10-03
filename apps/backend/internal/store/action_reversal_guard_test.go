@@ -26,7 +26,7 @@ func TestReversalProvenanceQueries(t *testing.T) {
 // TestMySQLReversalProvenanceQueries runs actual timestamp/status predicates on
 // a disposable MySQL database, including stable latest-successful-attempt lookup.
 func TestMySQLReversalProvenanceQueries(t *testing.T) {
-	exerciseReversalProvenanceQueries(t, openMySQLMigrationDB(t))
+	exerciseReversalProvenanceQueries(t, openMySQLTestDB(t))
 }
 
 // exerciseReversalProvenanceQueries seeds distinct case identities without
@@ -39,18 +39,20 @@ func exerciseReversalProvenanceQueries(t *testing.T, db *gorm.DB) {
 		t.Fatal(err)
 	}
 	repository := New(db, nil)
-	item := model.Case{ULIDModel: model.ULIDModel{ID: "case", CreatedAt: now}, GuildID: "guild", CaseNumber: 1, TargetDiscordUserID: "member", Validity: model.CaseValidityValid}
+	item := model.Case{ULIDModel: model.ULIDModel{ID: "case", CreatedAt: now}, GuildID: "guild", CaseNumber: 1, TargetDiscordUserID: "member", Validity: model.CaseValidityValid, TemplateSnapshotJSON: "{}", MetadataJSON: "{}", ContextValuesJSON: "[]"}
 	if err := db.Create(&item).Error; err != nil {
 		t.Fatal(err)
 	}
-	original := model.CaseActionExecution{ULIDModel: model.ULIDModel{ID: "original", CreatedAt: now}, CaseID: item.ID, ActionType: model.ActionTimeoutUser, Status: model.ActionExecutionSucceeded, StartedAt: &now}
+	original := model.CaseActionExecution{ULIDModel: model.ULIDModel{ID: "original", CreatedAt: now}, CaseID: item.ID, ActionType: model.ActionTimeoutUser, Status: model.ActionExecutionSucceeded, IdempotencyKey: "original", ConfigSnapshotJSON: "{}", StartedAt: &now}
 	if err := db.Create(&original).Error; err != nil {
 		t.Fatal(err)
 	}
+	// MySQL normalizes JSON columns, so the fixtures use its spelling and both
+	// dialects return identical bytes.
 	for i, status := range []model.ActionAttemptStatus{model.ActionAttemptSucceeded, model.ActionAttemptFailed, model.ActionAttemptSucceeded} {
-		attempt := model.CaseActionAttempt{ULIDModel: model.ULIDModel{ID: string(rune('a' + i)), CreatedAt: now}, ExecutionID: original.ID, AttemptNumber: uint8(i + 1), Status: status, StartedAt: now, ResponsePayloadJSON: `{"timeout_until":"latest"}`}
+		attempt := model.CaseActionAttempt{ULIDModel: model.ULIDModel{ID: string(rune('a' + i)), CreatedAt: now}, ExecutionID: original.ID, AttemptNumber: uint8(i + 1), Status: status, StartedAt: now, RequestPayloadJSON: "{}", ResponsePayloadJSON: `{"timeout_until": "latest"}`}
 		if i < 2 {
-			attempt.ResponsePayloadJSON = `{"timeout_until":"older"}`
+			attempt.ResponsePayloadJSON = `{"timeout_until": "older"}`
 		}
 		if err := db.Create(&attempt).Error; err != nil {
 			t.Fatal(err)
@@ -58,9 +60,9 @@ func exerciseReversalProvenanceQueries(t *testing.T, db *gorm.DB) {
 	}
 	for _, scenario := range []string{"none", "succeeded", "running", "pending", "retrying", "failed", "older_succeeded", "older_running", "cancelled", "skipped", "other_guild", "other_member", "other_kind", "reversal"} {
 		t.Run(scenario, func(t *testing.T) {
-			competingCase := model.Case{ULIDModel: model.ULIDModel{ID: "other", CreatedAt: now}, GuildID: "guild", CaseNumber: 2, TargetDiscordUserID: "member"}
+			competingCase := model.Case{ULIDModel: model.ULIDModel{ID: "other", CreatedAt: now}, GuildID: "guild", CaseNumber: 2, TargetDiscordUserID: "member", TemplateSnapshotJSON: "{}", MetadataJSON: "{}", ContextValuesJSON: "[]"}
 			later := now.Add(time.Minute)
-			competing := model.CaseActionExecution{ULIDModel: model.ULIDModel{ID: "competitor", CreatedAt: later}, CaseID: competingCase.ID, ActionType: model.ActionTimeoutUser, Status: model.ActionExecutionSucceeded}
+			competing := model.CaseActionExecution{ULIDModel: model.ULIDModel{ID: "competitor", CreatedAt: later}, CaseID: competingCase.ID, ActionType: model.ActionTimeoutUser, Status: model.ActionExecutionSucceeded, IdempotencyKey: "competitor", ConfigSnapshotJSON: "{}"}
 			expected := true
 			switch scenario {
 			case "none":
@@ -96,7 +98,7 @@ func exerciseReversalProvenanceQueries(t *testing.T, db *gorm.DB) {
 				}
 			}
 			read, payload, conflict, err := repository.LoadCaseReversalProvenance(ctx, "guild", "case", "original")
-			if err != nil || read == nil || read.ID != original.ID || payload != `{"timeout_until":"latest"}` || conflict != expected {
+			if err != nil || read == nil || read.ID != original.ID || payload != `{"timeout_until": "latest"}` || conflict != expected {
 				t.Fatalf("read=%+v payload=%s conflict=%v err=%v", read, payload, conflict, err)
 			}
 			db.Delete(&model.CaseActionExecution{}, "id = ?", "competitor")
@@ -108,6 +110,7 @@ func exerciseReversalProvenanceQueries(t *testing.T, db *gorm.DB) {
 	}
 	reversal := original
 	reversal.ID = "inverse"
+	reversal.IdempotencyKey = "inverse"
 	reversal.ActionType = model.ActionRemoveTimeout
 	reversal.ReversalOfExecutionID = &original.ID
 	if err := createCaseActionAudit(db, reversal, model.CompleteCaseActionParams{ExecutionStatus: model.ActionExecutionSucceeded, ResponsePayloadJSON: `{"result":"timeout_already_absent","reversal_noop":true}`}, now); err != nil {

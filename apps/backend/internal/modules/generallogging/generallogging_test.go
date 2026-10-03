@@ -7,10 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/gin-gonic/gin"
 	"github.com/quackdiscord/bot/internal/modules"
 	logmodule "github.com/quackdiscord/bot/internal/modules/generallogging"
 	"gorm.io/driver/sqlite"
@@ -56,7 +59,7 @@ func setup(t *testing.T) (*gorm.DB, *logmodule.Service, *deliveryFake, *auditRec
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := modules.RegistryMigration().Apply(db); err != nil {
+	if err := db.AutoMigrate(modules.SchemaTypes()...); err != nil {
 		t.Fatal(err)
 	}
 	registry, err := modules.NewRegistry(modules.NewSQLSettingsStore(db), logmodule.Descriptor())
@@ -453,5 +456,76 @@ func TestBulkDeleteKeepsPerMessageAttributionAndPrivacy(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestSignedAttachmentURLRefreshIsNotAnEdit retains current download URLs for
+// deletion logging without mistaking URL expiry rotation for member activity.
+func TestSignedAttachmentURLRefreshIsNotAnEdit(t *testing.T) {
+	_, service, client, _ := setup(t)
+	ctx := context.Background()
+	before := logmodule.CachedMessage{GuildID: "guild-a", MessageDiscordID: "message", Content: "unchanged", Attachments: []logmodule.AttachmentMetadata{{DiscordID: "file", Filename: "proof.png", ContentType: "image/png", Size: 10, URL: "https://cdn.discordapp.com/proof.png?sig=old"}}}
+	if err := service.CacheMessage(ctx, before); err != nil {
+		t.Fatal(err)
+	}
+	current := before
+	current.Attachments = append([]logmodule.AttachmentMetadata(nil), before.Attachments...)
+	current.Attachments[0].URL = "https://cdn.discordapp.com/proof.png?sig=new"
+	event, err := service.PrepareMessageEdit(ctx, current, nil)
+	if err != nil || event != nil {
+		t.Fatalf("URL rotation produced edit: %+v %v", event, err)
+	}
+	if err := service.Handle(ctx, logmodule.Event{GuildID: "guild-a", MessageDiscordID: "message", Type: logmodule.MessageDelete}); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.payloads) != 1 || !strings.Contains(client.payloads[0], "sig=new") || strings.Contains(client.payloads[0], "sig=old") {
+		t.Fatalf("latest URL not cached: %v", client.payloads)
+	}
+}
+
+// TestAttachmentSemanticChangesStillGenerateEdits preserves the previous
+// attachment comparison for identity, filename, content type and byte length.
+func TestAttachmentSemanticChangesStillGenerateEdits(t *testing.T) {
+	for _, field := range []string{"id", "name", "type", "size", "removed"} {
+		t.Run(field, func(t *testing.T) {
+			_, service, _, _ := setup(t)
+			before := logmodule.CachedMessage{GuildID: "guild-a", MessageDiscordID: "message", Attachments: []logmodule.AttachmentMetadata{{DiscordID: "file", Filename: "proof.png", ContentType: "image/png", Size: 10, URL: "https://cdn.discordapp.com/old"}}}
+			if err := service.CacheMessage(context.Background(), before); err != nil {
+				t.Fatal(err)
+			}
+			current := before
+			current.Attachments = append([]logmodule.AttachmentMetadata(nil), before.Attachments...)
+			switch field {
+			case "id":
+				current.Attachments[0].DiscordID = "replacement"
+			case "name":
+				current.Attachments[0].Filename = "renamed.png"
+			case "type":
+				current.Attachments[0].ContentType = "image/jpeg"
+			case "size":
+				current.Attachments[0].Size++
+			case "removed":
+				current.Attachments = nil
+			}
+			event, err := service.PrepareMessageEdit(context.Background(), current, &before)
+			if err != nil || event == nil {
+				t.Fatalf("%s change missed: %+v %v", field, event, err)
+			}
+		})
+	}
+}
+
+func TestRouteRegistrarStatusAndAuthorization(t *testing.T) {
+	_, service, _, _ := setup(t)
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	logmodule.RegisterRoutes(engine.Group("/guilds/:guildID/modules"), service, func(c *gin.Context) (logmodule.Actor, error) {
+		return logmodule.Actor{GuildID: c.Param("guildID"), DiscordUserID: "admin", CanManage: true}, nil
+	})
+	request := httptest.NewRequest(http.MethodGet, "/guilds/guild-a/modules/general-logging/status", nil)
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 }

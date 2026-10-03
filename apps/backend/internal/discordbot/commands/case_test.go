@@ -2,15 +2,23 @@ package commands
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/internal/config"
+	"github.com/quackdiscord/bot/internal/discordbot/interactions"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
+	"github.com/quackdiscord/bot/internal/discordbot/ui/views"
 	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/quackdiscord/bot/internal/quack/model"
 	"github.com/quackdiscord/bot/internal/store"
 	"github.com/quackdiscord/bot/internal/testutil"
+	"gorm.io/gorm"
 )
 
 type fakeDiscordClient struct {
@@ -48,7 +56,7 @@ func (f fakeDiscordClient) GuildAuthorization(ctx context.Context, guildID, acto
 }
 
 func TestCommandDefinitionDefinesCaseAdd(t *testing.T) {
-	command := CommandDefinition()
+	command := CaseCommandDefinition()
 	if command.Name != "case" || command.DMPermission == nil || *command.DMPermission {
 		t.Fatalf("unexpected command definition: %+v", command)
 	}
@@ -308,9 +316,9 @@ func newCaseCommandHarnessWithLivePermissions(t *testing.T, permissionBits uint6
 		t.Fatalf("migrate schema: %v", err)
 	}
 
-	services := quack.NewWithDiscordClient(store, fakeDiscordClient{
+	services := quack.New(config.Default(), store, fakeDiscordClient{
 		botGuild: &quack.DiscordBotGuild{ID: "guild-1", Name: "Guild", OwnerID: "owner-1"}, liveActorPermissionBits: &permissionBits,
-	})
+	}, nil, nil)
 	guildContext, err := services.Guilds.ResolveDiscordStaffContext(ctx, quack.DiscordStaffContextInput{
 		DiscordGuildID: "guild-1",
 		DiscordUserID:  "owner-1",
@@ -435,14 +443,6 @@ func storeGuildID(t *testing.T, store *store.Store, discordGuildID string) strin
 	return guild.ID
 }
 
-func embedFields(embed *discordgo.MessageEmbed) map[string]string {
-	fields := map[string]string{}
-	for _, field := range embed.Fields {
-		fields[field.Name] = field.Value
-	}
-	return fields
-}
-
 // PublishChannel records a standalone public notice independently of webhook replies.
 func (f *fakeResponder) PublishChannel(_ context.Context, message ui.Message) (*discordgo.Message, error) {
 	f.channelPublishes++
@@ -474,5 +474,267 @@ func TestCaseAddFailureStaysPrivate(t *testing.T) {
 	cases, err := repository.ListCases(context.Background(), storeGuildID(t, repository, "guild-1"))
 	if err != nil || len(cases) != 0 {
 		t.Fatalf("failed request created a case: %+v %v", cases, err)
+	}
+}
+
+// TestCaseCreatePermissionGuidance verifies safe recovery copy survives wrapped
+// denials without misidentifying target safety failures as missing permissions.
+func TestCaseCreatePermissionGuidance(t *testing.T) {
+	tests := []struct {
+		name, reason string
+		permission   uint64
+		want         string
+	}{
+		{"missing basic authority", "permission_required", uint64(discordgo.PermissionModerateMembers), "You need Moderate Members"},
+		{"missing kick", "permission_required", uint64(discordgo.PermissionKickMembers), "You need Kick Members"},
+		{"missing ban", "permission_required", uint64(discordgo.PermissionBanMembers), "You need Ban Members"},
+		{"bot missing ban", "bot_permission_required", uint64(discordgo.PermissionBanMembers), "Quack needs Ban Members"},
+		{"self", "self_target", 0, "cannot create a case against yourself"},
+		{"actor hierarchy", "actor_hierarchy", 0, "equal to or above yours"},
+		{"bot hierarchy", "bot_hierarchy", 0, "equal to or above Quack's"},
+		{"owner", "guild_owner_target", 0, "cannot target the server owner"},
+		{"unknown", "private-internal-reason", 0, "could not confirm authority"},
+		{"unknown permission", "permission_required", 12345, "could not confirm authority"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := fmt.Errorf("private adapter failure: %w", &quack.AuthorizationError{Reason: tt.reason, RequiredPermission: tt.permission, MetadataJSON: "private-metadata"})
+			got := caseCreateErrorMessage(err)
+			if !strings.HasPrefix(got, "No case was created.") || !strings.Contains(got, tt.want) {
+				t.Fatalf("unexpected guidance: %s", got)
+			}
+			if strings.Contains(got, "private") || strings.Contains(got, "12345") {
+				t.Fatalf("internal details leaked: %s", got)
+			}
+			if tt.reason == "permission_required" && tt.permission != 12345 && !strings.Contains(got, "Ask a staff member with that permission") {
+				t.Fatalf("missing recovery guidance: %s", got)
+			}
+			if tt.permission == 0 && strings.Contains(got, "Ban Members") {
+				t.Fatalf("invented missing permission: %s", got)
+			}
+		})
+	}
+}
+
+// TestExistingCasePermissionErrorsDoNotClaimCreation keeps reads, edits and
+// reversals from claiming that no case exists when a shared error is mapped.
+func TestExistingCasePermissionErrorsDoNotClaimCreation(t *testing.T) {
+	got := caseCommandErrorMessage(&quack.AuthorizationError{Reason: "permission_required", RequiredPermission: uint64(discordgo.PermissionBanMembers)})
+	if got != "You don’t have permission to do that. Ask a moderator with the required permission." {
+		t.Fatalf("unexpected existing-case error: %s", got)
+	}
+}
+
+// TestCaseAttachmentOptionCreatesCaseWithVisibleCopyFailure exercises the real
+// Discord attachment option type and resolved payload rather than calling core directly.
+func TestCaseAttachmentOptionCreatesCaseWithVisibleCopyFailure(t *testing.T) {
+	repository, services, templateID := newCaseCommandHarness(t)
+	command := caseAddInteraction(templateID, "target", uint64(discordgo.PermissionModerateMembers))
+	data := command.ApplicationCommandData()
+	fileOption := &discordgo.ApplicationCommandInteractionDataOption{Type: discordgo.ApplicationCommandOptionAttachment, Name: "file", Value: "upload"}
+	data.Options[0].Options = append(data.Options[0].Options, fileOption)
+	data.Resolved = &discordgo.ApplicationCommandInteractionDataResolved{Attachments: map[string]*discordgo.MessageAttachment{"upload": {ID: "upload", Filename: "screenshot.png", ContentType: "image/png", Size: 12, URL: "https://cdn.discordapp.com/attachments/channel/upload/screenshot.png"}}}
+	command.Data = data
+	result := HandleCaseInteraction(ui.Context{Context: context.Background(), Services: services, Interaction: command})
+	if result.Task == nil {
+		t.Fatalf("attachment creation was not scheduled: %+v", result)
+	}
+	responder := &fakeResponder{}
+	if err := result.Task(context.Background(), responder); err != nil {
+		t.Fatal(err)
+	}
+	cases, err := repository.ListCases(context.Background(), storeGuildID(t, repository, "guild-1"))
+	if err != nil || len(cases) != 1 {
+		t.Fatalf("attachment blocked creation: %+v err=%v", cases, err)
+	}
+	snapshots, files, err := repository.ListCaseEvidence(context.Background(), cases[0].ID)
+	if err != nil || len(snapshots) != 1 || len(files) != 1 || files[0].Filename != "screenshot.png" || files[0].Warning == "" {
+		t.Fatalf("unconfigured preservation did not retain a failure receipt: snapshots=%+v files=%+v err=%v", snapshots, files, err)
+	}
+	command.ID = "append-upload"
+	data.Options = []*discordgo.ApplicationCommandInteractionDataOption{{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "evidence", Options: []*discordgo.ApplicationCommandInteractionDataOption{{Type: discordgo.ApplicationCommandOptionString, Name: "case", Value: cases[0].ID}, fileOption}}}
+	command.Data = data
+	result = HandleCaseInteraction(ui.Context{Context: context.Background(), Services: services, Interaction: command})
+	if result.Task == nil || result.Response == nil || (result.Response.Data != nil && result.Response.Data.Flags&discordgo.MessageFlagsEphemeral != 0) {
+		t.Fatalf("evidence command did not acknowledge publicly: %+v", result)
+	}
+	responder = &fakeResponder{}
+	if err := result.Task(context.Background(), responder); err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(responder.edit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, private := range []string{"screenshot.png", "cdn.discordapp.com", "The evidence channel is unavailable"} {
+		if !strings.Contains(string(encoded), private) {
+			t.Fatalf("staff evidence result omitted %q: %s", private, encoded)
+		}
+	}
+	if responder.channelPublishes != 0 || responder.webhookFollowups != 0 || responder.editCount != 1 {
+		t.Fatal("evidence result duplicated", responder)
+	}
+	_, files, err = repository.ListCaseEvidence(context.Background(), cases[0].ID)
+	if err != nil || len(files) != 2 {
+		t.Fatalf("existing-case upload missing: %+v err=%v", files, err)
+	}
+}
+
+// TestNativeDetailReadsPreservePages verifies slash reads and native navigation
+// retain their output without loading action attempts.
+func TestNativeDetailReadsPreservePages(t *testing.T) {
+	repository, services, _ := newCaseCommandHarness(t)
+	guild := caseCommandGuildContext(t, services)
+	item := model.Case{ULIDModel: model.ULIDModel{ID: "native-evidence-read"}, GuildID: guild.Guild.ID, CaseNumber: 1, Validity: model.CaseValidityValid, Source: model.CaseSourceDiscord, TemplateSnapshotJSON: "{}", MetadataJSON: "{}", ContextValuesJSON: `[{"key":"context","label":"Context","value":"Moderator saved context"}]`}
+	if err := repository.DB().Create(&item).Error; err != nil {
+		t.Fatal(err)
+	}
+	snapshot := model.CaseEvidenceSnapshot{ULIDModel: model.ULIDModel{ID: "native-snapshot"}, CaseID: item.ID, GuildID: item.GuildID, Content: strings.Repeat("Original evidence text. ", 180), EmbedsJSON: "[]", CaptureWarning: "Copy unavailable"}
+	if err := repository.DB().Create(&snapshot).Error; err != nil {
+		t.Fatal(err)
+	}
+	full, err := services.Cases.Get(context.Background(), guild, item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.DB().Callback().Query().Before("gorm:query").Register("reject_native_attempt_reads", func(tx *gorm.DB) {
+		switch tx.Statement.Table {
+		case "case_action_attempts":
+			tx.AddError(errors.New("native detail attempt query"))
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, page := range []int{1, 2} {
+		interaction := caseAddInteraction("", "target", uint64(discordgo.PermissionModerateMembers))
+		interaction.Type = discordgo.InteractionMessageComponent
+		handler := pageCaseRecord(0, views.CaseDetailPage)
+		payload := "1|" + item.ID
+		if page == 2 {
+			handler = pageCaseRecord(1, views.CaseDetailPage)
+			payload = "1|" + item.ID
+		}
+		interaction.Data = discordgo.MessageComponentInteractionData{CustomID: ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "evidence", Version: "v1", Payload: payload})}
+		ctx := ui.Context{Context: context.Background(), Services: services, Interaction: interaction}
+		result := handler(ctx)
+		if page == 1 {
+			result = handleCaseStaffSubcommand(ctx, discordgo.ApplicationCommandInteractionData{Options: []*discordgo.ApplicationCommandInteractionDataOption{{Name: "view", Options: []*discordgo.ApplicationCommandInteractionDataOption{{Name: "case", Value: item.ID}}}}})
+		}
+		responder := &fakeResponder{}
+		if err := result.Task(context.Background(), responder); err != nil {
+			t.Fatal(err)
+		}
+		actual := responder.updated
+		if page == 1 {
+			actual = responder.edit
+		}
+		want := ui.EditMessage(views.CaseDetailPage(full, page, ""))
+		if page == 1 {
+			want = ui.EditMessage(views.CaseDetailPage(full, 1, ""))
+		}
+		if page == 1 && (actual.Content == nil || !strings.Contains(*actual.Content, "Moderator saved context")) {
+			t.Fatal("case view omitted saved context")
+		}
+		if !reflect.DeepEqual(actual, want) {
+			t.Fatalf("page %d output changed: %+v %+v", page, actual, want)
+		}
+	}
+}
+
+func TestCaseComponentRegistrarInstallsRealRecoveryAndPaginationHandlers(t *testing.T) {
+	registry := interactions.NewComponentRegistry()
+	if err := RegisterCaseComponents(registry); err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range []string{"list_prev", "list_next", "user_prev", "user_next", "failures_prev", "failures_next", "retry", "dismiss", "void", "reverse", "message_template", "user_template", "template_page"} {
+		if _, ok, err := registry.LookupComponent(ui.MustCustomID(ui.CustomID{Namespace: "case", Action: action, Version: "v1", Payload: "payload"})); err != nil || !ok {
+			t.Fatalf("component %s not registered: ok=%v err=%v", action, ok, err)
+		}
+	}
+	for _, action := range []string{"void_submit", "reverse_submit", "edit_context_submit"} {
+		if _, ok, err := registry.LookupModal(ui.MustCustomID(ui.CustomID{Namespace: "case", Action: action, Version: "v1", Payload: "payload"})); err != nil || !ok {
+			t.Fatalf("modal %s not registered: ok=%v err=%v", action, ok, err)
+		}
+	}
+}
+
+func TestCaseAddActsImmediatelyWithOptionalContext(t *testing.T) {
+	_, services, _ := newCaseCommandHarness(t)
+	guildContext := caseCommandGuildContext(t, services)
+	template := createCaseCommandTemplate(t, services, guildContext, quack.TemplateInput{Slug: "abuse", Name: "Abuse", ReasonTemplate: "Abusive behavior", ContextFields: []quack.TemplateContextFieldInput{{Key: "details", Label: "What happened?", FieldType: model.ContextFieldLongText, Position: 1, Required: true}}, Levels: []quack.TemplateLevelInput{{Name: "Default", Position: 1, IsDefault: true}}})
+
+	result := HandleCaseInteraction(ui.Context{Context: context.Background(), Services: services, Interaction: caseAddInteraction(template.ID, "target-2", uint64(discordgo.PermissionModerateMembers))})
+	if result.Response == nil || result.Response.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource || result.Task == nil {
+		t.Fatalf("case creation must not wait for context: %+v", result)
+	}
+	responder := &fakeResponder{}
+	if err := result.Task(context.Background(), responder); err != nil {
+		t.Fatal(err)
+	}
+	if responder.deleted || responder.channelPublishes != 0 || responder.webhookFollowups != 0 || responder.followup.Content != "" || responder.edit.Content == nil || responder.edit.Embeds == nil || len(*responder.edit.Embeds) != 0 || responder.editCount != 1 {
+		t.Fatalf("expected one in-place public result, got %+v", responder)
+	}
+	for _, want := range []string{"Case #1", "<@target-2>", "Abuse"} {
+		if !strings.Contains(*responder.edit.Content, want) {
+			t.Fatalf("missing %q: %+v", want, responder.followup)
+		}
+	}
+	for _, hidden := range []string{"Matching Cases", "Visible context", "Evidence", "Repeated abusive replies"} {
+		if strings.Contains(*responder.edit.Content, hidden) {
+			t.Fatalf("public result leaked %s", hidden)
+		}
+	}
+
+}
+
+func TestMessageContextActionOffersActiveTemplateSelection(t *testing.T) {
+	_, services, _ := newCaseCommandHarness(t)
+	guildContext := caseCommandGuildContext(t, services)
+	createCaseCommandTemplate(t, services, guildContext, quack.TemplateInput{Slug: "other", Name: "Other", ReasonTemplate: "Other reason", Levels: []quack.TemplateLevelInput{{Name: "Default", Position: 1, IsDefault: true}}})
+	interaction := &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{ID: "message-command", Type: discordgo.InteractionApplicationCommand, GuildID: "guild-1", ChannelID: "channel-1", Member: &discordgo.Member{User: &discordgo.User{ID: "mod-1", Username: "mod"}, Permissions: int64(discordgo.PermissionModerateMembers)}, Data: discordgo.ApplicationCommandInteractionData{Name: messageCaseCommandName, TargetID: "message-1", Resolved: &discordgo.ApplicationCommandInteractionDataResolved{Messages: map[string]*discordgo.Message{"message-1": {ID: "message-1", ChannelID: "channel-1", Author: &discordgo.User{ID: "target-1"}}}}}}}
+	result := HandleMessageCaseInteraction(ui.Context{Context: context.Background(), Services: services, Interaction: interaction})
+	if result.Response == nil || result.Response.Data.Flags&discordgo.MessageFlagsEphemeral == 0 || result.Task == nil {
+		t.Fatal("expected private acknowledgement")
+	}
+	picker := &fakeResponder{}
+	if err := result.Task(context.Background(), picker); err != nil {
+		t.Fatal(err)
+	}
+	if picker.edit.Components == nil || len(*picker.edit.Components) != 1 {
+		t.Fatal("missing template picker")
+	}
+	row := (*picker.edit.Components)[0].(discordgo.ActionsRow)
+	menu := row.Components[0].(discordgo.SelectMenu)
+	if len(menu.Options) != 2 || !strings.Contains(menu.CustomID, "case:message_template:v1:") {
+		t.Fatalf("unexpected active-template selector: %+v", menu)
+	}
+}
+
+// TestCaseCreationDoesNotDependOnContextFieldCount protects immediate creation
+// for imported policies containing multiple formerly required fields.
+func TestCaseCreationDoesNotDependOnContextFieldCount(t *testing.T) {
+	_, services, _ := newCaseCommandHarness(t)
+	guild := caseCommandGuildContext(t, services)
+	fields := []quack.TemplateContextFieldInput{}
+	for i := 1; i <= 6; i++ {
+		fields = append(fields, quack.TemplateContextFieldInput{Key: fmt.Sprintf("field_%d", i), Label: fmt.Sprintf("Field %d", i), FieldType: model.ContextFieldShortText, Position: i, Required: true})
+	}
+	template := createCaseCommandTemplate(t, services, guild, quack.TemplateInput{Slug: "many-fields", Name: "Many fields", ReasonTemplate: "Rule", ContextFields: fields, Levels: []quack.TemplateLevelInput{{Name: "Warning", Position: 1, IsDefault: true}}})
+	result := HandleCaseInteraction(ui.Context{Context: context.Background(), Services: services, Interaction: caseAddInteraction(template.ID, "target-many", uint64(discordgo.PermissionModerateMembers))})
+	if result.Task == nil || result.Response.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource {
+		t.Fatalf("unexpected form: %+v", result)
+	}
+	if err := result.Task(context.Background(), &fakeResponder{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCaseCommandHasNoLegacyDirectPunishmentCommands(t *testing.T) {
+	definition := CaseCommandDefinition()
+	for _, option := range definition.Options {
+		switch option.Name {
+		case "warn", "timeout", "kick", "ban":
+			t.Fatalf("legacy direct punishment command remains: %s", option.Name)
+		}
 	}
 }

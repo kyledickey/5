@@ -3,25 +3,16 @@
 // SQLite through internal/testutil. Redis holds only auth sessions, OAuth
 // state, and command-hash caches, and may be nil when those features are unused.
 //
-// Schema is managed by two separate mechanisms that must not be conflated:
+// There is one schema definition and no migration ledger. The domain structs in
+// internal/quack/model carry the GORM tags and are passed straight to
+// Create/Find/Model, and each optional module contributes its own tables through
+// SchemaTypes(). InitializeSchema (schema.go) AutoMigrates that combined list
+// under the MySQL advisory lock and then applies the invariants portable tags
+// cannot express. It is additive and idempotent; see docs/migrations.md.
 //
-//   - InitializeSchema runs on every startup (Store.Migrate). It AutoMigrates
-//     the *Record types plus the runtime-only tables, installs the constraints
-//     in schema_constraints.go, and marks the database with quack_current_schema.
-//     It refuses an unmarked database that already has tables.
-//   - The frozen migration ledger (migration_0001 .. migration_0410) is replayed
-//     only by the quack-migrate CLI (MigrateLegacySchema, AdoptCurrentSchema).
-//     Each migration's Go source is embedded and hashed into its ledger row, so
-//     editing any migration_*.go file changes its checksum and is a breaking
-//     change for already-migrated databases.
-//
-// The domain structs in internal/quack/model are the GORM query structs: this
-// package passes them straight to Create/Find/Model and relies on GORM's default
-// column naming. The *Record types in schema_records.go carry the column, size,
-// and index tags and exist only for DDL (AutoMigrate). Every Record must stay
-// field-for-field in sync with its model; schema_records_drift_test.go enforces
-// that, and documents the three template records that deliberately keep retired
-// compatibility columns.
+// Because the model structs are the query structs, a non-zero gorm "default"
+// on one of them would let GORM substitute the database default for a
+// deliberately zero Go value. Keep defaults out of those tags.
 //
 // Audit rows are append-only: New installs a GORM callback that rejects UPDATE
 // and DELETE on audit_log_entries, and createAuditLogEntry writes the audit row

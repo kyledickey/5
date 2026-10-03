@@ -2,13 +2,13 @@
 package tickets
 
 import (
+	"encoding/json"
 	"errors"
 	"time"
 
 	"github.com/quackdiscord/bot/internal/modules"
 )
 
-// Status is the durable ticket lifecycle state.
 type Status string
 
 const (
@@ -20,7 +20,6 @@ const (
 	StatusCancelled Status = "cancelled"
 )
 
-// EventType identifies immutable ticket timeline entries.
 type EventType string
 
 const (
@@ -50,7 +49,6 @@ var (
 	ErrInvalidTransition = errors.New("invalid ticket transition")
 )
 
-// Settings fixes the module's Discord, privacy, retention, and abuse-control policy for one guild.
 type Settings struct {
 	EntryPanelMessageID     string `json:"entry_panel_message_id,omitempty"`
 	EntryPanelChannelID     string `json:"entry_panel_channel_id,omitempty"`
@@ -59,18 +57,17 @@ type Settings struct {
 	TranscriptRetentionDays int    `json:"transcript_retention_days"`
 }
 
-// Defaults returns privacy-preserving settings for a newly enabled guild.
 func Defaults() Settings {
 	return Settings{TranscriptRetentionDays: 90}
 }
 
-// Actor is the transport-neutral identity and current Discord authority for a ticket operation.
+// Actor is the transport-neutral identity and current Discord authority for one
+// ticket operation.
 type Actor struct {
 	GuildID, DiscordUserID string
 	CanManage, CanModerate bool
 }
 
-// Ticket is the module-owned ticket state; it does not reference cases or appeals.
 type Ticket struct {
 	// CloseNoticeDelivered reports a durably confirmed member DM.
 	CloseNoticeDelivered    bool       `json:"-"`
@@ -89,7 +86,6 @@ type Ticket struct {
 	UpdatedAt               time.Time  `json:"updated_at"`
 }
 
-// Event is an immutable ticket timeline entry.
 type Event struct {
 	ID                 string    `json:"id"`
 	TicketID           string    `json:"ticket_id"`
@@ -101,7 +97,6 @@ type Event struct {
 	CreatedAt          time.Time `json:"created_at"`
 }
 
-// Transcript is private ticket content retained for a bounded period.
 type Transcript struct {
 	TicketID   string    `json:"ticket_id"`
 	GuildID    string    `json:"guild_id"`
@@ -110,20 +105,27 @@ type Transcript struct {
 	ExpiresAt  time.Time `json:"expires_at"`
 }
 
-// ModuleStatus is the non-sensitive ticket configuration and queue health contract.
 type ModuleStatus struct {
 	Enabled         bool  `json:"enabled"`
 	EntryConfigured bool  `json:"entry_configured"`
 	OpenTickets     int64 `json:"open_tickets"`
 }
 
-// Descriptor exposes ticket configuration validation to the shared registry.
 func Descriptor() modules.Descriptor {
 	return modules.Descriptor{ID: modules.Tickets, DisplayName: "Tickets", Validate: validateSettingsJSON}
 }
 
-// QueueReceipt identifies the Discord message that safely holds ticket history.
 type QueueReceipt struct {
 	MessageID string
 	URL       string
+}
+
+// ValidateEnabledConfiguration re-runs the enabled-state invariants without
+// writing configuration, for the core settings enablement hook.
+func ValidateEnabledConfiguration(raw string) error {
+	var settings Settings
+	if err := json.Unmarshal([]byte(raw), &settings); err != nil {
+		return err
+	}
+	return validateSettings(settings, true)
 }

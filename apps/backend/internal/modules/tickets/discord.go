@@ -2,12 +2,16 @@ package tickets
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
+	"sync"
 	"time"
+
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
-// DiscordClient is the narrow private-channel transport owned by the ticket adapter.
 type DiscordClient interface {
 	CreatePrivateTicketChannel(context.Context, string, string, Settings) (string, error)
 	EnsureTicketPermissions(context.Context, string, string, string) error
@@ -24,19 +28,16 @@ type DiscordClient interface {
 	DeleteProvisionalTicketChannel(context.Context, string) error
 }
 
-// DiscordAdapter translates Discord entry/components into ticket service operations.
 type DiscordAdapter struct {
 	service *Service
 	client  DiscordClient
 	closes  ticketCloseLocks
 }
 
-// NewDiscordAdapter constructs the ticket Discord integration without central command registration.
 func NewDiscordAdapter(service *Service, client DiscordClient) *DiscordAdapter {
 	return &DiscordAdapter{service: service, client: client}
 }
 
-// Open provisions a private thread/channel and creates the matching backend ticket.
 func (a *DiscordAdapter) Open(ctx context.Context, actor Actor) (*Ticket, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
@@ -103,13 +104,12 @@ func (a *DiscordAdapter) Reply(ctx context.Context, actor Actor, ticketID, body 
 	return a.service.Reply(ctx, actor, ticketID, body)
 }
 
-// MessageTranscriptCapture exposes native identities so closure can merge original
+// MessageTranscriptCapture exposes native message identities so closure can merge
 // journal text without duplicating messages still present in Discord history.
 type MessageTranscriptCapture interface {
 	CaptureTicketMessages(context.Context, string) ([]TranscriptMessage, error)
 }
 
-// Close preserves and publishes the transcript before deleting the private thread.
 func (a *DiscordAdapter) Close(ctx context.Context, actor Actor, ticketID string) (*Ticket, error) {
 	return a.CloseWithProgress(ctx, actor, ticketID, nil)
 }
@@ -183,7 +183,6 @@ func (a *DiscordAdapter) CloseWithProgress(ctx context.Context, actor Actor, tic
 	if err := a.service.store.finishClosure(ctx, actor.GuildID, ticket.ID); err != nil {
 		return resolved, err
 	}
-
 	return resolved, nil
 }
 
@@ -290,7 +289,6 @@ func (a *DiscordAdapter) RepairPermissions(ctx context.Context, actor Actor, tic
 	return a.service.RecordPermissionsRepaired(ctx, actor.GuildID, ticketID)
 }
 
-// HandleDeletedChannel records a recoverable missing-channel state without exposing or recreating transcript content.
 func (a *DiscordAdapter) HandleDeletedChannel(ctx context.Context, guildID, ticketID, channelID string) error {
 	if a == nil || a.service == nil {
 		return errors.New("ticket Discord adapter is not configured")
@@ -298,7 +296,6 @@ func (a *DiscordAdapter) HandleDeletedChannel(ctx context.Context, guildID, tick
 	return a.service.RecordChannelMissing(ctx, guildID, ticketID, channelID)
 }
 
-// HandleDeletedEntryChannel disables new tickets until an administrator selects a private entry destination.
 func (a *DiscordAdapter) HandleDeletedEntryChannel(ctx context.Context, guildID, channelID string) error {
 	return a.service.RepairDeletedEntryChannel(ctx, guildID, channelID)
 }
@@ -317,4 +314,140 @@ func (a *DiscordAdapter) Join(ctx context.Context, actor Actor, ticketID string)
 		return ErrInvalidTransition
 	}
 	return a.client.JoinTicketThread(ctx, ticket.ThreadDiscordChannelID, actor.DiscordUserID)
+}
+
+// ticketCloseLocks serializes one ticket's external close pipeline within this
+// process. Different tickets proceed independently.
+type ticketCloseLocks struct {
+	mu      sync.Mutex
+	entries map[string]*ticketCloseGate
+}
+
+// ticketCloseGate counts holders and waiters so cancellation cannot detach a lock
+// still in use and accidentally permit a second pipeline for the same ticket.
+type ticketCloseGate struct {
+	token      chan struct{}
+	references int
+}
+
+func (l *ticketCloseLocks) acquire(ctx context.Context, key string) (func(), error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	l.mu.Lock()
+	if l.entries == nil {
+		l.entries = make(map[string]*ticketCloseGate)
+	}
+	gate := l.entries[key]
+	if gate == nil {
+		gate = &ticketCloseGate{token: make(chan struct{}, 1)}
+		gate.token <- struct{}{}
+		l.entries[key] = gate
+	}
+	gate.references++
+	l.mu.Unlock()
+	drop := func() {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		gate.references--
+		if gate.references == 0 {
+			delete(l.entries, key)
+		}
+	}
+	select {
+	case <-ctx.Done():
+		drop()
+		return nil, ctx.Err()
+	case <-gate.token:
+		if err := ctx.Err(); err != nil {
+			gate.token <- struct{}{}
+			drop()
+			return nil, err
+		}
+		return func() { gate.token <- struct{}{}; drop() }, nil
+	}
+}
+
+// ErrCloseNoticeNotSent marks a definite rejection, so a later close may retry.
+var ErrCloseNoticeNotSent = errors.New("ticket close notice was not sent")
+
+// closeNoticeState fences ambiguous sends across retries and process restarts.
+// It lives in existing ticket metadata so older installations need no schema change.
+type closeNoticeState struct {
+	State     string `json:"state"`
+	MessageID string `json:"message_id,omitempty"`
+}
+
+// updateCloseNotice locks the ticket while admitting delivery or saving its receipt.
+// Other metadata keys are retained; an in-flight attempt only permits reconciliation.
+func (s *Store) updateCloseNotice(ctx context.Context, ticket *Ticket, result *closeNoticeState) (closeNoticeState, error) {
+	var notice closeNoticeState
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var record ticketRecord
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND guild_id = ?", ticket.ID, ticket.GuildID).First(&record).Error; err != nil {
+			return err
+		}
+		metadata := map[string]json.RawMessage{}
+		if err := json.Unmarshal([]byte(record.MetadataJSON), &metadata); err != nil {
+			return err
+		}
+		if metadata == nil {
+			metadata = map[string]json.RawMessage{}
+		}
+		if raw := metadata["close_notice"]; len(raw) > 0 {
+			if err := json.Unmarshal(raw, &notice); err != nil {
+				return err
+			}
+		}
+		saved := notice
+		if result != nil && notice.State != "sent" {
+			saved = *result
+		} else if notice.State == "" || notice.State == "rejected" {
+			saved.State = "pending"
+		}
+		raw, err := json.Marshal(saved)
+		if err != nil {
+			return err
+		}
+		metadata["close_notice"] = raw
+		encoded, err := json.Marshal(metadata)
+		if err != nil {
+			return err
+		}
+		return tx.Model(&record).Update("metadata_json", string(encoded)).Error
+	})
+	return notice, err
+}
+
+// deliverCloseNotice attempts one DM containing the close notice and transcript.
+// Delivery failures do not trap members in unclosable tickets. Ambiguous sends
+// retain their durable fence and may only be reconciled, never blindly repeated.
+func (a *DiscordAdapter) deliverCloseNotice(ctx context.Context, actor Actor, ticket *Ticket) error {
+	state, err := a.service.store.updateCloseNotice(ctx, ticket, nil)
+	if err != nil {
+		return err
+	}
+	if state.State == "sent" {
+		ticket.CloseNoticeDelivered = true
+		return nil
+	}
+	transcript, err := a.service.Transcript(ctx, actor, ticket.ID)
+	if err != nil {
+		return err
+	}
+	messageID, sendErr := a.client.DeliverTicketCloseNotice(ctx, ticket, transcript, state.State == "pending")
+	result := closeNoticeState{State: "pending"}
+	if sendErr == nil && messageID != "" {
+		result.State, result.MessageID = "sent", messageID
+	} else if errors.Is(sendErr, ErrCloseNoticeNotSent) {
+		result.State = "rejected"
+	}
+	// A timed-out request must still retain its receipt or rejection classification.
+	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if _, err := a.service.store.updateCloseNotice(saveCtx, ticket, &result); err != nil {
+		return err
+	}
+	ticket.CloseNoticeDelivered = result.State == "sent"
+	return nil
 }

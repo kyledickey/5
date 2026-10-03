@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/quackdiscord/bot/internal/config"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -24,7 +25,7 @@ func TestSetupRoutesStatus(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	router := gin.New()
-	SetupRoutes(router, quack.New(nil))
+	SetupRoutes(router, quack.New(config.Default(), nil, nil, nil, nil))
 
 	request := httptest.NewRequest(http.MethodGet, "/status", nil)
 	response := httptest.NewRecorder()
@@ -54,7 +55,7 @@ func TestSetupRoutesStatus(t *testing.T) {
 func TestSetupRoutesMountsCoreModerationRegistrarsInProductionRouter(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	SetupRoutes(router, quack.New(nil))
+	SetupRoutes(router, quack.New(config.Default(), nil, nil, nil, nil))
 
 	routes := map[string]bool{}
 	for _, route := range router.Routes() {
@@ -76,6 +77,7 @@ func TestSetupRoutesMountsCoreModerationRegistrarsInProductionRouter(t *testing.
 		{http.MethodGet, "/members/me/guilds/:guildID/cases", "/members/me/guilds/guild/cases"},
 		{http.MethodGet, "/members/me/cases/:caseID", "/members/me/cases/case"},
 		{http.MethodPost, "/members/me/cases/:caseID/appeal", "/members/me/cases/case/appeal"},
+		{http.MethodGet, "/guilds/:discordGuildID/statistics", "/guilds/guild/statistics"},
 		{http.MethodGet, "/guilds/:discordGuildID/appeals", "/guilds/guild/appeals"},
 		{http.MethodPost, "/guilds/:discordGuildID/appeals/:appealID/accept", "/guilds/guild/appeals/appeal/accept"},
 	}
@@ -99,7 +101,7 @@ func TestRequestContextMiddlewareEchoesRequestID(t *testing.T) {
 
 	router := gin.New()
 	router.Use(middleware.RequestContext)
-	SetupRoutes(router, quack.New(nil))
+	SetupRoutes(router, quack.New(config.Default(), nil, nil, nil, nil))
 
 	request := httptest.NewRequest(http.MethodGet, "/status", nil)
 	request.Header.Set("X-Request-ID", "req-test-1")
@@ -124,7 +126,7 @@ func TestOpsStatusRouteRequiresKey(t *testing.T) {
 		t.Fatalf("migrate schema: %v", err)
 	}
 	router := gin.New()
-	services := quack.New(store)
+	services := quack.New(config.Default(), store, nil, nil, nil)
 	services.Config.API.OpsStatusToken = "secret"
 	SetupRoutes(router, services)
 
@@ -180,7 +182,7 @@ func TestOpsStatusDisabledWhenNoKeyConfigured(t *testing.T) {
 		t.Fatalf("migrate schema: %v", err)
 	}
 	router := gin.New()
-	SetupRoutes(router, quack.New(store))
+	SetupRoutes(router, quack.New(config.Default(), store, nil, nil, nil))
 
 	request := httptest.NewRequest(http.MethodGet, "/ops/status", nil)
 	response := httptest.NewRecorder()
@@ -215,11 +217,11 @@ func TestGuildOpsStatusAllowsAdminOrOpsKey(t *testing.T) {
 	if err := store.Migrate(); err != nil {
 		t.Fatalf("migrate schema: %v", err)
 	}
-	if _, err := store.UpsertGuild(context.Background(), storage.UpsertGuildParams{DiscordGuildID: "guild-1", Name: "Guild", OwnerDiscordUserID: "owner-1"}); err != nil {
+	if _, err := store.UpsertGuild(context.Background(), model.UpsertGuildParams{DiscordGuildID: "guild-1", Name: "Guild", OwnerDiscordUserID: "owner-1"}); err != nil {
 		t.Fatalf("upsert guild: %v", err)
 	}
 	keyRouter := gin.New()
-	services := quack.New(store)
+	services := quack.New(config.Default(), store, nil, nil, nil)
 	services.Config.API.OpsStatusToken = "secret"
 	SetupRoutes(keyRouter, services)
 	keyRequest := httptest.NewRequest(http.MethodGet, "/guilds/guild-1/ops/status", nil)
@@ -247,13 +249,13 @@ func TestGuildMeRouteAuthenticated(t *testing.T) {
 		t.Fatalf("migrate schema: %v", err)
 	}
 
-	services := quack.NewWithDiscordClient(store, routeFakeDiscordClient{
+	services := quack.New(config.Default(), store, routeFakeDiscordClient{
 		userGuilds: []quack.DiscordUserGuild{{
 			ID:          "guild-1",
 			Permissions: uint64(discordgo.PermissionModerateMembers),
 		}},
 		botGuild: &quack.DiscordBotGuild{ID: "guild-1", Name: "Guild", Icon: "icon", OwnerID: "owner-1"},
-	})
+	}, nil, nil)
 
 	session := routeTestSession("user-1")
 	if err := store.SaveSession(context.Background(), session, time.Hour); err != nil {
@@ -315,7 +317,7 @@ func TestGuildMeRouteUnauthenticated(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	router := gin.New()
-	SetupRoutes(router, quack.New(nil))
+	SetupRoutes(router, quack.New(config.Default(), nil, nil, nil, nil))
 
 	request := httptest.NewRequest(http.MethodGet, "/guilds/guild-1/me", nil)
 	response := httptest.NewRecorder()
@@ -336,7 +338,7 @@ func TestListUserGuildsRouteAuthenticated(t *testing.T) {
 		t.Fatalf("migrate schema: %v", err)
 	}
 
-	services := quack.NewWithDiscordClient(store, routeFakeDiscordClient{
+	services := quack.New(config.Default(), store, routeFakeDiscordClient{
 		userGuilds: []quack.DiscordUserGuild{
 			{ID: "guild-1", Name: "Guild One", Owner: true},
 			{ID: "guild-2", Name: "Guild Two", Permissions: uint64(discordgo.PermissionManageGuild)},
@@ -344,7 +346,7 @@ func TestListUserGuildsRouteAuthenticated(t *testing.T) {
 			{ID: "guild-4", Name: "Guild Four", Permissions: uint64(discordgo.PermissionModerateMembers)},
 		},
 		botGuilds: []quack.DiscordBotGuild{{ID: "guild-2", Name: "Guild Two"}},
-	})
+	}, nil, nil)
 
 	session := routeTestSession("user-1")
 	if err := store.SaveSession(context.Background(), session, time.Hour); err != nil {
@@ -396,7 +398,7 @@ func TestListUserGuildsRouteUnauthenticated(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	router := gin.New()
-	SetupRoutes(router, quack.New(nil))
+	SetupRoutes(router, quack.New(config.Default(), nil, nil, nil, nil))
 
 	request := httptest.NewRequest(http.MethodGet, "/guilds", nil)
 	response := httptest.NewRecorder()
@@ -623,106 +625,12 @@ func TestGuildSettingsRoutesReadWriteAcknowledgeAndAuditDenied(t *testing.T) {
 	}
 }
 
-func TestTemplateRouteRejectsQuarantinedLegacyPolicyExplicitly(t *testing.T) {
-	router, sessionID, repositories := newTemplateRouteHarnessWithStore(t, uint64(discordgo.PermissionAdministrator))
-	// Recreate a pre-0410 quarantined fixture. The final live schema rejects
-	// these shapes at the database boundary, while upgraded installations may
-	// still need the compatibility response before operator adjudication.
-	for _, index := range []string{"uq_v5_template_default_level", "uq_v5_level_enforcement_action"} {
-		if err := repositories.DB().Exec("DROP INDEX " + index).Error; err != nil {
-			t.Fatalf("drop final constraint %s for compatibility fixture: %v", index, err)
-		}
-	}
-	guild, err := repositories.UpsertGuild(context.Background(), storage.UpsertGuildParams{
-		DiscordGuildID:     "guild-1",
-		Name:               "Guild",
-		OwnerDiscordUserID: "owner-1",
-	})
-	if err != nil {
-		t.Fatalf("upsert compatibility guild: %v", err)
-	}
-	created, err := repositories.CreateCaseTemplate(context.Background(), storage.CreateCaseTemplateParams{
-		Template: model.CaseTemplate{
-			GuildID:                guild.ID,
-			Slug:                   "legacy-policy",
-			Name:                   "Legacy policy",
-			ReasonTemplate:         "Preserved legacy policy",
-			CreatedByDiscordUserID: "admin-1",
-			UpdatedByDiscordUserID: "admin-1",
-		},
-		Levels: []storage.ExpandedCaseTemplateLevel{
-			{
-				Level: model.CaseTemplateLevel{Position: 1, Name: "Legacy default one", IsDefault: true},
-				Actions: []model.CaseTemplateLevelAction{
-					{ActionType: model.ActionTimeoutUser, ConfigJSON: `{"duration_seconds":3600}`},
-				},
-			},
-			{Level: model.CaseTemplateLevel{Position: 2, Name: "Legacy default two", IsDefault: true}},
-		},
-	})
-	if err != nil {
-		t.Fatalf("create preserved legacy policy: %v", err)
-	}
-	now := time.Now().UTC()
-	var firstLevel storage.CaseTemplateLevelRecord
-	if err := repositories.DB().Where("template_id = ? AND position = ?", created.Template.ID, 1).First(&firstLevel).Error; err != nil {
-		t.Fatalf("load first legacy level: %v", err)
-	}
-	secondAction := storage.CaseTemplateLevelActionRecord{
-		ULIDModelRecord:  storage.ULIDModelRecord{ID: "route-compat-action0000000", CreatedAt: now, UpdatedAt: now},
-		LevelID:          firstLevel.ID,
-		Position:         2,
-		ActionType:       model.ActionKickUser,
-		ConfigJSON:       `{}`,
-		IdempotencyScope: "case",
-		Enabled:          true,
-	}
-	if err := repositories.DB().Select("*").Create(&secondAction).Error; err != nil {
-		t.Fatalf("create preserved second action: %v", err)
-	}
-	if err := repositories.DB().Model(&storage.CaseTemplateRecord{}).Where("id = ?", created.Template.ID).UpdateColumn("archived_at", now).Error; err != nil {
-		t.Fatalf("archive quarantined template: %v", err)
-	}
-	reason := "level has multiple actions; template does not have exactly one default level"
-	// Explicit historical quarantine fixture; fresh v5 databases omit this table.
-	if err := repositories.DB().Exec(`CREATE TABLE quack_v5_0002_template_compatibility (template_id TEXT PRIMARY KEY, previous_archived_at DATETIME, previous_deleted_at DATETIME, reason TEXT, recorded_at DATETIME)`).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := repositories.DB().Exec(
-		"INSERT INTO quack_v5_0002_template_compatibility (template_id, previous_archived_at, previous_deleted_at, reason, recorded_at) VALUES (?, ?, ?, ?, ?)",
-		created.Template.ID, nil, nil, reason, now,
-	).Error; err != nil {
-		t.Fatalf("record compatibility state: %v", err)
-	}
-
-	request := httptest.NewRequest(http.MethodGet, "/guilds/guild-1/templates/"+created.Template.ID, nil)
-	request.Header.Set("Authorization", "Bearer "+sessionID)
-	response := httptest.NewRecorder()
-	router.ServeHTTP(response, request)
-	if response.Code != http.StatusConflict {
-		t.Fatalf("expected compatibility conflict %d, got %d body=%s", http.StatusConflict, response.Code, response.Body.String())
-	}
-	var body map[string]any
-	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode compatibility response: %v", err)
-	}
-	if body["error"] != quack.ErrTemplateCompatibilityReviewRequired.Error() || body["template_id"] != created.Template.ID || body["compatibility_reason"] != reason {
-		t.Fatalf("unexpected compatibility response: %+v", body)
-	}
-	if _, exists := body["template"]; exists {
-		t.Fatalf("compatibility response exposed invalid template policy: %+v", body)
-	}
-	if _, exists := body["levels"]; exists {
-		t.Fatalf("compatibility response exposed invalid levels: %+v", body)
-	}
-}
-
 func TestCaseRouteRequiresAuth(t *testing.T) {
 	testutil.SetTestConfig(t)
 	gin.SetMode(gin.TestMode)
 
 	router := gin.New()
-	SetupRoutes(router, quack.New(nil))
+	SetupRoutes(router, quack.New(config.Default(), nil, nil, nil, nil))
 
 	request := httptest.NewRequest(http.MethodPost, "/guilds/guild-1/cases", bytes.NewBufferString(`{}`))
 	request.Header.Set("Content-Type", "application/json")
@@ -1061,13 +969,13 @@ func newTemplateRouteHarnessWithStore(t *testing.T, permissionBits uint64) (*gin
 		t.Fatalf("bootstrap route guild: %v", err)
 	}
 
-	services := quack.NewWithDiscordClient(store, routeFakeDiscordClient{
+	services := quack.New(config.Default(), store, routeFakeDiscordClient{
 		userGuilds: []quack.DiscordUserGuild{{
 			ID:          "guild-1",
 			Permissions: permissionBits,
 		}},
 		botGuild: &quack.DiscordBotGuild{ID: "guild-1", Name: "Guild", OwnerID: "owner-1"},
-	})
+	}, nil, nil)
 
 	session := routeTestSession("user-1")
 	if err := store.SaveSession(context.Background(), session, time.Hour); err != nil {
@@ -1091,7 +999,7 @@ func newCaseRouteHarness(t *testing.T, permissionBits uint64) (*gin.Engine, stri
 		t.Fatalf("migrate schema: %v", err)
 	}
 
-	guild, err := store.UpsertGuild(context.Background(), storage.UpsertGuildParams{
+	guild, err := store.UpsertGuild(context.Background(), model.UpsertGuildParams{
 		DiscordGuildID:     "guild-1",
 		Name:               "Guild",
 		OwnerDiscordUserID: "owner-1",
@@ -1099,7 +1007,7 @@ func newCaseRouteHarness(t *testing.T, permissionBits uint64) (*gin.Engine, stri
 	if err != nil {
 		t.Fatalf("upsert guild: %v", err)
 	}
-	template, err := store.CreateCaseTemplate(context.Background(), storage.CreateCaseTemplateParams{
+	template, err := store.CreateCaseTemplate(context.Background(), model.CreateCaseTemplateParams{
 		Template: model.CaseTemplate{
 			GuildID:                guild.ID,
 			Slug:                   "spam",
@@ -1109,7 +1017,7 @@ func newCaseRouteHarness(t *testing.T, permissionBits uint64) (*gin.Engine, stri
 			CreatedByDiscordUserID: "admin-1",
 			UpdatedByDiscordUserID: "admin-1",
 		},
-		Levels: []storage.ExpandedCaseTemplateLevel{
+		Levels: []model.ExpandedCaseTemplateLevel{
 			{
 				Level: model.CaseTemplateLevel{Position: 1, Name: "Default", IsDefault: true},
 			},
@@ -1119,13 +1027,13 @@ func newCaseRouteHarness(t *testing.T, permissionBits uint64) (*gin.Engine, stri
 		t.Fatalf("create template: %v", err)
 	}
 
-	services := quack.NewWithDiscordClient(store, routeFakeDiscordClient{
+	services := quack.New(config.Default(), store, routeFakeDiscordClient{
 		userGuilds: []quack.DiscordUserGuild{{
 			ID:          "guild-1",
 			Permissions: permissionBits,
 		}},
 		botGuild: &quack.DiscordBotGuild{ID: "guild-1", Name: "Guild", OwnerID: "owner-1"},
-	})
+	}, nil, nil)
 
 	session := routeTestSession("user-1")
 	if err := store.SaveSession(context.Background(), session, time.Hour); err != nil {

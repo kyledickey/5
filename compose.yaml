@@ -51,9 +51,6 @@ services:
       OPS_STATUS_TOKEN: ${OPS_STATUS_TOKEN:-}
       DATABASE_DSN: quack:quack@tcp(mysql:3306)/quack?charset=utf8mb4&parseTime=True&loc=Local
       REDIS_URL: redis://redis:6379/0
-      DEV_DISCORD_TOKEN: ${DEV_DISCORD_TOKEN:-}
-      DEV_DISCORD_APP_ID: ${DEV_DISCORD_APP_ID:-}
-      DEV_DISCORD_CLIENT_SECRET: ${DEV_DISCORD_CLIENT_SECRET:-}
       DISCORD_TOKEN: ${DISCORD_TOKEN:-}
       DISCORD_APP_ID: ${DISCORD_APP_ID:-}
       DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:-}

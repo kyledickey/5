@@ -12,7 +12,7 @@ import (
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
-// DiscordClient defines the external operations needed by this package, keeping the concrete client at the adapter boundary.
+// DiscordClient is the minimum adapter capability every action module needs.
 type DiscordClient interface {
 	SendDM(ctx context.Context, discordUserID, message string) (map[string]any, error)
 }
@@ -36,7 +36,8 @@ type Context struct {
 	DiscordGuildID string
 }
 
-// Result describes an action attempt in implementation-neutral terms so the action service can persist retries, failures, and external response data uniformly.
+// Result describes an action attempt in implementation-neutral terms so the
+// action service can persist retries, failures, and external response data.
 type Result struct {
 	Retryable        bool
 	ErrorCode        string
@@ -45,15 +46,15 @@ type Result struct {
 	OutcomeUncertain bool
 }
 
-// Executor runs one action module without exposing Discord or persistence details to the orchestration service.
+// Executor runs one action module without exposing Discord or persistence
+// details to the orchestration service.
 type Executor interface {
 	Execute(ctx context.Context, action Context) Result
 }
 
-// Func adapts a function to Executor, keeping small action modules declarative.
+// Func adapts a function to Executor.
 type Func func(ctx context.Context, action Context) Result
 
-// Execute invokes the wrapped action function; retry policy remains the responsibility of the caller.
 func (f Func) Execute(ctx context.Context, action Context) Result {
 	return f(ctx, action)
 }
@@ -68,7 +69,6 @@ type DiscordError struct {
 	OutcomeUncertain bool
 }
 
-// Error returns the failure explanation, falling back to its code.
 func (e DiscordError) Error() string {
 	if e.Message != "" {
 		return e.Message
@@ -118,9 +118,9 @@ func Unsupported(ctx context.Context, action Context) Result {
 	return PermanentError("unsupported_action", fmt.Sprintf("action type %s is not supported", action.Execution.ActionType))
 }
 
-// ConfigString reads a trimmed action setting. Non-string values use their Go
+// configString reads a trimmed action setting. Non-string values use their Go
 // text representation; a missing key returns an empty string.
-func ConfigString(config map[string]any, key string) string {
+func configString(config map[string]any, key string) string {
 	value, ok := config[key]
 	if !ok {
 		return ""
@@ -133,8 +133,8 @@ func ConfigString(config map[string]any, key string) string {
 	}
 }
 
-// ConfigInt reads integer-valued JSON settings without accepting fractional values.
-func ConfigInt(config map[string]any, key string) int {
+// configInt reads integer-valued JSON settings without accepting fractional values.
+func configInt(config map[string]any, key string) int {
 	value, ok := config[key]
 	if !ok {
 		return 0
@@ -157,7 +157,8 @@ func ConfigInt(config map[string]any, key string) int {
 	}
 }
 
-// AuditReason returns a bounded Discord audit-log reason containing the immutable case reference and official reason.
+// AuditReason returns a Discord audit-log reason bounded to the 512-character
+// limit, containing the immutable case reference and official reason.
 func AuditReason(action Context) string {
 	value := fmt.Sprintf("Quack case #%d: %s", action.Case.CaseNumber, strings.TrimSpace(action.Case.Reason))
 	runes := []rune(value)

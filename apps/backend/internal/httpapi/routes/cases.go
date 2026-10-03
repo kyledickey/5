@@ -5,9 +5,8 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/quackdiscord/bot/internal/httpapi/apierror"
-
 	"github.com/gin-gonic/gin"
+	"github.com/quackdiscord/bot/internal/httpapi/apierror"
 	"github.com/quackdiscord/bot/internal/httpapi/middleware"
 	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/quackdiscord/bot/internal/quack/model"
@@ -26,7 +25,6 @@ type caseCreateRequest struct {
 	ReplacesCaseID          string                        `json:"replaces_case_id"`
 }
 
-// listCases returns cases subject to authorization, ordering, and filtering constraints.
 // @Summary List guild cases
 // @Tags Cases
 // @Produce json
@@ -51,7 +49,6 @@ func listCases(c *gin.Context, services *quack.Services) {
 	c.JSON(http.StatusOK, result)
 }
 
-// createCase creates case while preserving validation, authorization, and persistence invariants.
 // @Summary Create a moderation case
 // @Tags Cases
 // @Accept json
@@ -124,7 +121,6 @@ func voidCase(c *gin.Context, services *quack.Services) {
 	c.JSON(http.StatusOK, gin.H{"case": result})
 }
 
-// getCase retrieves case without exposing the underlying adapter implementation.
 // @Summary Get a guild case
 // @Tags Cases
 // @Produce json
@@ -145,7 +141,6 @@ func getCase(c *gin.Context, services *quack.Services) {
 	c.JSON(http.StatusOK, gin.H{"case": result})
 }
 
-// listUserCases returns user cases subject to authorization, ordering, and filtering constraints.
 // @Summary List a guild member's case history
 // @Tags Cases
 // @Produce json
@@ -168,7 +163,55 @@ func listUserCases(c *gin.Context, services *quack.Services) {
 	c.JSON(http.StatusOK, result)
 }
 
-// caseListInput encapsulates the case list input rule so callers share one consistent package implementation.
+// listMemberOwnedCases uses the authenticated Discord identity rather than current guild membership.
+// @Summary List the current member's cases
+// @Tags Member cases
+// @Produce json
+// @Param guildID path string true "Quack guild ID"
+// @Param limit query int false "Page size"
+// @Param offset query int false "Page offset"
+// @Security CookieAuth
+// @Success 200 {object} quack.MemberCaseListResponse
+// @Failure 401 {object} map[string]interface{}
+// @Router /members/me/guilds/{guildID}/cases [get]
+func listMemberOwnedCases(c *gin.Context, services *quack.Services) {
+	session := middleware.GetAuthSession(c)
+	if session == nil {
+		apierror.Write(c, http.StatusUnauthorized, apierror.CodeAuthentication, "authentication required")
+		return
+	}
+	result, err := services.Cases.ListMemberCases(c.Request.Context(), c.Param("guildID"), session.DiscordUserID, caseListInput(c))
+	if err != nil {
+		writeCaseError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+// getMemberOwnedCase returns the privacy-safe projection only to the target identity.
+// @Summary Get the current member's case
+// @Tags Member cases
+// @Produce json
+// @Param caseID path string true "Case ID"
+// @Security CookieAuth
+// @Success 200 {object} map[string]interface{}
+// @Failure 401 {object} map[string]interface{}
+// @Failure 404 {object} map[string]interface{}
+// @Router /members/me/cases/{caseID} [get]
+func getMemberOwnedCase(c *gin.Context, services *quack.Services) {
+	session := middleware.GetAuthSession(c)
+	if session == nil {
+		apierror.Write(c, http.StatusUnauthorized, apierror.CodeAuthentication, "authentication required")
+		return
+	}
+	result, err := services.Cases.GetMemberCase(c.Request.Context(), c.Param("caseID"), session.DiscordUserID)
+	if err != nil {
+		writeCaseError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"case": result})
+}
+
 func caseListInput(c *gin.Context) quack.CaseListInput {
 	return quack.CaseListInput{
 		Limit:                  c.Query("limit"),
@@ -181,7 +224,6 @@ func caseListInput(c *gin.Context) quack.CaseListInput {
 	}
 }
 
-// writeCaseError maps case error into the preserved HTTP error response contract.
 func writeCaseError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, quack.ErrCaseValidation):

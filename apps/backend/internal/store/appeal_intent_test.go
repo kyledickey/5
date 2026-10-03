@@ -31,14 +31,8 @@ func (c *intentDeliveryClient) SendAppealMemberNotification(_ context.Context, _
 func TestAppealIntentSurvivesRestartSettingsChangeAndRetry(t *testing.T) {
 	ctx := context.Background()
 	repository, guild := newAppealTestStore(t)
-	if err := repository.AdoptCurrentSchema(); err != nil {
-		t.Fatal(err)
-	}
-	if err := repository.Migrate(); err != nil {
-		t.Fatal(err)
-	}
 	item := createAppealableCase(t, repository, guild.ID, "target", true)
-	if err := repository.db.Create(&GuildSettingsRecord{ULIDModelRecord: ULIDModelRecord{ID: "intent-settings"}, GuildID: guild.ID, AppealRejoinURL: "https://discord.gg/original"}).Error; err != nil {
+	if err := repository.db.Create(&model.GuildSettings{ULIDModel: model.ULIDModel{ID: "intent-settings"}, GuildID: guild.ID, AppealRejoinURL: "https://discord.gg/original"}).Error; err != nil {
 		t.Fatal(err)
 	}
 	service := quack.NewAppealService(repository)
@@ -53,7 +47,7 @@ func TestAppealIntentSurvivesRestartSettingsChangeAndRetry(t *testing.T) {
 	if err := repository.db.Model(&model.GuildSettings{}).Where("guild_id = ?", guild.ID).Update("appeal_rejoin_url", "https://discord.gg/changed").Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := repository.db.Model(&AppealRecord{}).Where("id = ?", appeal.ID).Update("decision_reason", "changed later").Error; err != nil {
+	if err := repository.db.Model(&model.Appeal{}).Where("id = ?", appeal.ID).Update("decision_reason", "changed later").Error; err != nil {
 		t.Fatal(err)
 	}
 	restarted := New(repository.db, nil)
@@ -62,7 +56,7 @@ func TestAppealIntentSurvivesRestartSettingsChangeAndRetry(t *testing.T) {
 	if err := dispatcher.DispatchPending(ctx, 100); err != nil {
 		t.Fatal(err)
 	}
-	var row AppealNotificationRecord
+	var row model.AppealNotification
 	if err := repository.db.Where("appeal_id = ? AND audience = ?", appeal.ID, model.AppealNotificationMember).First(&row).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -92,9 +86,9 @@ func TestAppealIntentSurvivesRestartSettingsChangeAndRetry(t *testing.T) {
 // payloads become classified failures while absent payloads deliver saved copy.
 func TestAppealInvalidIntentNeverDeliversLegacyFallback(t *testing.T) {
 	repository, guild := newAppealTestStore(t)
-	for _, row := range []AppealNotificationRecord{
-		{ULIDModelRecord: ULIDModelRecord{ID: "invalid-notice"}, AppealID: "appeal", EventID: "invalid-event", GuildID: guild.ID, TargetDiscordUserID: "member", Audience: model.AppealNotificationMember, Status: model.AppealNotificationPending, Body: "must not fall back", DecisionIntentJSON: `{"version":99,"status":"accepted","reason":"unsupported"}`},
-		{ULIDModelRecord: ULIDModelRecord{ID: "legacy-notice"}, AppealID: "appeal", EventID: "legacy-event", GuildID: guild.ID, TargetDiscordUserID: "member", Audience: model.AppealNotificationMember, Status: model.AppealNotificationPending, Body: "exact legacy body"},
+	for _, row := range []model.AppealNotification{
+		{ULIDModel: model.ULIDModel{ID: "invalid-notice"}, AppealID: "appeal", EventID: "invalid-event", GuildID: guild.ID, TargetDiscordUserID: "member", Audience: model.AppealNotificationMember, Status: model.AppealNotificationPending, Body: "must not fall back", DecisionIntentJSON: `{"version":99,"status":"accepted","reason":"unsupported"}`},
+		{ULIDModel: model.ULIDModel{ID: "legacy-notice"}, AppealID: "appeal", EventID: "legacy-event", GuildID: guild.ID, TargetDiscordUserID: "member", Audience: model.AppealNotificationMember, Status: model.AppealNotificationPending, Body: "exact legacy body"},
 	} {
 		if err := repository.db.Create(&row).Error; err != nil {
 			t.Fatal(err)
@@ -110,7 +104,7 @@ func TestAppealInvalidIntentNeverDeliversLegacyFallback(t *testing.T) {
 	if len(client.notices) != 1 || client.notices[0].LegacyBody != "exact legacy body" || client.notices[0].Intent != nil {
 		t.Fatal("invalid intent sent or legacy altered", client.notices)
 	}
-	var invalid AppealNotificationRecord
+	var invalid model.AppealNotification
 	if err := repository.db.First(&invalid, "id = ?", "invalid-notice").Error; err != nil || invalid.Status != model.AppealNotificationFailed || invalid.LastErrorCode != "invalid_notification_intent" || invalid.Body != "must not fall back" {
 		t.Fatal("invalid row safety changed", invalid, err)
 	}

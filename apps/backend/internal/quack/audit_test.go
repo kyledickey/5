@@ -10,6 +10,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/quack"
+	"github.com/quackdiscord/bot/internal/quack/idutil"
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
@@ -50,7 +51,7 @@ func TestAuditServiceListPermissionsAndFilters(t *testing.T) {
 }
 
 func TestAuditServiceRedactsAndFiltersCompleteContract(t *testing.T) {
-	ctx := quack.ContextWithTrace(context.Background(), "request-1", "trace-1")
+	ctx := idutil.ContextWithTrace(context.Background(), "request-1", "trace-1")
 	repository := newMigratedStore(t)
 	moderator := templateGuildContext(t, repository, "audit-guild", "moderator", uint64(discordgo.PermissionModerateMembers))
 	now := time.Now().UTC()

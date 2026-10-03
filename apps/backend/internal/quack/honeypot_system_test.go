@@ -7,12 +7,14 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/internal/config"
 	"github.com/quackdiscord/bot/internal/quack"
+	"github.com/quackdiscord/bot/internal/quack/idutil"
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 func TestSystemHoneypotCaseUsesNormalPathWithoutFabricatedStaff(t *testing.T) {
-	ctx := quack.ContextWithTrace(context.Background(), "req-honeypot", "corr-honeypot")
+	ctx := idutil.ContextWithTrace(context.Background(), "req-honeypot", "corr-honeypot")
 	repository := newMigratedStore(t)
 	guild, err := repository.UpsertGuild(ctx, model.UpsertGuildParams{DiscordGuildID: "111111111111111111", Name: "Guild", OwnerDiscordUserID: "owner"})
 	if err != nil {
@@ -33,7 +35,7 @@ func TestSystemHoneypotCaseUsesNormalPathWithoutFabricatedStaff(t *testing.T) {
 		Bot:    quack.DiscordMemberAuthorization{DiscordUserID: "quack", PermissionBits: uint64(discordgo.PermissionAdministrator), TopRolePosition: 20, Present: true, Bot: true},
 		Target: &quack.DiscordMemberAuthorization{DiscordUserID: "target", Present: true, TopRolePosition: 1},
 	}
-	services := quack.NewWithDiscordClient(repository, fakeDiscordClient{botGuild: &snapshot.Guild, authorization: snapshot})
+	services := quack.New(config.Default(), repository, fakeDiscordClient{botGuild: &snapshot.Guild, authorization: snapshot}, nil, nil)
 	link := "https://discord.com/channels/111111111111111111/222222222222222222/333333333333333333"
 	services.Cases.WithEvidenceCapture(quack.NewEvidenceService(&fakeEvidenceClient{message: quack.DiscordMessageSnapshot{
 		GuildID: "111111111111111111", ChannelID: "222222222222222222", MessageID: "333333333333333333", AuthorDiscordUserID: "target", URL: link, Content: "evidence", CreatedAt: time.Now().UTC(),

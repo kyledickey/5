@@ -31,7 +31,6 @@ type IdempotencyResult struct {
 	LeaseToken string
 	StatusCode int
 	Body       []byte
-	ExpiresIn  time.Duration
 }
 
 // IdempotencyStore coordinates externally retried writes using fenced Redis leases.
@@ -61,14 +60,6 @@ redis.call("PEXPIRE", KEYS[1], ARGV[4])
 return 1
 `)
 
-// abandonIdempotencyScript removes only an in-progress lease owned by the caller.
-var abandonIdempotencyScript = redis.NewScript(`
-if redis.call("HGET", KEYS[1], "token") == ARGV[1] and redis.call("HGET", KEYS[1], "state") == "in_progress" then
-  return redis.call("DEL", KEYS[1])
-end
-return 0
-`)
-
 // NewIdempotencyStore constructs a fail-closed Redis-backed idempotency store.
 func NewIdempotencyStore(client redis.UniversalClient, prefix string) *IdempotencyStore {
 	prefix = strings.TrimSpace(prefix)
@@ -79,7 +70,7 @@ func NewIdempotencyStore(client redis.UniversalClient, prefix string) *Idempoten
 }
 
 // Begin acquires a fenced lease or returns the original in-progress/completed state without executing work twice.
-func (s *IdempotencyStore) Begin(ctx context.Context, scope, key string, ttl time.Duration, fingerprints ...string) (IdempotencyResult, error) {
+func (s *IdempotencyStore) Begin(ctx context.Context, scope, key string, ttl time.Duration, fingerprint string) (IdempotencyResult, error) {
 	if s == nil || s.client == nil {
 		return IdempotencyResult{}, ErrUnavailable
 	}
@@ -93,10 +84,6 @@ func (s *IdempotencyStore) Begin(ctx context.Context, scope, key string, ttl tim
 	ttlMillis := ttl.Milliseconds()
 	if ttlMillis < 1 {
 		ttlMillis = 1
-	}
-	fingerprint := ""
-	if len(fingerprints) > 0 {
-		fingerprint = fingerprints[0]
 	}
 	raw, err := beginIdempotencyScript.Run(ctx, s.client, []string{s.redisKey(scope, key)}, token, ttlMillis, fingerprint).Result()
 	if err != nil {
@@ -115,17 +102,15 @@ func (s *IdempotencyStore) Begin(ctx context.Context, scope, key string, ttl tim
 	if err != nil {
 		return IdempotencyResult{}, fmt.Errorf("%w: invalid idempotency status", ErrUnavailable)
 	}
-	body, _ := redisBytes(values[3])
-	ttlMillis, err = redisInt64(values[4])
-	if err != nil || ttlMillis < 0 {
+	body, _ := redisString(values[3])
+	if remainingMillis, err := redisInt64(values[4]); err != nil || remainingMillis < 0 {
 		return IdempotencyResult{}, fmt.Errorf("%w: invalid idempotency TTL", ErrUnavailable)
 	}
 	return IdempotencyResult{
 		State:      IdempotencyState(state),
 		LeaseToken: leaseToken,
 		StatusCode: int(statusCode),
-		Body:       append([]byte(nil), body...),
-		ExpiresIn:  time.Duration(ttlMillis) * time.Millisecond,
+		Body:       []byte(body),
 	}, nil
 }
 
@@ -160,24 +145,6 @@ func (s *IdempotencyStore) Complete(ctx context.Context, scope, key, leaseToken 
 	}
 }
 
-// Abandon releases an in-progress lease owned by the caller so an explicitly safe retry can proceed.
-func (s *IdempotencyStore) Abandon(ctx context.Context, scope, key, leaseToken string) error {
-	if s == nil || s.client == nil {
-		return ErrUnavailable
-	}
-	if strings.TrimSpace(scope) == "" || strings.TrimSpace(key) == "" || leaseToken == "" {
-		return fmt.Errorf("invalid idempotency abandon request")
-	}
-	result, err := abandonIdempotencyScript.Run(ctx, s.client, []string{s.redisKey(scope, key)}, leaseToken).Int64()
-	if err != nil {
-		return fmt.Errorf("%w: abandon idempotency: %v", ErrUnavailable, err)
-	}
-	if result != 1 {
-		return errors.New("idempotency lease ownership lost")
-	}
-	return nil
-}
-
 // redisKey hashes caller-controlled scope and key material before storage.
 func (s *IdempotencyStore) redisKey(scope, key string) string {
 	digest := sha256.Sum256([]byte(scope + "\x00" + key))
@@ -205,13 +172,4 @@ func redisString(value any) (string, error) {
 	default:
 		return "", fmt.Errorf("unexpected Redis string type %T", value)
 	}
-}
-
-// redisBytes normalizes Redis bulk-string values without retaining Redis buffers.
-func redisBytes(value any) ([]byte, error) {
-	text, err := redisString(value)
-	if err != nil {
-		return nil, err
-	}
-	return []byte(text), nil
 }

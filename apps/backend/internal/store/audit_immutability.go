@@ -18,6 +18,9 @@ var auditCallbackMu sync.Mutex
 // and delete callbacks. Registration is idempotent per *gorm.DB; transactions
 // share their parent's callback registry, so wrapping a tx re-checks and skips.
 func installAuditImmutability(db *gorm.DB) {
+	if db == nil {
+		return
+	}
 	auditCallbackMu.Lock()
 	defer auditCallbackMu.Unlock()
 	if db.Callback().Update().Get("quack:audit_append_only") == nil {

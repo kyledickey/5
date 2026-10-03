@@ -4,15 +4,13 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/quackdiscord/bot/internal/httpapi/apierror"
-
 	"github.com/gin-gonic/gin"
+	"github.com/quackdiscord/bot/internal/httpapi/apierror"
 	"github.com/quackdiscord/bot/internal/httpapi/middleware"
 	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
-// listAuditLog returns audit log subject to authorization, ordering, and filtering constraints.
 // @Summary List guild audit entries
 // @Tags Audit
 // @Produce json
@@ -52,7 +50,6 @@ func listAuditLog(c *gin.Context, services *quack.Services) {
 	c.JSON(http.StatusOK, result)
 }
 
-// writeAuditError maps audit error into the preserved HTTP error response contract.
 func writeAuditError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, quack.ErrAuditValidation):
@@ -61,5 +58,37 @@ func writeAuditError(c *gin.Context, err error) {
 		apierror.Write(c, http.StatusForbidden, apierror.CodeAuthorization, err.Error())
 	default:
 		apierror.Write(c, http.StatusInternalServerError, apierror.CodeInternal, "audit operation failed")
+	}
+}
+
+// getStatistics returns a bounded guild-scoped moderation snapshot.
+// @Summary Get guild moderation statistics
+// @Tags Audit
+// @Produce json
+// @Param discordGuildID path string true "Discord guild ID"
+// @Param from query string false "Inclusive RFC3339 start"
+// @Param to query string false "Exclusive RFC3339 end"
+// @Security CookieAuth
+// @Success 200 {object} model.StaffStatistics
+// @Failure 400 {object} map[string]interface{}
+// @Failure 403 {object} map[string]interface{}
+// @Router /guilds/{discordGuildID}/statistics [get]
+func getStatistics(c *gin.Context, statistics *quack.StaffStatisticsService) {
+	result, err := statistics.Get(c.Request.Context(), middleware.GetGuildContext(c), quack.StatisticsInput{From: c.Query("from"), To: c.Query("to")})
+	if err != nil {
+		writeStatisticsError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+func writeStatisticsError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, quack.ErrStatisticsValidation):
+		apierror.Write(c, http.StatusBadRequest, apierror.CodeValidation, err.Error())
+	case errors.Is(err, quack.ErrStatisticsPermissionDenied):
+		apierror.Write(c, http.StatusForbidden, apierror.CodeAuthorization, "statistics access denied")
+	default:
+		apierror.Write(c, http.StatusInternalServerError, apierror.CodeInternal, "statistics operation failed")
 	}
 }

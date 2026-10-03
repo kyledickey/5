@@ -26,9 +26,7 @@ func (s *Store) CreateCase(ctx context.Context, params model.CreateCaseParams) (
 
 	now := time.Now().UTC()
 	caseModel := params.Case
-	if err := prepareULIDModel(&caseModel.ULIDModel, now); err != nil {
-		return nil, fmt.Errorf("prepare case model: %w", err)
-	}
+	prepareULIDModel(&caseModel.ULIDModel, now)
 	if caseModel.Validity == "" {
 		caseModel.Validity = model.CaseValidityValid
 	}
@@ -79,9 +77,7 @@ func (s *Store) CreateCase(ctx context.Context, params model.CreateCaseParams) (
 		if event.MetadataJSON == "" {
 			event.MetadataJSON = "{}"
 		}
-		if err := prepareULIDModel(&event.ULIDModel, now); err != nil {
-			return fmt.Errorf("prepare case event model: %w", err)
-		}
+		prepareULIDModel(&event.ULIDModel, now)
 		if err := tx.Select("*").Create(&event).Error; err != nil {
 			return fmt.Errorf("create case event: %w", err)
 		}
@@ -100,9 +96,7 @@ func (s *Store) CreateCase(ctx context.Context, params model.CreateCaseParams) (
 			if actionExecutions[i].CorrelationID == "" {
 				actionExecutions[i].CorrelationID = caseModel.CorrelationID
 			}
-			if err := prepareULIDModel(&actionExecutions[i].ULIDModel, now); err != nil {
-				return fmt.Errorf("prepare case action execution model: %w", err)
-			}
+			prepareULIDModel(&actionExecutions[i].ULIDModel, now)
 		}
 		if len(actionExecutions) > 0 {
 			if err := tx.Select("*").Create(&actionExecutions).Error; err != nil {
@@ -116,9 +110,7 @@ func (s *Store) CreateCase(ctx context.Context, params model.CreateCaseParams) (
 			if evidence[i].EmbedsJSON == "" {
 				evidence[i].EmbedsJSON = "[]"
 			}
-			if err := prepareULIDModel(&evidence[i].ULIDModel, now); err != nil {
-				return err
-			}
+			prepareULIDModel(&evidence[i].ULIDModel, now)
 			if err := tx.Select("*").Create(&evidence[i]).Error; err != nil {
 				return fmt.Errorf("create case evidence: %w", err)
 			}
@@ -127,9 +119,7 @@ func (s *Store) CreateCase(ctx context.Context, params model.CreateCaseParams) (
 			if attachments[i].EvidenceID == "" {
 				return errors.New("evidence attachment has no snapshot")
 			}
-			if err := prepareULIDModel(&attachments[i].ULIDModel, now); err != nil {
-				return err
-			}
+			prepareULIDModel(&attachments[i].ULIDModel, now)
 			if err := tx.Select("*").Create(&attachments[i]).Error; err != nil {
 				return fmt.Errorf("create case evidence attachment: %w", err)
 			}
@@ -140,9 +130,7 @@ func (s *Store) CreateCase(ctx context.Context, params model.CreateCaseParams) (
 			if copyValue.Status == "" {
 				copyValue.Status = model.NotificationPending
 			}
-			if err := prepareULIDModel(&copyValue.ULIDModel, now); err != nil {
-				return err
-			}
+			prepareULIDModel(&copyValue.ULIDModel, now)
 			if err := tx.Select("*").Create(&copyValue).Error; err != nil {
 				return fmt.Errorf("create case notification: %w", err)
 			}
@@ -320,9 +308,7 @@ func appendCaseEvent(tx *gorm.DB, event *model.CaseEvent, now time.Time) error {
 	if event.MetadataJSON == "" {
 		event.MetadataJSON = "{}"
 	}
-	if err := prepareULIDModel(&event.ULIDModel, now); err != nil {
-		return fmt.Errorf("prepare case event model: %w", err)
-	}
+	prepareULIDModel(&event.ULIDModel, now)
 	if err := tx.Select("*").Create(event).Error; err != nil {
 		return fmt.Errorf("create case event: %w", err)
 	}

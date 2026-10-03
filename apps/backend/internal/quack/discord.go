@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/quackdiscord/bot/internal/quack/actionmods"
 )
 
 // Discord permission bits this package evaluates. They mirror Discord's
@@ -38,7 +40,6 @@ type DiscordUserGuild struct {
 	Permissions uint64 `json:"permissions,string"`
 }
 
-// DiscordBotGuild is a guild the bot is currently a member of.
 type DiscordBotGuild struct {
 	ID      string
 	Name    string
@@ -80,3 +81,28 @@ func discordGuildIconURL(guildID, iconHash string) string {
 
 	return fmt.Sprintf("https://cdn.discordapp.com/icons/%s/%s.%s", guildID, iconHash, ext)
 }
+
+// DiscordActionClient is the minimum Discord write capability ActionService
+// requires. Richer adapters additionally implement the optional interfaces
+// below, which the service discovers by type assertion.
+type DiscordActionClient = actionmods.DiscordClient
+
+// DiscordEnforcementClient is the optional adapter capability for real moderation and reversal operations.
+type DiscordEnforcementClient = actionmods.EnforcementClient
+
+// DiscordPreparedDMClient opens the member DM channel before an irreversible
+// enforcement action so the member is still reachable once it lands.
+type DiscordPreparedDMClient interface {
+	PrepareDM(context.Context, string) (string, error)
+}
+
+// DiscordCaseNotificationClient owns case-notification presentation and delivery,
+// returning the rendered attempt even on error for durable core bookkeeping.
+type DiscordCaseNotificationClient interface {
+	SendCaseNotification(context.Context, CaseNotificationRequest) (CaseNotificationReceipt, error)
+}
+
+// DiscordActionError is the classified Discord failure adapters return from
+// enforcement calls. It is re-exported so callers of this package can inspect
+// the classification without importing actionmods.
+type DiscordActionError = actionmods.DiscordError

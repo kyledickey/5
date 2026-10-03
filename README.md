@@ -14,7 +14,7 @@ protected request re-checks live guild membership and permissions.
 ```
 apps/backend/            Go module (github.com/quackdiscord/bot)
   cmd/quack              the single production binary
-  cmd/quack-migrate      operator schema adoption, legacy replay, rollback
+  cmd/quack-migrate      create or reconcile the database schema
   cmd/quack-v4-import    import historical v4 cases without affecting escalation
   cmd/quack-storage-verify  backup/restore manifest checks
   internal/quack         application core: use cases, ports, transport-neutral responses

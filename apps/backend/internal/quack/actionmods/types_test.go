@@ -18,11 +18,11 @@ func TestUnknownFailuresRequireReviewAndRedactDetails(t *testing.T) {
 
 func TestConfigIntRejectsFractionalAndOverflowValues(t *testing.T) {
 	for _, value := range []float64{1.5, math.Inf(1), math.NaN(), math.MaxFloat64} {
-		if got := ConfigInt(map[string]any{"duration": value}, "duration"); got != 0 {
+		if got := configInt(map[string]any{"duration": value}, "duration"); got != 0 {
 			t.Fatalf("accepted %v as %d", value, got)
 		}
 	}
-	if got := ConfigInt(map[string]any{"duration": float64(60)}, "duration"); got != 60 {
+	if got := configInt(map[string]any{"duration": float64(60)}, "duration"); got != 60 {
 		t.Fatalf("valid duration: %d", got)
 	}
 }

@@ -12,7 +12,6 @@ import (
 	"github.com/quackdiscord/bot/internal/modules"
 )
 
-// Service owns ticket authorization, lifecycle, privacy, and audit behavior.
 type Service struct {
 	registry *modules.Registry
 	store    *Store
@@ -21,14 +20,12 @@ type Service struct {
 	journal  messageJournalGate
 }
 
-// NewService constructs the ticket boundary from explicit module dependencies.
 func NewService(registry *modules.Registry, store *Store, auditor modules.Auditor) *Service {
 	service := &Service{registry: registry, store: store, auditor: auditor, now: func() time.Time { return time.Now().UTC() }}
 	service.hydrateJournalThreads()
 	return service
 }
 
-// Settings returns one guild's ticket settings to current managers.
 func (s *Service) Settings(ctx context.Context, actor Actor) (Settings, bool, error) {
 	if !actor.CanManage {
 		s.audit(ctx, actor, "ticket.settings.read", "", "denied", ErrPermissionDenied)
@@ -37,7 +34,6 @@ func (s *Service) Settings(ctx context.Context, actor Actor) (Settings, bool, er
 	return s.loadSettings(ctx, actor.GuildID)
 }
 
-// Status returns non-content ticket health to current staff.
 func (s *Service) Status(ctx context.Context, actor Actor) (ModuleStatus, error) {
 	if !actor.CanManage && !actor.CanModerate {
 		return ModuleStatus{}, ErrPermissionDenied
@@ -53,7 +49,6 @@ func (s *Service) Status(ctx context.Context, actor Actor) (ModuleStatus, error)
 	return ModuleStatus{Enabled: enabled, EntryConfigured: strings.TrimSpace(settings.EntryChannelDiscordID) != "", OpenTickets: open}, nil
 }
 
-// UpdateSettings validates and replaces one guild's ticket configuration.
 func (s *Service) UpdateSettings(ctx context.Context, actor Actor, enabled bool, settings Settings) (Settings, error) {
 	if !actor.CanManage {
 		s.audit(ctx, actor, "ticket.settings.update", "", "denied", ErrPermissionDenied)
@@ -73,7 +68,6 @@ func (s *Service) UpdateSettings(ctx context.Context, actor Actor, enabled bool,
 	return settings, nil
 }
 
-// Open creates one ticket when the member has no active ticket.
 func (s *Service) Open(ctx context.Context, actor Actor, threadDiscordChannelID string) (*Ticket, error) {
 	_, enabled, err := s.loadSettings(ctx, actor.GuildID)
 	if err != nil {
@@ -125,7 +119,6 @@ func (s *Service) Resolve(ctx context.Context, actor Actor, ticketID, transcript
 	return ticket, nil
 }
 
-// Reply records a private reply timeline event after owner-or-staff authorization.
 func (s *Service) Reply(ctx context.Context, actor Actor, ticketID, body string) error {
 	ticket, err := s.store.get(ctx, actor.GuildID, ticketID)
 	if err != nil {
@@ -156,7 +149,6 @@ func validateReply(body string) error {
 	return nil
 }
 
-// Queue lists guild tickets for current staff.
 func (s *Service) Queue(ctx context.Context, actor Actor, status Status, limit int) ([]Ticket, error) {
 	if !actor.CanModerate {
 		return nil, ErrPermissionDenied
@@ -178,7 +170,6 @@ func (s *Service) authorizedTicket(ctx context.Context, actor Actor, ticketID st
 	return ticket, nil
 }
 
-// Detail returns a private ticket and timeline to its owner or current staff.
 func (s *Service) Detail(ctx context.Context, actor Actor, ticketID string) (*Ticket, []Event, error) {
 	ticket, err := s.authorizedTicket(ctx, actor, ticketID)
 	if err != nil {
@@ -188,7 +179,6 @@ func (s *Service) Detail(ctx context.Context, actor Actor, ticketID string) (*Ti
 	return ticket, events, err
 }
 
-// Transcript returns retained private content to its owner or current staff.
 func (s *Service) Transcript(ctx context.Context, actor Actor, ticketID string) (*Transcript, error) {
 	ticket, err := s.store.get(ctx, actor.GuildID, ticketID)
 	if err != nil {
@@ -228,12 +218,12 @@ func (s *Service) RepairDeletedEntryChannel(ctx context.Context, guildID, channe
 	return nil
 }
 
-// PurgeExpiredTranscripts enforces the configured upper retention boundary without deleting ticket timelines.
+// PurgeExpiredTranscripts enforces the retention boundary without deleting
+// ticket timelines.
 func (s *Service) PurgeExpiredTranscripts(ctx context.Context) (int64, error) {
 	return s.store.purgeExpiredTranscripts(ctx, s.now())
 }
 
-// RecordPermissionsRepaired appends evidence after the Discord adapter restores the private ACL.
 func (s *Service) RecordPermissionsRepaired(ctx context.Context, guildID, ticketID string) error {
 	ticket, err := s.store.get(ctx, guildID, ticketID)
 	if err != nil {
@@ -274,7 +264,6 @@ func validateSettings(settings Settings, enabled bool) error {
 	if settings.TranscriptRetentionDays < 1 || settings.TranscriptRetentionDays > 365 {
 		return errors.New("transcript retention must be 1 to 365 days")
 	}
-
 	return nil
 }
 
@@ -306,4 +295,49 @@ func (s *Service) RecordEntryPanel(ctx context.Context, actor Actor, channelID, 
 		return errors.New("entry panel receipt is incomplete")
 	}
 	return s.store.saveEntryPanel(ctx, actor.GuildID, channelID, messageID)
+}
+
+// ActiveForMember returns only the caller's reserved ticket, including one
+// awaiting close cleanup. A provisional opening without a record returns nil.
+func (s *Service) ActiveForMember(ctx context.Context, actor Actor) (*Ticket, error) {
+	if strings.TrimSpace(actor.GuildID) == "" || strings.TrimSpace(actor.DiscordUserID) == "" {
+		return nil, ErrPermissionDenied
+	}
+	return s.store.activeForMember(ctx, actor.GuildID, actor.DiscordUserID)
+}
+
+// ClosurePending reports whether a resolved ticket still holds its owner's slot.
+// Only a successful transcript publication and Discord cleanup release it.
+func (s *Service) ClosurePending(ctx context.Context, actor Actor, ticketID string) (bool, error) {
+	ticket, err := s.authorizedTicket(ctx, actor, ticketID)
+	if err != nil {
+		return false, err
+	}
+	if ticket.Status != StatusResolved {
+		return false, nil
+	}
+	active, err := s.store.activeForMember(ctx, ticket.GuildID, ticket.OwnerDiscordUserID)
+	return active != nil && active.ID == ticket.ID, err
+}
+
+// ThreadRepairPageSize bounds each gateway permission repair database read.
+const ThreadRepairPageSize = 100
+
+type ThreadRepairTarget struct {
+	ID                     string
+	ThreadDiscordChannelID string
+	OwnerDiscordUserID     string
+}
+
+// DeletedChannelTicketID is a trusted gateway read that includes resolved tickets
+// so the adapter can repair their references too; unknown channels give ErrNotFound.
+func (s *Service) DeletedChannelTicketID(ctx context.Context, guildID, channelID string) (string, error) {
+	return s.store.deletedChannelTicketID(ctx, guildID, channelID)
+}
+
+// OpenThreadRepairPage returns at most ThreadRepairPageSize open tickets after the
+// exclusive ID cursor. This trusted gateway read deliberately still works when new
+// tickets are disabled.
+func (s *Service) OpenThreadRepairPage(ctx context.Context, guildID, afterID string) ([]ThreadRepairTarget, error) {
+	return s.store.openThreadRepairPage(ctx, guildID, afterID)
 }

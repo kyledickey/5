@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/quackdiscord/bot/internal/quack/model"
-	storage "github.com/quackdiscord/bot/internal/store"
 )
 
 func TestActionLeaseFencingAndCrashRecovery(t *testing.T) {

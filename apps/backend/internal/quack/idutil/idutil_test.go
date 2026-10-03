@@ -12,10 +12,7 @@ func TestNewULIDProducesUniqueSortableIdentifiers(t *testing.T) {
 	previous := ""
 	seen := map[string]bool{}
 	for range 200 {
-		id, err := NewULID()
-		if err != nil {
-			t.Fatalf("NewULID: %v", err)
-		}
+		id := NewULID()
 		if len(id) != 26 || seen[id] || id < previous {
 			t.Fatalf("unexpected ULID %q after %q", id, previous)
 		}

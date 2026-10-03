@@ -56,7 +56,6 @@ type MessageJournal struct {
 // TableName isolates original ticket text from optional general-logging storage.
 func (MessageJournal) TableName() string { return "ticket_message_journal" }
 
-// pendingJournalMessage holds one bounded retry after a transient SQL failure.
 type pendingJournalMessage struct {
 	guildID, threadID string
 	message           TranscriptMessage
@@ -120,7 +119,8 @@ func (s *Service) rememberJournalThread(ticket *Ticket) {
 	s.journal.known[ticket.ThreadDiscordChannelID] = ticket.GuildID
 }
 
-// journalReference attaches one operation to bounded-lifetime thread state.
+// journalReference attaches one operation to bounded-lifetime thread state so an
+// idle thread's admission entry is dropped when the last holder leaves.
 func (s *Service) journalReference(threadID string) (*journalThreadState, func()) {
 	s.journal.mu.Lock()
 	if s.journal.threads == nil {
@@ -143,7 +143,6 @@ func (s *Service) journalReference(threadID string) (*journalThreadState, func()
 	}
 }
 
-// journalThreadKey scopes retry state to an internal guild and native thread.
 func journalThreadKey(guildID, threadID string) string { return guildID + ":" + threadID }
 
 // RecordMessage journals native ticket creates independently of logging settings.
@@ -167,10 +166,6 @@ func (s *Service) RecordMessage(ctx context.Context, guildID, threadID string, m
 		return ErrJournalCutoff
 	}
 	key := journalThreadKey(guildID, threadID) + ":" + message.MessageID
-	unresolvedKey := journalThreadKey("", threadID) + ":" + message.MessageID
-	if prior, ok := s.journal.pending[unresolvedKey]; ok {
-		message = prior.message
-	}
 	if err := s.bufferJournal(guildID, threadID, message); err != nil {
 		s.journal.mu.Unlock()
 		return err
@@ -187,13 +182,13 @@ func (s *Service) RecordMessage(ctx context.Context, guildID, threadID string, m
 	pending, exists := s.journal.pending[key]
 	s.journal.mu.Unlock()
 	if !exists {
+		// A closing snapshot already persisted this write.
 		return nil
-	} // A closing snapshot already persisted this write.
+	}
 	err = s.store.recordMessage(ctx, guildID, threadID, pending.message)
 	if err == nil {
 		s.journal.mu.Lock()
 		delete(s.journal.pending, key)
-		delete(s.journal.pending, unresolvedKey)
 		s.journal.mu.Unlock()
 	}
 	return err
@@ -246,10 +241,10 @@ func (s *Store) recordMessage(ctx context.Context, guildID, threadID string, mes
 // durable original text. A failed read/write prevents Resolve and Discord deletion.
 func (s *Service) flushJournal(ctx context.Context, ticket *Ticket) ([]MessageJournal, error) {
 	s.journal.mu.Lock()
-	blocked := s.journal.allBlocked || s.journal.blocked[journalThreadKey(ticket.GuildID, ticket.ThreadDiscordChannelID)] || s.journal.blocked[journalThreadKey("", ticket.ThreadDiscordChannelID)]
+	blocked := s.journal.allBlocked || s.journal.blocked[journalThreadKey(ticket.GuildID, ticket.ThreadDiscordChannelID)]
 	pending := map[string]pendingJournalMessage{}
 	for key, message := range s.journal.pending {
-		if (message.guildID == "" || message.guildID == ticket.GuildID) && message.threadID == ticket.ThreadDiscordChannelID {
+		if message.guildID == ticket.GuildID && message.threadID == ticket.ThreadDiscordChannelID {
 			pending[key] = message
 		}
 	}
@@ -380,7 +375,8 @@ func FormatTranscript(messages []TranscriptMessage) string {
 	return transcript.String()
 }
 
-// purgeJournal removes only text whose closed-ticket retention has elapsed.
+// purgeJournal removes only text whose closed-ticket retention has elapsed. Open
+// tickets have a NULL expires_at and are never matched.
 func purgeJournal(tx *gorm.DB, now time.Time) error {
 	return tx.Where("expires_at <= ?", now).Delete(&MessageJournal{}).Error
 }

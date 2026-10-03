@@ -1,7 +1,9 @@
 package ui_test
 
 import (
+	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -41,71 +43,6 @@ func TestDeferredResponses(t *testing.T) {
 	}
 	if ephemeral.Data == nil || ephemeral.Data.Flags&discordgo.MessageFlagsEphemeral == 0 {
 		t.Fatalf("expected ephemeral defer flag")
-	}
-}
-
-// TestEmbedTruncatesByRuneLimit proves every embed field is cut at its Discord rune limit.
-func TestEmbedTruncatesByRuneLimit(t *testing.T) {
-	embed := ui.NewEmbed().
-		SetTitle(strings.Repeat("t", ui.EmbedTitleLimit+10)).
-		SetDescription(strings.Repeat("d", ui.EmbedDescriptionLimit+10)).
-		Build()
-	fieldEmbed := ui.NewEmbed().
-		AddField(strings.Repeat("n", ui.EmbedFieldNameLimit+10), strings.Repeat("v", ui.EmbedFieldValueLimit+10), false).
-		SetFooter(strings.Repeat("f", ui.EmbedFooterLimit+10)).
-		Build()
-
-	if len([]rune(embed.Title)) != ui.EmbedTitleLimit {
-		t.Fatalf("title was not truncated")
-	}
-	if len([]rune(embed.Description)) != ui.EmbedDescriptionLimit {
-		t.Fatalf("description was not truncated")
-	}
-	if len([]rune(fieldEmbed.Fields[0].Name)) != ui.EmbedFieldNameLimit {
-		t.Fatalf("field name was not truncated")
-	}
-	if len([]rune(fieldEmbed.Fields[0].Value)) != ui.EmbedFieldValueLimit {
-		t.Fatalf("field value was not truncated")
-	}
-	if len([]rune(fieldEmbed.Footer.Text)) != ui.EmbedFooterLimit {
-		t.Fatalf("footer was not truncated")
-	}
-}
-
-// TestEmbedHelpersBuildPresetEmbedsAndMessages proves blank fields, named colours,
-// author and thumbnail setters, and that EmbedMessage keeps the ephemeral flag.
-func TestEmbedHelpersBuildPresetEmbedsAndMessages(t *testing.T) {
-	embed := ui.NewInfoEmbed("Title", "Description").
-		AddField("", "", true).
-		AddFields(ui.Field("Count", 3, true)).
-		SetAuthor("Quack", "https://example.com/icon.png").
-		SetThumbnail("https://example.com/thumb.png").
-		SetNamedColor("error").
-		Build()
-
-	if embed.Color != ui.ColorError {
-		t.Fatalf("expected named color to set error color, got %d", embed.Color)
-	}
-	if embed.Fields[0].Name != "\u200b" || embed.Fields[0].Value != "\u200b" {
-		t.Fatalf("expected blank fields to use zero-width placeholders, got %+v", embed.Fields[0])
-	}
-	if embed.Fields[1].Value != "3" {
-		t.Fatalf("expected field helper to stringify values, got %+v", embed.Fields[1])
-	}
-	if embed.Author == nil || embed.Author.Name != "Quack" {
-		t.Fatalf("expected author metadata, got %+v", embed.Author)
-	}
-	if embed.Thumbnail == nil || embed.Thumbnail.URL == "" {
-		t.Fatalf("expected thumbnail metadata, got %+v", embed.Thumbnail)
-	}
-
-	message := ui.EmbedMessage(embed, true)
-	data := message.ResponseData()
-	if len(data.Embeds) != 1 || data.Embeds[0] != embed {
-		t.Fatalf("expected embed response data, got %+v", data.Embeds)
-	}
-	if data.Flags&discordgo.MessageFlagsEphemeral == 0 {
-		t.Fatalf("expected embed message to preserve ephemeral flag")
 	}
 }
 
@@ -181,4 +118,104 @@ func FuzzCustomIDCodec(f *testing.F) {
 			t.Fatalf("custom ID round trip changed value: got %q want %q", roundTrip, strings.TrimSpace(encoded))
 		}
 	})
+}
+
+// deferredResponder records edits; unexpected followup/deletion calls panic via
+// the embedded nil interface, catching accidental replacement of the original.
+type deferredResponder struct {
+	ui.Responder
+	edit    ui.Edit
+	editErr error
+	edits   int
+}
+
+// EditOriginal models Discord retaining the original response's identity.
+func (r *deferredResponder) EditOriginal(edit ui.Edit) (*discordgo.Message, error) {
+	r.edit, r.edits = edit, r.edits+1
+	if r.editErr != nil {
+		return nil, r.editErr
+	}
+	return &discordgo.Message{ID: "original"}, nil
+}
+
+// TestPublishEditsTheDeferredOriginal preserves the reply decorator by never
+// creating a separate result, deleting the defer, or adding an interim message.
+func TestPublishEditsTheDeferredOriginal(t *testing.T) {
+	for _, failure := range []error{nil, errors.New("transport failed")} {
+		responder := &deferredResponder{editErr: failure}
+		result, err := ui.Publish(responder, ui.Content("Case added.", false))
+		if responder.edits != 1 || responder.edit.Content == nil || *responder.edit.Content != "Case added." {
+			t.Fatalf("unexpected edits: %+v", responder)
+		}
+		if failure != nil {
+			if !errors.Is(err, failure) || result != nil {
+				t.Fatalf("edit failure was lost: %v", err)
+			}
+		} else if err != nil || result == nil || result.ID != "original" {
+			t.Fatalf("response identity changed: %+v %v", result, err)
+		}
+	}
+}
+
+// publicTaskResponder records only expected operations; unexpected methods fail
+// through the nil embedded interface instead of quietly accepting extra notices.
+type publicTaskResponder struct {
+	ui.Responder
+	calls    []string
+	edit     ui.Edit
+	followup ui.Message
+}
+
+// EditOriginal records the single successful command response.
+func (r *publicTaskResponder) EditOriginal(edit ui.Edit) (*discordgo.Message, error) {
+	r.calls = append(r.calls, "edit")
+	r.edit = edit
+	return &discordgo.Message{ID: "original"}, nil
+}
+
+// DeleteOriginal records removal of the public pending acknowledgement.
+func (r *publicTaskResponder) DeleteOriginal() error { r.calls = append(r.calls, "delete"); return nil }
+
+// Followup records the private failure response.
+func (r *publicTaskResponder) Followup(message ui.Message) (*discordgo.Message, error) {
+	r.calls = append(r.calls, "followup")
+	r.followup = message
+	return &discordgo.Message{ID: "private"}, nil
+}
+
+// TestAsyncPublicKeepsOneAttributedSuccess verifies successful work updates its
+// original public response without deleting it or creating a second message.
+func TestAsyncPublicKeepsOneAttributedSuccess(t *testing.T) {
+	result := ui.AsyncPublic(func(_ context.Context, r ui.Responder) error {
+		_, err := r.EditOriginal(ui.EditMessage(ui.Content("Saved.", false)))
+		return err
+	})
+	if result.Response.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource ||
+		result.Response.Data != nil && result.Response.Data.Flags&discordgo.MessageFlagsEphemeral != 0 {
+		t.Fatal("success did not start publicly")
+	}
+	responder := &publicTaskResponder{}
+	if err := result.Task(context.Background(), responder); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(responder.calls, []string{"edit"}) || responder.edit.Content == nil || *responder.edit.Content != "Saved." {
+		t.Fatalf("success created extra responses: %+v", responder)
+	}
+}
+
+// TestAsyncPublicRemovesPlaceholderAndKeepsErrorPrivate verifies a handled error
+// never edits its details into the public response and produces one private reply.
+func TestAsyncPublicRemovesPlaceholderAndKeepsErrorPrivate(t *testing.T) {
+	result := ui.AsyncPublic(func(_ context.Context, r ui.Responder) error {
+		_, err := r.EditOriginal(ui.ErrorEdit("You need Manage Server permission."))
+		return err
+	})
+	responder := &publicTaskResponder{}
+	if err := result.Task(context.Background(), responder); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(responder.calls, []string{"delete", "followup"}) || !responder.followup.Ephemeral ||
+		!strings.Contains(responder.followup.Content, "Manage Server") {
+		t.Fatalf("error became public or duplicated: %+v", responder)
+	}
 }

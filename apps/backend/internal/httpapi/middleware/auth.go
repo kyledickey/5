@@ -13,7 +13,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/quackdiscord/bot/internal/config"
 	"github.com/quackdiscord/bot/internal/httpapi/apierror"
-	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
@@ -24,6 +23,15 @@ const (
 
 // sessionLookupTimeout bounds the session store round trips made per request.
 const sessionLookupTimeout = 5 * time.Second
+
+// SessionStore is the part of the session repository RequireAuth uses. It is
+// declared here so the HTTP layer depends on three methods rather than on the
+// whole composition-root repository.
+type SessionStore interface {
+	GetSession(ctx context.Context, sessionID string) (*model.AuthSession, error)
+	DeleteSession(ctx context.Context, sessionID string) error
+	RefreshSession(ctx context.Context, session *model.AuthSession, ttl time.Duration) (bool, error)
+}
 
 // RequireAuth resolves the caller's session from a Bearer token or the session
 // cookie and stores it on the Gin context under ContextSessionKey (with the
@@ -36,7 +44,7 @@ const sessionLookupTimeout = 5 * time.Second
 // 401 reauthentication_required (and deletes the stored session and expires
 // both cookies) when the session or its Discord token has expired, and 503
 // when the session store is unavailable.
-func RequireAuth(s quack.Repository, auth config.AuthConfig) gin.HandlerFunc {
+func RequireAuth(sessions SessionStore, auth config.AuthConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		sessionID := ExtractSessionID(c, auth.SessionCookieName)
 		if sessionID == "" {
@@ -48,7 +56,7 @@ func RequireAuth(s quack.Repository, auth config.AuthConfig) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), sessionLookupTimeout)
 		defer cancel()
 
-		session, err := s.GetSession(ctx, sessionID)
+		session, err := sessions.GetSession(ctx, sessionID)
 		if err != nil {
 			slog.Error("auth session dependency unavailable", traceAttrs(c)...)
 			apierror.Write(c, http.StatusServiceUnavailable, apierror.CodeDependency, "authentication service unavailable")
@@ -64,7 +72,7 @@ func RequireAuth(s quack.Repository, auth config.AuthConfig) gin.HandlerFunc {
 		now := time.Now().UTC()
 		if logMessage, message := sessionExpiry(session, now); message != "" {
 			slog.Warn(logMessage, traceAttrs(c, "actor_discord_user_id", session.DiscordUserID)...)
-			_ = s.DeleteSession(ctx, sessionID) // best-effort: the caller is told to sign in again regardless
+			_ = sessions.DeleteSession(ctx, sessionID) // best-effort: the caller is told to sign in again regardless
 			expireAuthCookies(c, auth)
 			apierror.Write(c, http.StatusUnauthorized, apierror.CodeReauthenticate, message)
 			return
@@ -81,7 +89,7 @@ func RequireAuth(s quack.Repository, auth config.AuthConfig) gin.HandlerFunc {
 		session.LastSeenAt = now
 		ttl := time.Duration(auth.SessionTTLHours) * time.Hour
 		session.SessionExpiresAt = now.Add(ttl)
-		refreshed, err := s.RefreshSession(ctx, session, ttl)
+		refreshed, err := sessions.RefreshSession(ctx, session, ttl)
 		if err != nil {
 			slog.Error("auth session refresh dependency unavailable", traceAttrs(c)...)
 			apierror.Write(c, http.StatusServiceUnavailable, apierror.CodeDependency, "authentication service unavailable")

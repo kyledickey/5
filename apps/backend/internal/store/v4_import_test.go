@@ -28,9 +28,6 @@ func TestV4ImportDryRunIdempotencyIsolationCollisionAndRollback(t *testing.T) {
 	if err := repositories.Migrate(); err != nil {
 		t.Fatalf("migrate baseline: %v", err)
 	}
-	if err := migration0400V4HistoricalImport(10).Up(db); err != nil {
-		t.Fatalf("apply 0400: %v", err)
-	}
 	seedImportGuild(t, db)
 	fixture, err := os.ReadFile("../v4import/testdata/historical_cases.jsonl")
 	if err != nil {
@@ -116,71 +113,11 @@ func TestV4ImportDryRunIdempotencyIsolationCollisionAndRollback(t *testing.T) {
 	}
 }
 
-func TestFinalConstraintsPreserveHistoryAndFlagExpiredActions(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	repositories := New(db, nil)
-	if err := repositories.Migrate(); err != nil {
-		t.Fatal(err)
-	}
-	now := time.Now().UTC()
-	seedImportGuild(t, db)
-	caseID := "01J40000000000000000000011"
-	item := model.Case{ULIDModel: model.ULIDModel{ID: caseID, CreatedAt: now, UpdatedAt: now}, GuildID: importGuildID, CaseNumber: 1, TemplateSnapshotJSON: "{}", TargetDiscordUserID: "member", ModeratorDiscordUserID: "mod", Reason: "preserve", Validity: model.CaseValidityValid, Source: model.CaseSourceDiscord, MetadataJSON: "{}", ContextValuesJSON: "[]"}
-	if err := db.Create(&item).Error; err != nil {
-		t.Fatal(err)
-	}
-	expired := now.Add(-time.Minute)
-	execution := model.CaseActionExecution{ULIDModel: model.ULIDModel{ID: "01J40000000000000000000012", CreatedAt: now, UpdatedAt: now}, CaseID: caseID, Position: 0, ActionType: model.ActionTimeoutUser, Status: model.ActionExecutionRunning, IdempotencyKey: "preserved-action", ConfigSnapshotJSON: "{}", LeaseExpiresAt: &expired}
-	if err := db.Create(&execution).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := applyFinalStorageConstraints(db); err != nil {
-		t.Fatalf("apply 0410: %v", err)
-	}
-	var preserved model.Case
-	if err := db.First(&preserved, "id = ?", caseID).Error; err != nil || preserved.Reason != "preserve" {
-		t.Fatalf("history was not preserved: %+v %v", preserved, err)
-	}
-	var review ActionManualReviewRecord
-	if err := db.First(&review, "execution_id = ?", execution.ID).Error; err != nil || review.Reason != "expired_running_action" {
-		t.Fatalf("expired action was not flagged: %+v %v", review, err)
-	}
-	if err := applyFinalStorageConstraints(db); err != nil {
-		t.Fatalf("rerun 0410: %v", err)
-	}
-	template := CaseTemplateRecord{ULIDModelRecord: ULIDModelRecord{ID: "01J40000000000000000000013", CreatedAt: now, UpdatedAt: now}, GuildID: importGuildID, Slug: "constraints", Name: "Constraints", Description: "final", ReasonTemplate: "reason", Appealable: true, Enabled: true, Version: 1, CreatedByDiscordUserID: "mod", UpdatedByDiscordUserID: "mod"}
-	if err := db.Create(&template).Error; err != nil {
-		t.Fatal(err)
-	}
-	firstLevel := CaseTemplateLevelRecord{ULIDModelRecord: ULIDModelRecord{ID: "01J40000000000000000000014", CreatedAt: now, UpdatedAt: now}, TemplateID: template.ID, Position: 1, Name: "Default", IsDefault: true, Enabled: true}
-	if err := db.Create(&firstLevel).Error; err != nil {
-		t.Fatal(err)
-	}
-	secondDefault := CaseTemplateLevelRecord{ULIDModelRecord: ULIDModelRecord{ID: "01J40000000000000000000015", CreatedAt: now, UpdatedAt: now}, TemplateID: template.ID, Position: 2, Name: "Also default", IsDefault: true, Enabled: true}
-	if err := db.Create(&secondDefault).Error; err == nil {
-		t.Fatal("expected one-default-level constraint")
-	}
-	firstAction := CaseTemplateLevelActionRecord{ULIDModelRecord: ULIDModelRecord{ID: "01J40000000000000000000016", CreatedAt: now, UpdatedAt: now}, LevelID: firstLevel.ID, Position: 1, ActionType: model.ActionTimeoutUser, ConfigJSON: "{}", Enabled: true}
-	if err := db.Create(&firstAction).Error; err != nil {
-		t.Fatal(err)
-	}
-	secondAction := CaseTemplateLevelActionRecord{ULIDModelRecord: ULIDModelRecord{ID: "01J40000000000000000000017", CreatedAt: now, UpdatedAt: now}, LevelID: firstLevel.ID, Position: 2, ActionType: model.ActionBanUser, ConfigJSON: "{}", Enabled: true}
-	if err := db.Create(&secondAction).Error; err == nil {
-		t.Fatal("expected one-enforcement-action constraint")
-	}
-}
-
-func TestMySQLV4ImportFinalConstraintsAndRestoreSafety(t *testing.T) {
-	db := openMySQLMigrationDB(t)
+func TestMySQLV4ImportRestoreSafety(t *testing.T) {
+	db := openMySQLTestDB(t)
 	repositories := New(db, nil)
 	if err := repositories.Migrate(); err != nil {
 		t.Fatalf("migrate MySQL baseline: %v", err)
-	}
-	if err := migration0400V4HistoricalImport(10).Up(db); err != nil {
-		t.Fatalf("apply MySQL logical 0400: %v", err)
 	}
 	seedImportGuild(t, db)
 	fixture, err := os.ReadFile("../v4import/testdata/historical_cases.jsonl")
@@ -194,10 +131,7 @@ func TestMySQLV4ImportFinalConstraintsAndRestoreSafety(t *testing.T) {
 	}
 	before, err := repositories.BuildRecoveryManifest(context.Background())
 	if err != nil {
-		t.Fatalf("capture pre-0410 preservation manifest: %v", err)
-	}
-	if err := migration0410FinalStorageConstraints(11).Up(db); err != nil {
-		t.Fatalf("apply MySQL logical 0410: %v", err)
+		t.Fatalf("capture preservation manifest: %v", err)
 	}
 	if err := repositories.VerifyRecoveryManifest(context.Background(), *before); err != nil {
 		t.Fatalf("verify representative restored state: %v", err)
@@ -228,8 +162,8 @@ func TestMySQLV4ImportFinalConstraintsAndRestoreSafety(t *testing.T) {
 	}
 	var caseCount, sourceCount, batchCount int64
 	_ = db.Model(&model.Case{}).Where("guild_id = ? AND source = ?", importGuildID, model.CaseSourceV4Import).Count(&caseCount).Error
-	_ = db.Model(&V4ImportSourceRecord{}).Where("guild_id = ?", importGuildID).Count(&sourceCount).Error
-	_ = db.Model(&V4ImportBatchRecord{}).Where("guild_id = ?", importGuildID).Count(&batchCount).Error
+	_ = db.Model(&V4ImportSource{}).Where("guild_id = ?", importGuildID).Count(&sourceCount).Error
+	_ = db.Model(&V4ImportBatch{}).Where("guild_id = ?", importGuildID).Count(&batchCount).Error
 	if caseCount != 4 || sourceCount != 4 || batchCount != 1 {
 		t.Fatalf("concurrent import duplicated state: cases=%d sources=%d batches=%d", caseCount, sourceCount, batchCount)
 	}

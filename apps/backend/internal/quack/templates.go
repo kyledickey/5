@@ -3,12 +3,26 @@ package quack
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"regexp"
+	"slices"
 	"strings"
 
+	"github.com/quackdiscord/bot/internal/quack/idutil"
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
+
+type TemplateRepository interface {
+	ArchiveCaseTemplate(context.Context, string, string, *model.AuditLogEntry) (*model.ExpandedCaseTemplate, error)
+	CreateAuditLogEntry(context.Context, *model.AuditLogEntry) error
+	CreateCaseTemplate(context.Context, model.CreateCaseTemplateParams) (*model.ExpandedCaseTemplate, error)
+	GetCaseTemplateBySlug(context.Context, string, string) (*model.CaseTemplate, error)
+	GetCaseTemplateExpanded(context.Context, string, string) (*model.ExpandedCaseTemplate, error)
+	ListCaseTemplates(context.Context, string) ([]model.ExpandedCaseTemplate, error)
+	RestoreCaseTemplate(context.Context, string, string, *model.AuditLogEntry) (*model.ExpandedCaseTemplate, error)
+	UpdateCaseTemplate(context.Context, model.UpdateCaseTemplateParams) (*model.ExpandedCaseTemplate, error)
+}
 
 const (
 	// MaxCaseDecayDays bounds the rolling window to 100 years and keeps duration arithmetic safe.
@@ -30,14 +44,7 @@ var (
 	ErrTemplateNotFound = errors.New("case template not found")
 	// ErrTemplatePermissionDenied reports that the caller lacks the template read or write capability.
 	ErrTemplatePermissionDenied = errors.New("template permission denied")
-	// ErrTemplateCompatibilityReviewRequired re-exports the store's error for
-	// preserved legacy policy that cannot be projected as a valid live template.
-	ErrTemplateCompatibilityReviewRequired = model.ErrTemplateCompatibilityReviewRequired
 )
-
-// TemplateCompatibilityReviewError re-exports the typed model error so adapters
-// can errors.As against it without importing model.
-type TemplateCompatibilityReviewError = model.TemplateCompatibilityReviewError
 
 var templateSlugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{1,63}$`)
 
@@ -46,7 +53,6 @@ type TemplateService struct {
 	store TemplateRepository
 }
 
-// NewTemplateService returns a service over store; construction has no side effects.
 func NewTemplateService(store TemplateRepository) *TemplateService {
 	return &TemplateService{store: store}
 }
@@ -334,7 +340,6 @@ func (s *TemplateService) Archive(ctx context.Context, guildContext *GuildStaffC
 	return &response, nil
 }
 
-// logTemplate emits the structured info line shared by every successful template write.
 func logTemplate(ctx context.Context, message string, expanded *model.ExpandedCaseTemplate) {
 	slog.InfoContext(
 		ctx, message,
@@ -371,7 +376,7 @@ func (s *TemplateService) auditEntry(
 	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
 		return nil
 	}
-	requestID, correlationID := TraceIDsFromContext(ctx)
+	requestID, correlationID := idutil.TraceIDsFromContext(ctx)
 
 	entry := &model.AuditLogEntry{
 		GuildID:             guildContext.Guild.ID,
@@ -402,4 +407,75 @@ func (s *TemplateService) requireWrite(ctx context.Context, guildContext *GuildS
 		return ErrTemplatePermissionDenied
 	}
 	return nil
+}
+
+// ErrUnattendedTemplateUnavailable identifies missing, archived, or incompatible
+// policy that cannot be used by a system-triggered moderation workflow.
+var ErrUnattendedTemplateUnavailable = errors.New("unattended template is unavailable")
+
+// ValidateUnattendedTemplate checks current guild-scoped policy for automation
+// that supplies no custom context and executes at most one supported action per
+// level. It performs no staff authorization: callers must establish their system
+// workflow authority before invoking this read-only compatibility check.
+func (s *TemplateService) ValidateUnattendedTemplate(ctx context.Context, guildID, templateID string) error {
+	template, err := s.store.GetCaseTemplateExpanded(ctx, strings.TrimSpace(guildID), strings.TrimSpace(templateID))
+	if err != nil {
+		return err
+	}
+	if template == nil || template.Template.ArchivedAt != nil {
+		return ErrUnattendedTemplateUnavailable
+	}
+	for _, field := range template.ContextFields {
+		if field.Required {
+			return fmt.Errorf("%w: required context field %s cannot be supplied unattended", ErrUnattendedTemplateUnavailable, field.Key)
+		}
+	}
+	defaults := 0
+	for _, level := range template.Levels {
+		if level.Level.IsDefault {
+			defaults++
+		}
+		if len(level.Actions) > 1 {
+			return fmt.Errorf("%w: template level has multiple actions", ErrUnattendedTemplateUnavailable)
+		}
+		for _, action := range level.Actions {
+			switch action.ActionType {
+			case model.ActionSendDM, model.ActionTimeoutUser, model.ActionKickUser, model.ActionBanUser:
+			default:
+				return fmt.Errorf("%w: unsupported unattended action %s", ErrUnattendedTemplateUnavailable, action.ActionType)
+			}
+		}
+	}
+	if defaults != 1 || len(template.Levels) == 0 {
+		return fmt.Errorf("%w: template must have exactly one default level", ErrUnattendedTemplateUnavailable)
+	}
+	return nil
+}
+
+// UnattendedTemplateActions returns the distinct outcomes a channel warning must
+// describe. It is a guild-scoped system read, intended for the already-authorized
+// honeypot worker; it neither selects a member's level nor writes an audit event.
+// An empty action represents a case recorded without a Discord punishment.
+func (s *TemplateService) UnattendedTemplateActions(ctx context.Context, guildID, templateID string) ([]model.ActionType, error) {
+	template, err := s.store.GetCaseTemplateExpanded(ctx, strings.TrimSpace(guildID), strings.TrimSpace(templateID))
+	if err != nil {
+		return nil, err
+	}
+	if template == nil || template.Template.ArchivedAt != nil {
+		return nil, ErrUnattendedTemplateUnavailable
+	}
+	var actions []model.ActionType
+	for _, level := range template.Levels {
+		action := model.ActionType("")
+		if len(level.Actions) > 0 {
+			action = level.Actions[0].ActionType
+		}
+		if !slices.Contains(actions, action) {
+			actions = append(actions, action)
+		}
+	}
+	if len(actions) == 0 {
+		return nil, ErrUnattendedTemplateUnavailable
+	}
+	return actions, nil
 }

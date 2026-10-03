@@ -145,9 +145,7 @@ func createAuditLogEntry(db *gorm.DB, entry *model.AuditLogEntry, now time.Time)
 	}
 	entry.MetadataJSON = model.RedactAuditMetadata(entry.MetadataJSON)
 	entry.FailureReason = redactAuditFailureReason(entry.FailureReason)
-	if err := prepareULIDModel(&entry.ULIDModel, now); err != nil {
-		return fmt.Errorf("prepare audit log entry model: %w", err)
-	}
+	prepareULIDModel(&entry.ULIDModel, now)
 	if err := db.Create(entry).Error; err != nil {
 		return fmt.Errorf("create audit log entry: %w", err)
 	}

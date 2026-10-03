@@ -13,7 +13,7 @@ func TestApplicationLinksNeverInferCORSOrigin(t *testing.T) {
 		cfg := config.Default()
 		cfg.API.CORSAllowedOrigins = []string{"https://cors-only.example"}
 		cfg.ApplicationBaseURL = base
-		services := NewWithConfigDependencies(cfg, nil, nil, nil, nil)
+		services := New(cfg, nil, nil, nil, nil)
 		if services.Actions.dashboardBaseURL != base {
 			t.Fatalf("application destination %q became %q", base, services.Actions.dashboardBaseURL)
 		}

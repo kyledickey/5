@@ -18,17 +18,17 @@ mysqldump --single-transaction --routines --triggers --hex-blob \
 ```
 
 Create a clean isolated database, restore the dump with normal MySQL operator
-tools, run the pending forward migrations, then verify through stdin:
+tools, reconcile the schema, then verify through stdin:
 
 ```sh
 mysql < quack-v5.sql
-DATABASE_DSN='restored isolated DSN' go run ./apps/backend/cmd/quack-migrate up
+DATABASE_DSN='restored isolated DSN' go run ./apps/backend/cmd/quack-migrate
 DATABASE_DSN='restored isolated DSN' go run ./apps/backend/cmd/quack-storage-verify mysql-verify \
   < quack-recovery-manifest.json
 ```
 
-The manifest compares counts and deterministic digests for the migration
-ledger, guild settings/staff, complete template definitions, cases and their
+The manifest compares counts and deterministic digests for
+guild settings/staff, complete template definitions, cases and their
 event timelines, action executions/attempts, evidence/attachments,
 notifications, appeals and their event/outbox state, optional modules, audit,
 and v4 import ledgers. Verification also rejects duplicate guild case numbers,
@@ -37,13 +37,10 @@ one v4 source import and one already-completed action lookup; neither may create
 new execution work. Destroy the isolated source, dump, manifest, and restored
 target according to the operator's secure-data policy.
 
-Logical 0400 adds only import ledgers. Logical 0410 is forward-only and adds
-constraints/indexes without rewriting IDs, case numbers, template snapshots,
-actions, appeals, evidence, module rows, or audit history. It stops for duplicate
-defaults/actions that require adjudication. Expired running actions are copied
-to `action_manual_reviews`; their original execution and attempt history is not
-modified. A failed migration must be handled with the reviewed migration
-recovery procedure in `docs/migrations.md`, never ad-hoc schema editing.
+Schema creation is additive: it adds tables, columns, and indexes and never
+rewrites IDs, case numbers, template snapshots, actions, appeals, evidence,
+module rows, or audit history. A failed schema run must be handled with the
+procedure in `docs/migrations.md`, never ad-hoc schema editing.
 
 ## Redis
 

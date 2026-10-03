@@ -1,14 +1,11 @@
 package routes
 
 import (
-	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 
-	"github.com/quackdiscord/bot/internal/httpapi/apierror"
-
 	"github.com/gin-gonic/gin"
+	"github.com/quackdiscord/bot/internal/httpapi/apierror"
 	"github.com/quackdiscord/bot/internal/httpapi/middleware"
 	"github.com/quackdiscord/bot/internal/quack"
 )
@@ -48,7 +45,7 @@ func getGuildSettings(c *gin.Context, services *quack.Services) {
 // @Router /guilds/{discordGuildID}/settings [patch]
 func updateGuildSettings(c *gin.Context, services *quack.Services) {
 	var input quack.GuildSettingsInput
-	if err := bindGuildSettingsInput(c, &input); err != nil {
+	if err := decodeStrictJSON(c, &input); err != nil {
 		writeGuildSettingsError(c, services.Settings.RejectUpdatePayload(c.Request.Context(), middleware.GetGuildContext(c), err))
 		return
 	}
@@ -80,23 +77,6 @@ func acknowledgeStarterPolicyNotice(c *gin.Context, services *quack.Services) {
 	c.JSON(http.StatusOK, gin.H{"settings": settings})
 }
 
-// bindGuildSettingsInput rejects unknown fields and multiple JSON documents.
-func bindGuildSettingsInput(c *gin.Context, input *quack.GuildSettingsInput) error {
-	decoder := json.NewDecoder(c.Request.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(input); err != nil {
-		return err
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return errors.New("multiple JSON values are not allowed")
-		}
-		return err
-	}
-	return nil
-}
-
-// writeGuildSettingsError maps service failures into stable dashboard HTTP responses.
 func writeGuildSettingsError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, quack.ErrGuildSettingsValidation):

@@ -1,144 +1,54 @@
-# Database Migrations
+# Database Schema
 
-Production startup applies an ordered migration registry from `apps/backend/internal/store`.
-Each successful migration is recorded in `quack_schema_migrations` with its
-version, name, checksum, and application time. Startup verifies every existing
-ledger checksum before it runs new work. The checksum includes an embedded copy
-of the migration's Go source, including its frozen schema records and `Up`/`Down`
-logic, so executable edits cannot retain the old identity. There is no
-production or development `AutoMigrate` path.
+Quack v5 has one schema definition and no migration ledger. The Go structs are
+the schema: `internal/quack/model` carries the GORM column, size, and index tags
+for the moderation core, and each optional module exports its own tables through
+a `SchemaTypes()` function (`modules.SchemaTypes`, `tickets.SchemaTypes`,
+`honeypot.SchemaTypes`).
 
-Migration definitions are additive by default and must preserve table names,
-identifiers, guild case numbers, snapshots, action attempts, events, and audit
-rows. The first migration adopts the current pre-ledger v5 schema or creates it
-on a clean database. It never drops or renames an application table or column.
+`Store.InitializeSchema` (called by `Store.Migrate` on every startup) takes the
+MySQL advisory lock, runs `AutoMigrate` over that combined type list, and then
+applies the invariants that portable struct tags cannot express:
 
-Migration 0002 separates the simplified live template model from frozen
-compatibility storage. It preserves every template, level, action, case
-snapshot, and audit row. Templates that used disabled flags, escalation
-windows, legacy soft deletion, multiple actions, duplicate/default threshold
-defects, action-level notifications, public execution controls, unsupported
-actions, or settings that cannot be mapped safely are quarantined for
-administrator review and archived when they were active. The migration records
-only prior archive/deletion state and reasons in
-`quack_v5_0002_template_compatibility`. Detail reads of quarantined templates
-return an explicit compatibility-review-required conflict instead of projecting
-invalid legacy levels or actions through the live v5 contract. Valid archived
-templates remain readable. The reviewed inverse restores recorded timestamps
-and removes only the migration-owned bookkeeping table.
+- at most one default level per case template
+- at most one enforcement action per template level
+- the composite read indexes for member case history, case evidence lookup,
+  audit cursor paging, and action claim recovery
 
-Migration 0003 replaces mixed case lifecycle status and generic source labels
-at the live boundary. It validates all rows before changing data, maps the
-reviewed legacy values to `valid`/`voided` and
-`dashboard`/`discord`/`honeypot`/`v4_import`, and fails explicitly on unknown
-values. It preserves severity, weight, snapshots, actions, attempts, audit
-history, and every case event in frozen storage. Retired note and generic
-`status_changed` events are inventoried by case in
-`quack_v5_0003_case_compatibility` and excluded from live event queries. Its
-reviewed inverse restores exact prior status/source values and drops only that
-migration-owned table. Cases created after migration 0003 are explicitly mapped
-from canonical validity/source values back to the compatible legacy
-`open`/`voided` and source labels before the ledger entry is removed.
+It is additive and idempotent. Rerunning it on an already-initialized database
+is expected, and an interrupted run can simply be retried, because MySQL may
+commit DDL even when a later statement in the same run fails.
 
-Migration 0004 creates one `guild_settings` row per guild. It stores core audit
-mirror and managed-evidence channel references, bounded notification
-introduction/footer text, independent ticket/logging/honeypot enablement, the
-starter-template identity, and one-time starter-review notice state. Existing
-guilds receive conservative defaults without changing any guild, staff,
-template, case, event, action, attempt, appeal, ticket, audit, identifier, or
-history row. Its reviewed inverse drops only `guild_settings`; rerunning forward
-re-seeds one row per guild. SQLite and isolated real-MySQL coverage exercise
-forward, rerun, preservation, rollback, and reapplication.
+## Applying the schema
 
-Migration 0005 adds the core moderation runtime without rewriting existing
-history. It creates ordered template-context definitions, immutable message and
-attachment evidence, and exactly-one case notifications. Additive case columns
-hold context, void/replacement links, and nullable idempotency keys. Action
-columns add leases, fencing, dismissal, and original-execution/accepted-appeal
-reversal links. Existing templates require no new context, existing cases are
-backfilled with an empty context array, and existing actions remain claimable.
-Its reviewed inverse drops only migration-owned tables and additive columns.
+Startup does this automatically. To prepare a database first:
 
-Migration 0006 places logical optional-module migration 0100 in the contiguous
-production ledger. It creates only guild-scoped opaque module configuration and
-the idempotent v4 import identity ledger. Migration 0007 similarly reconciles
-logical ticket migration 0110: it preserves the baseline ticket and event rows
-while adding separately retained transcripts and member abuse-control state.
-Both definitions use frozen storage primitives and checksum-bound source.
-Because rolling either migration back could discard operator configuration,
-import identities, ticket transcripts, or ticket lifecycle state, 0006 and 0007
-are explicitly forward-only. Core migration 0005 retains its reviewed inverse
-when it is the newest applied migration before the forward-only module suffix.
+```sh
+DATABASE_DSN='...' go run ./apps/backend/cmd/quack-migrate
+```
 
-Migration 0008 places logical honeypot migration 0300 in the contiguous ledger.
-It creates isolated trigger/deduplication history without granting that module
-direct case/action storage access. Migration 0009 places logical appeal
-migration 0200 after the already-reviewed module prefix. It upgrades preserved
-appeal rows into one case-linked, versioned timeline with guild settings and a
-durable notification outbox. Both are checksum-bound, additive, resumable, and
-forward-only because their module/appeal histories must not be deleted by a
-binary rollback.
+The command opens MySQL, creates or reconciles the schema, and exits.
 
-Migration 0010 places logical v4 import migration 0400 in the ledger. It adds
-only privacy-safe batch and source identity ledgers; imported cases use normal
-historical projections and never create action or notification work. Migration
-0011 places logical final-storage migration 0410 last. It converts residual
-legacy template deletion state to archive state, installs one-default and
-one-action uniqueness plus final query/claim indexes, and inventories unsafe
-expired running actions for manual review without changing their history. Both
-are forward-only. Recovery, backup, restore, and coexistence are documented in
-`storage-recovery.md` and `v4-historical-import.md`.
+## Changing the schema
 
-## Forward procedure
+Edit the struct. Add a column by adding a field; add an index by adding a tag.
+`AutoMigrate` adds new tables, columns, and indexes on the next startup.
 
-1. Back up MySQL and verify the backup before deploying schema-changing code.
-2. Review the ordered migration definition, embedded source, `Up` operation,
-   and, when safe, its idempotent `Down` operation in the pull request.
-3. Stop additional Quack processes or leave them waiting on the MySQL migration
-   lock. Run `go run ./apps/backend/cmd/quack-migrate up` with the production
-   `DATABASE_DSN`, or start one new Quack process and let startup run the same
-   method.
-4. Verify the command succeeds and inspect `quack_schema_migrations`. Do not
-   manually insert, delete, rename, or edit ledger rows.
-5. Start the remaining processes and verify readiness before normal traffic.
+`AutoMigrate` never drops or renames anything, so a rename or a destructive
+change is a manual operation: back up MySQL, apply the DDL yourself, and ship
+the matching struct change in the same release.
 
-Rerunning `up` is expected and safe. Applied migrations are checksum-verified
-and skipped. A failed migration is not recorded as successful. MySQL may commit
-DDL even when a later statement fails, so every `Up` operation must detect its
-already-applied additive work and safely resume on the next run.
+Two rules protect the data:
 
-## Failure and recovery procedure
+- **Never rename a table or column.** Raw SQL in `internal/store` names columns
+  directly (`storage_recovery.go`, `ops_health.go`, `audit_mirror.go`, the
+  statistics aggregates), and `model.Case.Validity` is already pinned to the
+  `status` column by a `gorm:"column:status"` override.
+- **Do not put a non-zero `default:` on a model struct.** The store queries
+  these structs directly, and GORM omits a zero-valued field that declares a
+  default, so the database value would silently replace a deliberate zero (for
+  example `CaseActionExecution.SafeForRetry = false` or an imported case's
+  `TemplateVersion = 0`).
 
-1. Keep the application unavailable when the new binary requires the failed
-   schema transition.
-2. Preserve the error and current ledger; never mark a failed migration applied
-   by hand.
-3. Inspect the database because MySQL DDL can survive a failed transaction.
-4. Fix the migration so its reviewed `Up` operation resumes from that state,
-   then rerun `go run ./apps/backend/cmd/quack-migrate up`.
-5. Restore the verified backup only when additive recovery cannot preserve the
-   required records, and rehearse that restore before production use.
-
-## Rollback procedure
-
-Run `go run ./apps/backend/cmd/quack-migrate down` only after reviewing the newest applied
-migration and confirming its idempotent `Down` operation preserves v5 history.
-Before executing MySQL DDL, the runner durably marks the ledger row
-`rolling_back`. Normal `up` and application startup refuse that dirty state.
-After `Down` succeeds, the runner removes the ledger row. If the process or DDL
-fails before removal, rerun the same reviewed `down`; it resumes the idempotent
-inverse and completes ledger cleanup. Never clear `rolling_back` by hand. Tests
-cover partial-DDL recovery and reversible rollback on SQLite and MySQL.
-
-Migrations without a safe inverse are explicitly forward-only. The initial v5
-baseline is forward-only because reversing it would hard-delete moderation and
-audit history; `down` returns `ErrMigrationNotReversible` and changes neither
-the schema nor ledger. For an additive forward-only release, roll back the
-application binary while retaining the compatible schema, then ship a new
-forward migration for any database correction.
-
-Every future schema change must live in a new source file embedded by its new
-registry entry. Do not edit an applied migration. Its focused tests must cover
-forward execution, rerun behavior, failure recovery, preservation of
-representative data, and either an idempotent reviewed inverse with dirty-state
-recovery or the explicit forward-only refusal boundary.
+Backup, restore, and coexistence procedures live in `storage-recovery.md` and
+`v4-historical-import.md`.

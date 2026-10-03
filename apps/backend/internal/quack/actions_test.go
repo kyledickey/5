@@ -8,6 +8,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/quack"
+	"github.com/quackdiscord/bot/internal/quack/idutil"
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
@@ -62,7 +63,7 @@ func TestActionServiceProcessesSafeActions(t *testing.T) {
 	}
 
 	fakeDiscord := &fakeActionClient{}
-	if err := quack.NewActionService(store, fakeDiscord).ProcessCaseActions(ctx, created.ID); err != nil {
+	if err := quack.NewActionService(store, fakeDiscord, nil, nil, "").ProcessCaseActions(ctx, created.ID); err != nil {
 		t.Fatalf("process actions: %v", err)
 	}
 
@@ -111,7 +112,7 @@ func TestActionServiceDoesNotAutomaticallyRetryNotificationFailure(t *testing.T)
 		quack.DiscordActionError{Code: "rate_limited", Message: "rate limited", Retryable: true},
 		nil,
 	}}
-	if err := quack.NewActionService(store, fakeDiscord).ProcessCaseActions(ctx, created.ID); err != nil {
+	if err := quack.NewActionService(store, fakeDiscord, nil, nil, "").ProcessCaseActions(ctx, created.ID); err != nil {
 		t.Fatalf("process first attempt: %v", err)
 	}
 	notification, err := store.GetCaseNotification(ctx, created.ID)
@@ -121,7 +122,7 @@ func TestActionServiceDoesNotAutomaticallyRetryNotificationFailure(t *testing.T)
 	if notification.RenderedMessage != fakeDiscord.notificationRequests[0].Reason || notification.DeliveryMessageDiscordID != "" {
 		t.Fatalf("failed delivery lost adapter receipt: %+v", notification)
 	}
-	if err := quack.NewActionService(store, fakeDiscord).ProcessCaseActions(ctx, created.ID); err != nil {
+	if err := quack.NewActionService(store, fakeDiscord, nil, nil, "").ProcessCaseActions(ctx, created.ID); err != nil {
 		t.Fatalf("process duplicate request: %v", err)
 	}
 	if len(fakeDiscord.dms) != 0 {
@@ -130,7 +131,7 @@ func TestActionServiceDoesNotAutomaticallyRetryNotificationFailure(t *testing.T)
 }
 
 func TestActionServiceDoesNotNotifyForUnsupportedAction(t *testing.T) {
-	ctx := quack.ContextWithTrace(context.Background(), "req-action-1", "corr-action-1")
+	ctx := idutil.ContextWithTrace(context.Background(), "req-action-1", "corr-action-1")
 	store := newMigratedStore(t)
 	adminContext := templateGuildContext(t, store, "guild-1", "admin-1", uint64(discordgo.PermissionManageGuild))
 	modContext := templateGuildContext(t, store, "guild-1", "mod-1", uint64(discordgo.PermissionModerateMembers))
@@ -149,7 +150,7 @@ func TestActionServiceDoesNotNotifyForUnsupportedAction(t *testing.T) {
 	}
 
 	fakeDiscord := &fakeActionClient{}
-	if err := quack.NewActionService(store, fakeDiscord).ProcessCaseActions(ctx, created.ID); err != nil {
+	if err := quack.NewActionService(store, fakeDiscord, nil, nil, "").ProcessCaseActions(ctx, created.ID); err != nil {
 		t.Fatalf("process actions: %v", err)
 	}
 	if len(fakeDiscord.dms) != 0 {
@@ -211,8 +212,7 @@ func TestActionServiceReversalResolvesCaseNumber(t *testing.T) {
 		Bot:    quack.DiscordMemberAuthorization{DiscordUserID: "quack", Present: true, PermissionBits: ^uint64(0), TopRolePosition: 100, Bot: true},
 		Target: &quack.DiscordMemberAuthorization{DiscordUserID: "target-1", Present: true, TopRolePosition: 1},
 	}})
-	reversal, err := quack.NewActionService(store, nil).
-		WithRecoveryControls(authorizer, nil).
+	reversal, err := quack.NewActionService(store, nil, authorizer, nil, "").
 		ReverseForAppeal(ctx, moderator, strconv.FormatUint(created.CaseNumber, 10), actions[0].ID, model.ActionRemoveTimeout, nil)
 	if err != nil || reversal == nil {
 		t.Fatalf("reverse case by number: reversal=%+v err=%v", reversal, err)
@@ -264,7 +264,7 @@ func TestRetryUnbanRefreshesPermissionsForDepartedMember(t *testing.T) {
 		Bot:    quack.DiscordMemberAuthorization{DiscordUserID: "quack", Present: true, PermissionBits: ^uint64(0), TopRolePosition: 100, Bot: true},
 		Target: &quack.DiscordMemberAuthorization{DiscordUserID: "target-1", Present: false},
 	}
-	service := quack.NewActionService(store, nil).WithRecoveryControls(quack.NewGuildService(store, fakeDiscordClient{authorization: snapshot}), nil)
+	service := quack.NewActionService(store, nil, quack.NewGuildService(store, fakeDiscordClient{authorization: snapshot}), nil, "")
 	retried, err := service.Retry(ctx, moderator, reversal.ID)
 	if err != nil || retried == nil || retried.Status != model.ActionExecutionPending {
 		t.Fatalf("unban retry: %+v, %v", retried, err)
@@ -274,7 +274,7 @@ func TestRetryUnbanRefreshesPermissionsForDepartedMember(t *testing.T) {
 		t.Fatal("repeat retry ignored revoked ban permission")
 	}
 	client := &fakeEnforcementClient{}
-	worker := quack.NewActionService(store, client).WithRecoveryControls(quack.NewGuildService(store, fakeDiscordClient{authorization: snapshot}), nil)
+	worker := quack.NewActionService(store, client, quack.NewGuildService(store, fakeDiscordClient{authorization: snapshot}), nil, "")
 	if err := worker.ProcessCaseActions(ctx, created.ID); err != nil {
 		t.Fatal(err)
 	}

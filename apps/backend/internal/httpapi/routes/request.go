@@ -9,7 +9,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// decodeStrictJSON rejects unknown fields and trailing JSON values.
+// decodeStrictJSON rejects unknown fields and trailing JSON values so retired
+// or misspelled request fields fail instead of being silently ignored.
 func decodeStrictJSON(c *gin.Context, value any) error {
 	decoder := json.NewDecoder(c.Request.Body)
 	decoder.DisallowUnknownFields()
@@ -17,7 +18,10 @@ func decodeStrictJSON(c *gin.Context, value any) error {
 		return err
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return errors.New("multiple JSON values")
+		if err == nil {
+			return errors.New("multiple JSON values are not allowed")
+		}
+		return err
 	}
 	return nil
 }

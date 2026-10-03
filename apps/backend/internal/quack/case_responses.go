@@ -3,16 +3,10 @@ package quack
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
-
-// caseResponse projects a committed case and its initial actions into the shared adapter response.
-func caseResponse(created model.CreatedCase) CaseResponse {
-	response := caseResponseFromModel(created.Case, created.ActionExecutions)
-	response.EvidenceIncomplete = evidenceIncomplete(created.Evidence)
-	return response
-}
 
 // caseResponseFromModel projects a stored case and its action executions into
 // the staff API shape, decoding the JSON columns and reading the rule name and
@@ -121,8 +115,12 @@ func caseActionDetailResponses(actions []model.CaseActionExecution, attempts []m
 
 	responses := make([]CaseActionDetailResponse, 0, len(actions))
 	for _, action := range actions {
+		projected := caseActionResponse(action)
+		if action.ActionType == model.ActionTimeoutUser && action.Status == model.ActionExecutionSucceeded {
+			projected.TimeoutUntil = RecordedTimeoutUntil(action.ID, attempts)
+		}
 		responses = append(responses, CaseActionDetailResponse{
-			CaseActionResponse: caseActionResponseWithExpiry(action, attempts),
+			CaseActionResponse: projected,
 			ConfigSnapshot:     parseJSON(action.ConfigSnapshotJSON),
 			AttemptCount:       action.AttemptCount,
 			LastErrorCode:      action.LastErrorCode,
@@ -136,7 +134,6 @@ func caseActionDetailResponses(actions []model.CaseActionExecution, attempts []m
 	return responses
 }
 
-// caseEventResponses projects immutable timeline events for authorized staff.
 func caseEventResponses(events []model.CaseEvent) []CaseEventResponse {
 	responses := make([]CaseEventResponse, 0, len(events))
 	for _, event := range events {
@@ -278,11 +275,24 @@ func evidenceIncomplete(evidence []model.CaseEvidenceSnapshot) bool {
 	return false
 }
 
-// caseActionResponseWithExpiry enriches a staff action using confirmed timeout facts.
-func caseActionResponseWithExpiry(action model.CaseActionExecution, attempts []model.CaseActionAttempt) CaseActionResponse {
-	result := caseActionResponse(action)
-	if action.ActionType == model.ActionTimeoutUser && action.Status == model.ActionExecutionSucceeded {
-		result.TimeoutUntil = RecordedTimeoutUntil(action.ID, attempts)
+// RecordedTimeoutUntil exposes only the expiry confirmed by a successful
+// Discord attempt. It never estimates an expiry from queue or completion time,
+// and returns nil when no successful attempt recorded a parseable expiry.
+func RecordedTimeoutUntil(actionID string, attempts []model.CaseActionAttempt) *time.Time {
+	for i := len(attempts) - 1; i >= 0; i-- {
+		attempt := attempts[i]
+		if attempt.ExecutionID != actionID || attempt.Status != model.ActionAttemptSucceeded {
+			continue
+		}
+		var payload struct {
+			Until string `json:"timeout_until"`
+		}
+		if json.Unmarshal([]byte(attempt.ResponsePayloadJSON), &payload) != nil {
+			continue
+		}
+		if until, err := time.Parse(time.RFC3339, payload.Until); err == nil {
+			return &until
+		}
 	}
-	return result
+	return nil
 }

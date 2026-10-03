@@ -2,10 +2,11 @@ package quack
 
 import (
 	"encoding/json"
-	"github.com/quackdiscord/bot/internal/quack/model"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
 // TestNotificationUsesRecordedExpiryAndHonestOutcomes prevents DMs from claiming an unperformed punishment.

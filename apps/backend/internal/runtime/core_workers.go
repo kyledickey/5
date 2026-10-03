@@ -63,7 +63,6 @@ func runAppealNotifications(ctx context.Context, dispatcher *quack.AppealNotific
 	}
 }
 
-// appealStaffChannelResolver reads the dedicated appeal queue on every delivery.
 type appealStaffChannelResolver struct {
 	repository quack.Repository
 	validator  interface {
@@ -72,16 +71,13 @@ type appealStaffChannelResolver struct {
 }
 
 // AppealStaffChannel resolves the current staff-only destination for a guild.
+// It reads settings on every delivery so a queue change takes effect without a
+// restart, and revalidates the channel so a destination that has since become
+// public is never used.
 func (r appealStaffChannelResolver) AppealStaffChannel(ctx context.Context, guildID string) (string, error) {
-	if r.repository == nil {
-		return "", errors.New("appeal staff channel repository is not configured")
-	}
 	settings, err := r.repository.GetGuildSettings(ctx, guildID)
 	if err != nil || settings == nil {
 		return "", err
-	}
-	if r.validator == nil {
-		return "", errors.New("appeal staff channel validator is unavailable")
 	}
 	guild, err := r.repository.GetGuildByID(ctx, guildID)
 	if err != nil || guild == nil {

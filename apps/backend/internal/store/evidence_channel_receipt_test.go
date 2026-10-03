@@ -11,7 +11,7 @@ import (
 // TestEvidenceChannelReceiptPreservesSettings verifies the narrow receipt write
 // and expected-old comparison on both supported database engines.
 func TestEvidenceChannelReceiptPreservesSettings(t *testing.T) {
-	for name, open := range map[string]func(*testing.T) *gorm.DB{"sqlite": openSQLiteMigrationDB, "mysql": openMySQLMigrationDB} {
+	for name, open := range map[string]func(*testing.T) *gorm.DB{"sqlite": openSQLiteTestDB, "mysql": openMySQLTestDB} {
 		t.Run(name, func(t *testing.T) {
 			db := open(t)
 			repository := New(db, nil)

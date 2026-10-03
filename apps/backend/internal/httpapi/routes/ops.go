@@ -7,16 +7,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/quackdiscord/bot/internal/httpapi/apierror"
-
 	"github.com/gin-gonic/gin"
+	"github.com/quackdiscord/bot/internal/httpapi/apierror"
 	"github.com/quackdiscord/bot/internal/httpapi/middleware"
 	"github.com/quackdiscord/bot/internal/quack"
 )
 
 const opsKeyHeader = "X-Quack-Ops-Key"
 
-// globalOpsStatus encapsulates the global ops status rule so callers share one consistent package implementation.
 // @Summary Get global operations status
 // @Tags Operations
 // @Produce json
@@ -44,7 +42,6 @@ func globalOpsStatus(c *gin.Context, services *quack.Services) {
 	c.JSON(http.StatusOK, status)
 }
 
-// guildOpsStatus encapsulates the guild ops status rule so callers share one consistent package implementation.
 // @Summary Get guild operations status
 // @Tags Operations
 // @Produce json
@@ -134,7 +131,6 @@ func guildOpsAuthorized(c *gin.Context, services *quack.Services) (string, bool)
 	return guildContext.Guild.ID, true
 }
 
-// validOpsKey checks valid ops key before state is read or changed.
 func validOpsKey(c *gin.Context, services *quack.Services) bool {
 	if services == nil {
 		return false

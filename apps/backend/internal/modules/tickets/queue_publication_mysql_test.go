@@ -54,7 +54,7 @@ func TestMySQLQueueSendAdmission(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer sqlDB.Close()
-	if err := Migration().Apply(db); err != nil {
+	if err := db.AutoMigrate(SchemaTypes()...); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Create(&ticketRecord{ID: "ticket", GuildID: "guild", OwnerDiscordUserID: "owner", ThreadDiscordChannelID: "thread", Status: StatusOpen, MetadataJSON: "{}"}).Error; err != nil {

@@ -9,7 +9,6 @@ import (
 	"github.com/quackdiscord/bot/internal/modules"
 )
 
-// EventType is a configured Discord event category.
 type EventType string
 
 const (
@@ -33,7 +32,6 @@ var (
 	ErrNoDestination = errors.New("general logging destination is not configured")
 )
 
-// Settings fixes routing, privacy, cache, formatting, and retry bounds for one guild.
 type Settings struct {
 	Channels                  map[EventType]string `json:"channels"`
 	IncludeMessageContent     bool                 `json:"include_message_content"`
@@ -43,18 +41,15 @@ type Settings struct {
 	MaxDeliveryAttempts       int                  `json:"max_delivery_attempts"`
 }
 
-// Defaults returns bounded, privacy-preserving logging behavior.
 func Defaults() Settings {
 	return Settings{Channels: map[EventType]string{}, CacheEntriesPerGuild: 1000, MaxDeliveryAttempts: 3}
 }
 
-// Actor identifies a current guild manager for configuration operations.
 type Actor struct {
 	GuildID, DiscordUserID string
 	CanManage              bool
 }
 
-// AttachmentMetadata is non-content file context allowed by module privacy settings.
 type AttachmentMetadata struct {
 	DiscordID             string
 	Filename, ContentType string
@@ -63,7 +58,6 @@ type AttachmentMetadata struct {
 	URL string `json:"url,omitempty"`
 }
 
-// Event is an ephemeral Discord event delivered to configured staff channels.
 type Event struct {
 	// BulkMessages retains each cached deletion author and file association.
 	BulkMessages      []CachedMessage
@@ -79,7 +73,6 @@ type Event struct {
 	Metadata                                                        map[string]string
 }
 
-// Descriptor exposes logging settings validation to the shared registry.
 func Descriptor() modules.Descriptor {
 	return modules.Descriptor{ID: modules.GeneralLogging, DisplayName: "General logging", Validate: validateSettingsJSON}
 }
@@ -117,9 +110,8 @@ func validEventType(t EventType) bool {
 	return false
 }
 
-// RouteAllTo selects one destination for the complete supported event set.
-// Native setup enables available message content and metadata to match the
-// promised staff log detail. Cache and retry bounds survive channel changes.
+// RouteAllTo points every supported event at one destination and turns on the
+// content/metadata detail native setup promises. Cache and retry bounds are kept.
 func (s Settings) RouteAllTo(channelID string) Settings {
 	s.Channels = make(map[EventType]string)
 	for _, event := range []EventType{MessageEdit, MessageDelete, MessageBulkDelete, MemberJoin, MemberLeave, DiscordBan, DiscordUnban, GuildChange, ChannelChange} {
@@ -129,4 +121,14 @@ func (s Settings) RouteAllTo(channelID string) Settings {
 	s.IncludeAttachmentMetadata = true
 	s.IncludeEmbedMetadata = true
 	return s
+}
+
+// ValidateEnabledConfiguration re-runs the enabled-state invariants without
+// writing configuration, for the core settings enablement hook.
+func ValidateEnabledConfiguration(raw string) error {
+	var settings Settings
+	if err := json.Unmarshal([]byte(raw), &settings); err != nil {
+		return err
+	}
+	return validateSettings(settings, true)
 }

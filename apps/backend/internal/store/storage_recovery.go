@@ -34,14 +34,13 @@ type recoveryTableDefinition struct {
 }
 
 var recoveryTables = []recoveryTableDefinition{
-	{"quack_schema_migrations", []string{"version", "name", "checksum", "state"}, "version"},
 	{"guilds", []string{"id", "discord_guild_id", "is_active"}, "id"},
 	{"guild_settings", []string{"id", "guild_id", "tickets_enabled", "general_logging_enabled", "honeypot_enabled"}, "id"},
 	{"staff_members", []string{"id", "guild_id", "discord_user_id", "last_seen_permission_bits"}, "id"},
 	{"case_templates", []string{"id", "guild_id", "slug", "version", "archived_at"}, "id"},
 	{"case_template_context_fields", []string{"id", "template_id", "`key`", "position", "field_type"}, "id"},
 	{"case_template_levels", []string{"id", "template_id", "position", "is_default", "trigger_case_count"}, "id"},
-	{"case_template_level_actions", []string{"id", "level_id", "position", "action_type", "config_json"}, "id"},
+	{"case_template_level_actions", []string{"id", "level_id", "action_type", "config_json"}, "id"},
 	{"cases", []string{"id", "guild_id", "case_number", "source", "status"}, "id"},
 	{"case_events", []string{"id", "case_id", "guild_id", "event_type", "visibility", "body", "metadata_json"}, "id"},
 	{"case_action_executions", []string{"id", "case_id", "idempotency_key", "status"}, "id"},
@@ -52,7 +51,7 @@ var recoveryTables = []recoveryTableDefinition{
 	{"appeals", []string{"id", "guild_id", "case_id", "status"}, "id"},
 	{"appeal_events", []string{"id", "appeal_id", "guild_id", "event_type", "body", "metadata_json"}, "id"},
 	{"guild_appeal_settings", []string{"id", "guild_id", "questions_json"}, "id"},
-	{"appeal_notifications", []string{"id", "appeal_id", "event_id", "audience", "status"}, "id"},
+	{"appeal_notifications", []string{"id", "appeal_id", "event_id", "audience", "status", "body", "decision_intent_json"}, "id"},
 	{"audit_log_entries", []string{"id", "guild_id", "action", "resource_id", "result"}, "id"},
 	{"audit_mirror_deliveries", []string{"audit_entry_id", "finished", "retry_at"}, "audit_entry_id"},
 	{"module_configurations", []string{"id", "guild_id", "module_id", "enabled", "config_json"}, "id"},
@@ -64,29 +63,16 @@ var recoveryTables = []recoveryTableDefinition{
 	{"honeypot_triggers", []string{"id", "guild_id", "message_discord_id", "case_id", "outcome"}, "id"},
 	{"v4_import_batches", []string{"id", "guild_id", "source_name", "checksum", "record_count"}, "id"},
 	{"v4_import_sources", []string{"id", "guild_id", "source_name", "source_id", "target_case_id", "fingerprint"}, "id"},
+	{"honeypot_warning_refreshes", []string{"guild_id", "revision", "pending", "next_attempt_at", "send_identity"}, "guild_id"},
+	{"honeypot_message_cleanups", []string{"id", "guild_id", "message_discord_id", "channel_discord_id", "target_discord_user_id", "trigger_id", "attempt_count", "next_attempt_at", "completed_at"}, "id"},
+	{"case_publications", []string{"message_id", "case_id", "channel_id", "presentation_json", "last_digest", "retry_at", "refresh_requested", "revision"}, "message_id"},
+	{"ticket_message_journal", []string{"guild_id", "thread_discord_channel_id", "message_discord_id", "ticket_id", "author_discord_user_id", "author_name", "body", "sent_at", "expires_at"}, "guild_id, thread_discord_channel_id, message_discord_id"},
 }
 
 // BuildRecoveryManifest creates a deterministic, content-minimizing backup manifest from an isolated target.
 func (s *Store) BuildRecoveryManifest(ctx context.Context) (*RecoveryManifest, error) {
 	manifest := &RecoveryManifest{Version: "quack-v5-recovery/v1", CapturedAt: time.Now().UTC(), Tables: map[string]RecoveryTableManifest{}, GuildCaseHighWater: map[string]uint64{}}
-	definitions := append([]recoveryTableDefinition{}, recoveryTables...)
-	if s.db.Migrator().HasTable(&currentSchema{}) {
-		for index := range definitions {
-			if definitions[index].name == "appeal_notifications" {
-				definitions[index].columns = append(append([]string{}, definitions[index].columns...), "body", "decision_intent_json")
-			}
-		}
-		definitions = append(definitions,
-			recoveryTableDefinition{"honeypot_warning_refreshes", []string{"guild_id", "revision", "pending", "next_attempt_at", "send_identity"}, "guild_id"},
-			recoveryTableDefinition{"case_publications", []string{"message_id", "case_id", "channel_id", "presentation_json", "last_digest", "retry_at", "refresh_requested", "revision"}, "message_id"},
-			recoveryTableDefinition{"honeypot_message_cleanups", []string{"id", "guild_id", "message_discord_id", "channel_discord_id", "target_discord_user_id", "trigger_id", "attempt_count", "next_attempt_at", "completed_at"}, "id"},
-			recoveryTableDefinition{"ticket_message_journal", []string{"guild_id", "thread_discord_channel_id", "message_discord_id", "ticket_id", "author_discord_user_id", "author_name", "body", "sent_at", "expires_at"}, "guild_id, thread_discord_channel_id, message_discord_id"},
-		)
-	}
-	for _, definition := range definitions {
-		if definition.name == "quack_schema_migrations" && s.db.Migrator().HasTable(&currentSchema{}) {
-			definition = recoveryTableDefinition{"quack_current_schema", []string{"id"}, "id"}
-		}
+	for _, definition := range recoveryTables {
 		if !s.db.Migrator().HasTable(definition.name) {
 			return nil, fmt.Errorf("required recovery table %s is missing", definition.name)
 		}

@@ -8,8 +8,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/quackdiscord/bot/internal/quack/idutil"
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
+
+type SettingsRepository interface {
+	CreateAuditLogEntry(context.Context, *model.AuditLogEntry) error
+	GetGuildSettings(context.Context, string) (*model.GuildSettings, error)
+	UpdateGuildSettings(context.Context, model.UpdateGuildSettingsParams) (*model.GuildSettings, error)
+}
 
 const maxGuildNotificationBrandingLength = 2000
 
@@ -88,8 +95,6 @@ type GuildSettingsResponse struct {
 	StarterPolicyNoticeAcknowledgedAt *time.Time `json:"starter_policy_notice_acknowledged_at,omitempty"`
 }
 
-// NewGuildSettingsService returns a service over store with no channel or
-// module validators; install them with the With* methods.
 func NewGuildSettingsService(store SettingsRepository) *GuildSettingsService {
 	return &GuildSettingsService{store: store}
 }
@@ -267,7 +272,6 @@ func (s *GuildSettingsService) AcknowledgeStarterPolicyNotice(
 	return &response, nil
 }
 
-// applyGuildSettingsInput normalizes transport values before they can reach durable storage.
 func applyGuildSettingsInput(settings *model.GuildSettings, input GuildSettingsInput) error {
 	if settings == nil {
 		return fmt.Errorf("%w: settings are required", ErrGuildSettingsValidation)
@@ -355,7 +359,7 @@ func (s *GuildSettingsService) auditEntry(
 	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
 		return nil
 	}
-	requestID, correlationID := TraceIDsFromContext(ctx)
+	requestID, correlationID := idutil.TraceIDsFromContext(ctx)
 	return &model.AuditLogEntry{
 		GuildID:             guildContext.Guild.ID,
 		ActorDiscordUserID:  guildContext.Staff.DiscordUserID,
@@ -371,7 +375,6 @@ func (s *GuildSettingsService) auditEntry(
 	}
 }
 
-// guildSettingsResponse maps durable state into the dashboard contract without exposing storage details.
 func guildSettingsResponse(settings model.GuildSettings) GuildSettingsResponse {
 	return GuildSettingsResponse{
 		ID:                                settings.ID,

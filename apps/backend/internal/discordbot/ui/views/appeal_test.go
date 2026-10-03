@@ -52,7 +52,7 @@ func TestAppealEntryOpensDiscordFormWithoutWebsite(t *testing.T) {
 }
 
 func TestAppealStaffMessageOffersOnlyExplicitReversalControls(t *testing.T) {
-	message := AppealStaffMessage(&quack.AppealResponse{ID: "appeal", CaseID: "case", TargetDiscordUserID: "target", Status: model.AppealStatusAccepted, ReversalOffers: []quack.AppealReversalOffer{{OriginalExecutionID: "execution", ActionType: model.ActionUnbanUser}}})
+	message := appealStaffMessage(&quack.AppealResponse{ID: "appeal", CaseID: "case", TargetDiscordUserID: "target", Status: model.AppealStatusAccepted, ReversalOffers: []quack.AppealReversalOffer{{OriginalExecutionID: "execution", ActionType: model.ActionUnbanUser}}})
 	if len(message.Components) != 1 || len(message.Embeds) != 0 || !strings.Contains(message.Content, "<@target>") {
 		t.Fatalf("expected one explicit reversal offer: %+v", message)
 	}
@@ -65,7 +65,7 @@ func TestAppealStaffMessageOffersOnlyExplicitReversalControls(t *testing.T) {
 
 func TestAppealQueueContainsStatementAndDecisionControls(t *testing.T) {
 	appeal := &quack.AppealResponse{ID: "appeal", CaseID: "case", CaseNumber: 12, TemplateName: "Spam", TargetDiscordUserID: "target", Status: model.AppealStatusPending, Answers: []model.AppealAnswer{{QuestionID: "reason", Value: "I am sorry for repeating messages."}}}
-	message := AppealStaffMessage(appeal)
+	message := appealStaffMessage(appeal)
 	if !strings.Contains(message.Content, "I am sorry") || !strings.Contains(message.Content, "Case #12") || !strings.Contains(message.Content, "Spam") {
 		t.Fatalf("missing review context: %s", message.Content)
 	}
@@ -74,7 +74,7 @@ func TestAppealQueueContainsStatementAndDecisionControls(t *testing.T) {
 		t.Fatalf("decision controls: %+v", row)
 	}
 	appeal.Status = model.AppealStatusAccepted
-	if decided := AppealStaffMessage(appeal); len(decided.Components) != 0 {
+	if decided := appealStaffMessage(appeal); len(decided.Components) != 0 {
 		t.Fatal("decided appeal still offers decision buttons")
 	}
 }
@@ -82,7 +82,7 @@ func TestAppealQueueContainsStatementAndDecisionControls(t *testing.T) {
 // TestAppealDecisionPresentation retains reviewer context while removing voting controls.
 func TestAppealDecisionPresentation(t *testing.T) {
 	appeal := &quack.AppealResponse{ID: "appeal", CaseNumber: 12, TargetDiscordUserID: "member", Status: model.AppealStatusPending}
-	pending := AppealStaffMessage(appeal)
+	pending := appealStaffMessage(appeal)
 	if !strings.Contains(pending.Content, "Received an appeal from <@member>") {
 		t.Fatal(pending.Content)
 	}
@@ -92,7 +92,7 @@ func TestAppealDecisionPresentation(t *testing.T) {
 	}
 	for _, status := range []model.AppealStatus{model.AppealStatusAccepted, model.AppealStatusRejected} {
 		appeal.Status, appeal.ReviewedByDiscordUserID, appeal.DecisionReason = status, "reviewer", "Thanks for explaining."
-		decided := AppealStaffMessage(appeal)
+		decided := appealStaffMessage(appeal)
 		for _, want := range []string{"Appeal " + string(status), "Reviewed by <@reviewer>", appeal.DecisionReason} {
 			if !strings.Contains(decided.Content, want) {
 				t.Fatalf("missing %q: %s", want, decided.Content)

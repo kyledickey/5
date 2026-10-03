@@ -7,10 +7,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ActorResolver resolves authenticated requests into current Manage Guild authority.
 type ActorResolver func(*gin.Context) (Actor, error)
 
-// RegisterRoutes exposes isolated settings, status, and deleted-channel repair endpoints.
 func RegisterRoutes(group *gin.RouterGroup, service *Service, resolve ActorResolver) {
 	module := group.Group("/general-logging")
 	module.GET("/settings", func(c *gin.Context) {

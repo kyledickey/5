@@ -11,6 +11,8 @@ import (
 	"github.com/quackdiscord/bot/internal/store"
 )
 
+const usage = "usage: quack-storage-verify mysql-capture|mysql-verify|redis-write|redis-verify"
+
 func main() {
 	if err := run(context.Background(), os.Args[1:]); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
@@ -20,7 +22,7 @@ func main() {
 
 func run(ctx context.Context, args []string) error {
 	if len(args) != 1 {
-		return errors.New("usage: quack-storage-verify mysql-capture|mysql-verify|redis-write|redis-verify")
+		return errors.New(usage)
 	}
 	_ = godotenv.Load(".env")
 	switch args[0] {
@@ -66,6 +68,6 @@ func run(ctx context.Context, args []string) error {
 		}
 		return store.VerifyAndDeleteRedisRecoveryProbe(ctx, client, namespace, token)
 	default:
-		return errors.New("usage: quack-storage-verify mysql-capture|mysql-verify|redis-write|redis-verify")
+		return errors.New(usage)
 	}
 }

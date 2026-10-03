@@ -3,15 +3,41 @@ package quack
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
 	"time"
 
-	actionmods "github.com/quackdiscord/bot/internal/quack/actionmods"
+	"github.com/quackdiscord/bot/internal/quack/actionmods"
+	"github.com/quackdiscord/bot/internal/quack/idutil"
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
+
+// ActionRepository is the persistence ActionService needs: leased execution
+// claims, notification delivery state, and staff retry, dismiss, and reversal.
+type ActionRepository interface {
+	BeginCaseNotificationDelivery(context.Context, string, string) error
+	ClaimCaseNotification(context.Context, model.ClaimCaseNotificationParams) (*model.CaseNotification, error)
+	ClaimNextCaseAction(context.Context, model.ClaimCaseActionParams) (*model.ClaimedCaseAction, error)
+	CompleteCaseAction(context.Context, model.CompleteCaseActionParams) error
+	CompleteCaseNotification(context.Context, model.CompleteCaseNotificationParams) error
+	CreateAuditLogEntry(context.Context, *model.AuditLogEntry) error
+	DismissCaseAction(context.Context, model.DismissCaseActionParams) (*model.CaseActionExecution, error)
+	GetCaseActionExecution(context.Context, string, string) (*model.CaseActionExecution, error)
+	GetCaseByID(context.Context, string) (*model.Case, error)
+	GetCaseByIDOrNumber(context.Context, string, string) (*model.Case, error)
+	GetCaseNotification(context.Context, string) (*model.CaseNotification, error)
+	GetGuildByID(context.Context, string) (*model.Guild, error)
+	GetGuildSettings(context.Context, string) (*model.GuildSettings, error)
+	ListCaseActionAttempts(context.Context, []string) ([]model.CaseActionAttempt, error)
+	ListCaseActionExecutions(context.Context, string) ([]model.CaseActionExecution, error)
+	ListFailedCaseActions(context.Context, model.FailedCaseActionFilter) (*model.FailedCaseActionResult, error)
+	PrepareCaseNotification(context.Context, string, string, string) error
+	QueueCaseReversal(context.Context, model.QueueCaseReversalParams) (*model.CaseActionExecution, error)
+	RetryCaseAction(context.Context, model.RetryCaseActionParams) (*model.CaseActionExecution, error)
+}
 
 // ActionService is the durable action worker. It claims leased action
 // executions for a case, runs the matching Discord handler, records each
@@ -27,24 +53,24 @@ type ActionService struct {
 	dashboardBaseURL string
 }
 
-// WithDashboardBaseURL configures the secure member entry point used by
-// appealable case notifications. It returns the receiver for chaining.
-func (s *ActionService) WithDashboardBaseURL(baseURL string) *ActionService {
-	s.dashboardBaseURL = strings.TrimSpace(baseURL)
-	return s
-}
-
-// NewActionService wires the worker to persistence and the Discord enforcement
-// client and registers one handler per supported action type. A nil store is a
-// programming error and panics; a nil discord client is allowed for tests and
-// makes every handler report the action as unsupported.
-func NewActionService(store ActionRepository, discord DiscordActionClient) *ActionService {
-	if store == nil {
-		panic("quack: NewActionService requires a non-nil ActionRepository")
-	}
+// NewActionService wires the worker and registers one handler per supported
+// action type. A nil discord client makes every handler report the action as
+// unsupported. authorizer and scheduler may be nil: manual retry and reversal
+// then return ErrAuthorizationUnavailable, and requeued work waits for the
+// durable poller instead of being submitted immediately. dashboardBaseURL is
+// the secure member entry point appealable case notifications link to.
+func NewActionService(
+	store ActionRepository,
+	discord DiscordActionClient,
+	authorizer *GuildService,
+	scheduler CaseWorkScheduler,
+	dashboardBaseURL string,
+) *ActionService {
 	return &ActionService{
-		store:   store,
-		discord: discord,
+		store:      store,
+		discord:    discord,
+		authorizer: authorizer,
+		scheduler:  scheduler,
 		handlers: map[model.ActionType]actionmods.Executor{
 			model.ActionSendDM:        actionmods.SendDM(discord),
 			model.ActionTimeoutUser:   actionmods.TimeoutUser(discord),
@@ -53,17 +79,8 @@ func NewActionService(store ActionRepository, discord DiscordActionClient) *Acti
 			model.ActionRemoveTimeout: actionmods.RemoveTimeout(discord),
 			model.ActionUnbanUser:     actionmods.UnbanUser(discord),
 		},
+		dashboardBaseURL: strings.TrimSpace(dashboardBaseURL),
 	}
-}
-
-// WithRecoveryControls configures live authorization and scheduling for manual
-// retries and reversals. Either may be nil; without an authorizer those
-// operations return ErrAuthorizationUnavailable, and without a scheduler the
-// requeued work waits for the durable poller.
-func (s *ActionService) WithRecoveryControls(authorizer *GuildService, scheduler CaseWorkScheduler) *ActionService {
-	s.authorizer = authorizer
-	s.scheduler = scheduler
-	return s
 }
 
 // ProcessCaseActions drains the case's runnable actions one lease at a time:
@@ -150,7 +167,7 @@ func (s *ActionService) processClaimedAction(ctx context.Context, workerID strin
 		"action_type":  claimed.Execution.ActionType,
 		"config":       config,
 	}
-	requestID, correlationID := TraceIDsFromContext(ctx)
+	requestID, correlationID := idutil.TraceIDsFromContext(ctx)
 	if correlationID == "" {
 		correlationID = claimed.Case.CorrelationID
 	}
@@ -293,7 +310,295 @@ func mustMarshalJSONObject(value any) string {
 	return string(body)
 }
 
-// actionWorkerID identifies the worker invocation recorded on durable action attempts.
 func actionWorkerID() string {
 	return "action-worker:" + strconv.FormatInt(time.Now().UTC().UnixNano(), 10)
+}
+
+// ListFailures returns the active failed-action review queue for the guild.
+// Denied and failed reads are audited; a lost audit on an otherwise successful
+// read fails the request.
+func (s *ActionService) ListFailures(
+	ctx context.Context,
+	guildContext *GuildStaffContext,
+	limit, offset int,
+) (*model.FailedCaseActionResult, error) {
+	if guildContext == nil || guildContext.Guild == nil || !guildContext.Can(model.PermissionActionCaseRead) {
+		if guildContext != nil && guildContext.Guild != nil && guildContext.Staff != nil {
+			entry := actionControlAudit(ctx, guildContext, string(model.AuditActionActionFailureRead), "list")
+			entry.Result = model.AuditResultDenied
+			entry.FailureReason = "permission_denied"
+			// best-effort: the denial is already being returned to the caller
+			_ = recordAudit(ctx, s.store, entry)
+		}
+		return nil, ErrCasePermissionDenied
+	}
+	result, err := s.store.ListFailedCaseActions(ctx, model.FailedCaseActionFilter{
+		GuildID: guildContext.Guild.ID,
+		Limit:   limit,
+		Offset:  offset,
+	})
+	entry := actionControlAudit(ctx, guildContext, string(model.AuditActionActionFailureRead), "list")
+	if err != nil {
+		entry.Result = model.AuditResultFailure
+		entry.FailureReason = "query_failed"
+	} else {
+		entry.Result = model.AuditResultSuccess
+	}
+	if auditErr := recordAudit(ctx, s.store, entry); auditErr != nil && err == nil {
+		return nil, auditErr
+	}
+	return result, err
+}
+
+// Retry performs live preflight before requeueing the immutable failed action.
+// Only failed, pending, or retrying executions that are not dismissed qualify;
+// a voided case's original punishment cannot be retried, though its reversal can.
+func (s *ActionService) Retry(
+	ctx context.Context,
+	guildContext *GuildStaffContext,
+	executionID string,
+) (updated *model.CaseActionExecution, err error) {
+	defer func() {
+		s.auditControlFailure(ctx, guildContext, string(model.AuditActionActionRetry), executionID, err)
+	}()
+	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
+		return nil, ErrCasePermissionDenied
+	}
+	execution, err := s.store.GetCaseActionExecution(ctx, guildContext.Guild.ID, executionID)
+	if err != nil {
+		return nil, err
+	}
+	if execution == nil || execution.DismissedAt != nil {
+		return nil, ErrCaseNotFound
+	}
+	if execution.Status != model.ActionExecutionFailed &&
+		execution.Status != model.ActionExecutionPending &&
+		execution.Status != model.ActionExecutionRetrying {
+		return nil, ErrCaseNotFound
+	}
+	item, err := s.store.GetCaseByID(ctx, execution.CaseID)
+	if err != nil {
+		return nil, err
+	}
+	if item == nil {
+		return nil, ErrCaseNotFound
+	}
+	if item.Validity == model.CaseValidityVoided && execution.ReversalOfExecutionID == nil {
+		return nil, errors.New("a voided case's punishment cannot be retried")
+	}
+	if s.authorizer == nil {
+		return nil, ErrAuthorizationUnavailable
+	}
+	preflight := s.authorizer.PreflightCase
+	if execution.ReversalOfExecutionID != nil {
+		preflight = s.authorizer.PreflightReversal
+	}
+	if err := preflight(ctx, guildContext, item.TargetDiscordUserID, execution.ActionType); err != nil {
+		return nil, err
+	}
+	updated, err = s.store.RetryCaseAction(ctx, model.RetryCaseActionParams{
+		GuildID:            item.GuildID,
+		ExecutionID:        execution.ID,
+		ActorDiscordUserID: guildContext.Staff.DiscordUserID,
+		Audit:              actionControlAudit(ctx, guildContext, "case_action.retry", execution.ID),
+	})
+	if err == nil && updated != nil && s.scheduler != nil {
+		s.scheduler.Submit(ctx, item.ID)
+	}
+	return updated, err
+}
+
+// Dismiss preserves attempts while removing a failure from active staff review.
+func (s *ActionService) Dismiss(
+	ctx context.Context,
+	guildContext *GuildStaffContext,
+	executionID string,
+) (updated *model.CaseActionExecution, err error) {
+	defer func() {
+		s.auditControlFailure(ctx, guildContext, string(model.AuditActionActionDismiss), executionID, err)
+	}()
+	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil ||
+		!guildContext.Can(model.PermissionActionFailureDismiss) {
+		return nil, ErrCasePermissionDenied
+	}
+	return s.store.DismissCaseAction(ctx, model.DismissCaseActionParams{
+		GuildID:            guildContext.Guild.ID,
+		ExecutionID:        executionID,
+		ActorDiscordUserID: guildContext.Staff.DiscordUserID,
+		Audit:              actionControlAudit(ctx, guildContext, "case_action.dismiss", executionID),
+	})
+}
+
+// Reverse queues a matching staff-confirmed timeout removal or unban after live permission checks.
+func (s *ActionService) Reverse(
+	ctx context.Context,
+	guildContext *GuildStaffContext,
+	caseID, originalExecutionID string,
+	actionType model.ActionType,
+) (*model.CaseActionExecution, error) {
+	return s.ReverseForAppeal(ctx, guildContext, caseID, originalExecutionID, actionType, nil)
+}
+
+// ReverseForAppeal queues a reversal and, when supplied, verifies its accepted
+// case-linked appeal. caseID may be a case ID or a case number within the guild.
+func (s *ActionService) ReverseForAppeal(
+	ctx context.Context,
+	guildContext *GuildStaffContext,
+	caseID, originalExecutionID string,
+	actionType model.ActionType,
+	appealID *string,
+) (queued *model.CaseActionExecution, err error) {
+	defer func() {
+		s.auditControlFailure(ctx, guildContext, string(model.AuditActionActionReverse), originalExecutionID, err)
+	}()
+	if s.authorizer == nil {
+		return nil, ErrAuthorizationUnavailable
+	}
+	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
+		return nil, ErrCaseNotFound
+	}
+	item, err := s.store.GetCaseByIDOrNumber(ctx, guildContext.Guild.ID, caseID)
+	if err != nil {
+		return nil, err
+	}
+	if item == nil || item.GuildID != guildContext.Guild.ID {
+		return nil, ErrCaseNotFound
+	}
+	if err := s.authorizer.PreflightReversal(ctx, guildContext, item.TargetDiscordUserID, actionType); err != nil {
+		return nil, err
+	}
+	queued, err = s.store.QueueCaseReversal(ctx, model.QueueCaseReversalParams{
+		GuildID:             item.GuildID,
+		CaseID:              item.ID,
+		ActorDiscordUserID:  guildContext.Staff.DiscordUserID,
+		OriginalExecutionID: originalExecutionID,
+		ActionType:          actionType,
+		AppealID:            appealID,
+		Audit:               actionControlAudit(ctx, guildContext, "case_action.reverse", originalExecutionID),
+	})
+	if err == nil && queued != nil && s.scheduler != nil {
+		s.scheduler.Submit(ctx, item.ID)
+	}
+	return queued, err
+}
+
+// auditControlFailure records a denied or failed recovery control operation
+// after the fact. It is called from a defer with the named error result, so a
+// nil error or an incomplete guild context records nothing.
+func (s *ActionService) auditControlFailure(
+	ctx context.Context,
+	guildContext *GuildStaffContext,
+	action, resourceID string,
+	operationErr error,
+) {
+	if operationErr == nil || guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
+		return
+	}
+	entry := actionControlAudit(ctx, guildContext, action, resourceID)
+	entry.Result = model.AuditResultFailure
+	if errors.Is(operationErr, ErrCasePermissionDenied) || errors.Is(operationErr, ErrAuthorizationDenied) {
+		entry.Result = model.AuditResultDenied
+	}
+	entry.FailureReason = operationErr.Error()
+	// best-effort: the failure is already being returned to the caller
+	_ = recordAudit(ctx, s.store, entry)
+}
+
+// actionControlAudit builds a successful audit row for a staff recovery control
+// operation on one action execution, capturing the actor's current permission bits.
+func actionControlAudit(ctx context.Context, guildContext *GuildStaffContext, action, resourceID string) *model.AuditLogEntry {
+	requestID, correlationID := idutil.TraceIDsFromContext(ctx)
+	return &model.AuditLogEntry{
+		GuildID:             guildContext.Guild.ID,
+		ActorDiscordUserID:  guildContext.Staff.DiscordUserID,
+		ActorPermissionBits: guildContext.PermissionBits,
+		Source:              AuditSourceFromContext(ctx),
+		Action:              action,
+		ResourceType:        "case_action_execution",
+		ResourceID:          resourceID,
+		Result:              model.AuditResultSuccess,
+		RequestID:           requestID,
+		CorrelationID:       correlationID,
+		MetadataJSON:        "{}",
+	}
+}
+
+// reversalProvenanceReader exposes original enforcement evidence and competing
+// punishments without making transport adapters query moderation storage.
+type reversalProvenanceReader interface {
+	LoadCaseReversalProvenance(context.Context, string, string, string) (*model.CaseActionExecution, string, bool, error)
+}
+
+// guardedReversalClient inspects live punishment ownership immediately before
+// removal. Missing support must never fall back to an unconditional reversal.
+type guardedReversalClient interface {
+	RemoveOwnedTimeout(context.Context, string, string, string, string) (map[string]any, error)
+	RemoveOwnedBan(context.Context, string, string, string, string) (map[string]any, error)
+}
+
+// executeGuardedReversal preserves a later punishment by checking durable origin
+// and live Discord state. Discord has no conditional remove API, so an external
+// moderator changing punishment between inspection and removal remains a race.
+func (s *ActionService) executeGuardedReversal(ctx context.Context, action actionmods.Context) actionmods.Result {
+	reader, ok := s.store.(reversalProvenanceReader)
+	client, hasClient := s.discord.(guardedReversalClient)
+	if !ok || !hasClient || action.Execution.ReversalOfExecutionID == nil {
+		return actionmods.PermanentError(
+			"reversal_provenance_unavailable",
+			"Could not verify which punishment belongs to this case. Review it manually.",
+		)
+	}
+	original, payload, newer, err := reader.LoadCaseReversalProvenance(
+		ctx,
+		action.Case.GuildID,
+		action.Case.ID,
+		*action.Execution.ReversalOfExecutionID,
+	)
+	if err != nil {
+		return actionmods.PermanentError(
+			"reversal_provenance_unavailable",
+			"Could not read the original punishment. Review it before retrying.",
+		)
+	}
+	if original == nil ||
+		original.CaseID != action.Case.ID ||
+		original.Status != model.ActionExecutionSucceeded ||
+		original.ReversalOfExecutionID != nil {
+		return actionmods.PermanentError(
+			"reversal_provenance_unavailable",
+			"The original successful punishment could not be verified. Review it manually.",
+		)
+	}
+	if newer {
+		return actionmods.PermanentError(
+			"reversal_ownership_conflict",
+			"Another punishment or unresolved attempt affects this member. Review it manually; nothing was removed.",
+		)
+	}
+	reason := actionmods.AuditReason(action)
+	var response map[string]any
+	switch {
+	case action.Execution.ActionType == model.ActionRemoveTimeout && original.ActionType == model.ActionTimeoutUser:
+		var recorded struct {
+			Until string `json:"timeout_until"`
+		}
+		if json.Unmarshal([]byte(payload), &recorded) != nil || recorded.Until == "" {
+			return actionmods.PermanentError(
+				"reversal_provenance_unavailable",
+				"The original timeout expiry was not recorded. Review it manually.",
+			)
+		}
+		response, err = client.RemoveOwnedTimeout(ctx, action.DiscordGuildID, action.Case.TargetDiscordUserID, recorded.Until, reason)
+	case action.Execution.ActionType == model.ActionUnbanUser && original.ActionType == model.ActionBanUser:
+		response, err = client.RemoveOwnedBan(ctx, action.DiscordGuildID, action.Case.TargetDiscordUserID, reason, reason)
+	default:
+		return actionmods.PermanentError(
+			"reversal_provenance_unavailable",
+			"The reversal does not match the original punishment.",
+		)
+	}
+	if err != nil {
+		return actionmods.ResultFromError(err)
+	}
+	return actionmods.Result{Response: response}
 }

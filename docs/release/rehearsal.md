@@ -17,8 +17,8 @@ the external-storage gate. The final mode fails when either target is absent.
 Use disposable storage only.
 
 1. Create an empty MySQL database and isolated Redis namespace.
-2. Run `go run ./apps/backend/cmd/quack-migrate up`; capture the command, commit, database
-   identity, migration ledger, start/end timestamps, and exit status.
+2. Run `go run ./apps/backend/cmd/quack-migrate`; capture the command, commit, database
+   identity, start/end timestamps, and exit status.
 3. Start Quack with non-production Discord credentials, confirm liveness and
    readiness separately, then stop it through the documented graceful path.
 4. Seed the last accepted pre-P3 schema with representative guild, template,

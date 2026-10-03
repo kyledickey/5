@@ -13,7 +13,7 @@ import (
 // TestCurrentSchemaAddsHoneypotPresentation verifies marker-one startup adds the
 // delivery table and recovery preserves both pending work and uncertain sends.
 func TestCurrentSchemaAddsHoneypotPresentation(t *testing.T) {
-	for name, open := range map[string]func(*testing.T) *gorm.DB{"sqlite": openSQLiteMigrationDB, "mysql": openMySQLMigrationDB} {
+	for name, open := range map[string]func(*testing.T) *gorm.DB{"sqlite": openSQLiteTestDB, "mysql": openMySQLTestDB} {
 		t.Run(name, func(t *testing.T) {
 			db := open(t)
 			repository := New(db, nil)

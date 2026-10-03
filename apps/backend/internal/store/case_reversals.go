@@ -52,7 +52,7 @@ func queueVoidedCaseReversals(tx *gorm.DB, item model.Case, now time.Time) error
 		Find(&actions).Error; err != nil {
 		return err
 	}
-	var appeal AppealRecord
+	var appeal model.Appeal
 	if err := tx.Where("case_id = ? AND status = ?", item.ID, model.AppealStatusAccepted).Limit(1).Find(&appeal).Error; err != nil {
 		return err
 	}

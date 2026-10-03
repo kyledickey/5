@@ -95,14 +95,13 @@ Regenerate the HTTP contract:
 ./scripts/generate-openapi.sh
 ```
 
-Apply only database migrations without starting the other adapters:
+Create or reconcile the database schema without starting the other adapters:
 
 ```sh
-go run ./apps/backend/cmd/quack-migrate up
+go run ./apps/backend/cmd/quack-migrate
 ```
 
-See [`migrations.md`](migrations.md) before any production forward or rollback
-operation.
+See [`migrations.md`](migrations.md) before any production schema change.
 
 When you need a stable local cache path on macOS, this repo has previously been
 run with:

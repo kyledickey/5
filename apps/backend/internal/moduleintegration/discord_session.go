@@ -19,8 +19,7 @@ func restOptions(ctx context.Context) []discordgo.RequestOption {
 	}
 }
 
-// currentBotID returns the bot user ID from gateway state, or "" before the
-// session has identified.
+// currentBotID returns "" before the session has identified.
 func currentBotID(session *discordgo.Session) string {
 	if session != nil && session.State != nil && session.State.User != nil {
 		return session.State.User.ID
@@ -33,6 +32,9 @@ func currentBotID(session *discordgo.Session) string {
 // module's stored configuration. It falls back to /users/@me when the gateway
 // has not identified yet.
 func currentBotMember(ctx context.Context, session *discordgo.Session, discordGuildID string) (*discordgo.Guild, *discordgo.Member, error) {
+	if session == nil {
+		return nil, nil, errors.New("Discord session is not configured")
+	}
 	botID := currentBotID(session)
 	if botID == "" {
 		user, err := session.User("@me", restOptions(ctx)...)

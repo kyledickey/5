@@ -8,8 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/quackdiscord/bot/internal/discordbot/interactions"
-	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/modules/tickets"
 	"gorm.io/driver/sqlite"
@@ -34,10 +32,10 @@ func setup(t *testing.T) (*gorm.DB, *tickets.Service, *auditRecorder) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := modules.RegistryMigration().Apply(db); err != nil {
+	if err := db.AutoMigrate(modules.SchemaTypes()...); err != nil {
 		t.Fatal(err)
 	}
-	if err := tickets.Migration().Apply(db); err != nil {
+	if err := db.AutoMigrate(tickets.SchemaTypes()...); err != nil {
 		t.Fatal(err)
 	}
 	registry, err := modules.NewRegistry(modules.NewSQLSettingsStore(db), tickets.Descriptor())
@@ -280,27 +278,6 @@ func TestEnabledTicketsNeedChannelsWithoutCustomStaffRoles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("tickets required custom staff roles: %v", err)
 	}
-}
-
-func TestComponentRegistrarAndControls(t *testing.T) {
-	registry := interactions.NewComponentRegistry()
-	handler := func(ui.Context) ui.HandlerResult { return ui.Immediate(ui.Error("ok")) }
-	if err := tickets.RegisterComponents(registry, tickets.ComponentHandlers{Open: handler, Queue: handler, View: handler, Close: handler}); err != nil {
-		t.Fatal(err)
-	}
-	for _, action := range []string{"open", "queue", "view", "close"} {
-		customID := ui.MustCustomID(ui.CustomID{Namespace: "ticket", Action: action, Version: "v1", Payload: "ticket-id"})
-		if _, ok, err := registry.LookupComponent(customID); err != nil || !ok {
-			t.Fatalf("action %s ok=%v err=%v", action, ok, err)
-		}
-	}
-	if len(tickets.EntryComponents()) != 1 || len(tickets.TicketComponents("ticket-id")) != 1 {
-		t.Fatal("missing ticket controls")
-	}
-	if _, ok, err := registry.LookupComponent(ui.MustCustomID(ui.CustomID{Namespace: "ticket", Action: "reply", Version: "v1", Payload: "ticket-id"})); err != nil || ok {
-		t.Fatalf("reply modal control remains: %v %v", ok, err)
-	}
-
 }
 
 // TestOwnerCanCloseExistingTicketAfterModuleDisabled keeps closure available

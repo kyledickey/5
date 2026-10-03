@@ -34,7 +34,6 @@ func New(out io.Writer, development bool, levelName string) (*slog.Logger, error
 // them. WithAttrs and WithGroup preserve the wrapper for derived loggers.
 type traceHandler struct{ slog.Handler }
 
-// Handle forwards the record with the request and correlation IDs from context.
 func (h traceHandler) Handle(ctx context.Context, record slog.Record) error {
 	requestID, correlationID := idutil.TraceIDsFromContext(ctx)
 	if requestID != "" {
@@ -46,12 +45,10 @@ func (h traceHandler) Handle(ctx context.Context, record slog.Record) error {
 	return h.Handler.Handle(ctx, record)
 }
 
-// WithAttrs preserves trace injection when a component binds its own attributes.
 func (h traceHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	return traceHandler{h.Handler.WithAttrs(attrs)}
 }
 
-// WithGroup preserves trace injection when a component groups its attributes.
 func (h traceHandler) WithGroup(name string) slog.Handler {
 	return traceHandler{h.Handler.WithGroup(name)}
 }

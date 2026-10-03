@@ -7,7 +7,9 @@ import (
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/internal/config"
 	"github.com/quackdiscord/bot/internal/quack"
+	"github.com/quackdiscord/bot/internal/quack/idutil"
 	"github.com/quackdiscord/bot/internal/quack/model"
 	"github.com/quackdiscord/bot/internal/store"
 )
@@ -80,7 +82,7 @@ func TestFormerStaffLosesAccessWithoutLosingAttribution(t *testing.T) {
 	if current.Staff == nil || current.Staff.ID != staffID || current.Staff.LastSeenPermissionBits != uint64(discordgo.PermissionModerateMembers) {
 		t.Fatalf("expected preserved attribution cache, got %+v", current.Staff)
 	}
-	ctx := quack.ContextWithTrace(context.Background(), "req-former", "corr-former")
+	ctx := idutil.ContextWithTrace(context.Background(), "req-former", "corr-former")
 	if err := service.Authorize(ctx, current, model.PermissionActionCaseCreate, model.AuditSourceAPI); !errors.Is(err, quack.ErrAuthorizationDenied) {
 		t.Fatalf("expected former staff denial, got %v", err)
 	}
@@ -153,7 +155,7 @@ func TestCasePreflightMatrixAndNoPartialCommit(t *testing.T) {
 			if tt.mutate != nil && !tt.mutateAfterResolve {
 				tt.mutate(snapshot)
 			}
-			services := quack.NewWithDiscordClient(repositories, fakeDiscordClient{botGuild: &snapshot.Guild, authorization: snapshot})
+			services := quack.New(config.Default(), repositories, fakeDiscordClient{botGuild: &snapshot.Guild, authorization: snapshot}, nil, nil)
 			guildContext, err := services.Guilds.ResolveStaffContext(context.Background(), testSession("mod"), "guild-1")
 			if err != nil {
 				t.Fatalf("resolve actor: %v", err)
@@ -162,7 +164,7 @@ func TestCasePreflightMatrixAndNoPartialCommit(t *testing.T) {
 				tt.mutate(snapshot)
 			}
 			templateID := createAuthorizationTemplate(t, repositories, guildContext.Guild.ID, tt.action)
-			ctx := quack.ContextWithTrace(context.Background(), "req-case", "corr-case")
+			ctx := idutil.ContextWithTrace(context.Background(), "req-case", "corr-case")
 			_, err = services.Cases.Create(ctx, guildContext, quack.CaseInput{TemplateID: templateID, TargetDiscordUserID: targetID, Source: model.CaseSourceDashboard})
 			if tt.wantOK {
 				if err != nil {

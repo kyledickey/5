@@ -4,7 +4,6 @@ import (
 	"time"
 )
 
-// PermissionAction identifies the supported permission action values stored and exchanged by Quack.
 type PermissionAction string
 
 const (
@@ -30,7 +29,6 @@ const (
 	CaseValidityVoided CaseValidity = "voided"
 )
 
-// CaseSource identifies the supported case source values stored and exchanged by Quack.
 type CaseSource string
 
 const (
@@ -40,7 +38,6 @@ const (
 	CaseSourceV4Import  CaseSource = "v4_import"
 )
 
-// ActionType identifies the supported action type values stored and exchanged by Quack.
 type ActionType string
 
 const (
@@ -75,17 +72,6 @@ const (
 	NotificationFailed   NotificationStatus = "failed"
 )
 
-// NotificationType identifies the supported notification type values stored and exchanged by Quack.
-type NotificationType string
-
-const (
-	NotificationWarning NotificationType = "warning"
-	NotificationTimeout NotificationType = "timeout"
-	NotificationKick    NotificationType = "kick"
-	NotificationBan     NotificationType = "ban"
-)
-
-// ActionExecutionStatus identifies the supported action execution status values stored and exchanged by Quack.
 type ActionExecutionStatus string
 
 const (
@@ -98,7 +84,6 @@ const (
 	ActionExecutionCancelled ActionExecutionStatus = "cancelled"
 )
 
-// ActionAttemptStatus identifies the supported action attempt status values stored and exchanged by Quack.
 type ActionAttemptStatus string
 
 const (
@@ -107,7 +92,6 @@ const (
 	ActionAttemptFailed    ActionAttemptStatus = "failed"
 )
 
-// EventVisibility identifies the supported event visibility values stored and exchanged by Quack.
 type EventVisibility string
 
 const (
@@ -116,7 +100,6 @@ const (
 	EventVisibilityPublic   EventVisibility = "public"
 )
 
-// CaseEventType identifies the supported case event type values stored and exchanged by Quack.
 type CaseEventType string
 
 const (
@@ -134,7 +117,6 @@ const (
 	CaseEventAppealCreated      CaseEventType = "appeal_created"
 )
 
-// AppealStatus identifies the supported appeal status values stored and exchanged by Quack.
 type AppealStatus string
 
 const (
@@ -145,16 +127,6 @@ const (
 	AppealStatusClosed           AppealStatus = "closed"
 )
 
-// TicketStatus identifies the supported ticket status values stored and exchanged by Quack.
-type TicketStatus string
-
-const (
-	TicketStatusOpen      TicketStatus = "open"
-	TicketStatusResolved  TicketStatus = "resolved"
-	TicketStatusCancelled TicketStatus = "cancelled"
-)
-
-// AuditSource identifies the supported audit source values stored and exchanged by Quack.
 type AuditSource string
 
 const (
@@ -164,7 +136,6 @@ const (
 	AuditSourceSystem  AuditSource = "system"
 )
 
-// AuditResult captures the outcome of audit result for the caller.
 type AuditResult string
 
 const (
@@ -173,302 +144,352 @@ const (
 	AuditResultDenied  AuditResult = "denied"
 )
 
-// ULIDModel represents the persistence-free domain state for a ulidmodel.
 type ULIDModel struct {
-	ID        string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID        string    `gorm:"type:char(26);primaryKey"`
+	CreatedAt time.Time `gorm:"not null;index"`
+	UpdatedAt time.Time `gorm:"not null"`
 }
 
-// Guild represents the persistence-free domain state for a guild.
 type Guild struct {
 	ULIDModel
-	DiscordGuildID     string
-	Name               string
-	IconURL            string
-	OwnerDiscordUserID string
-	IsActive           bool
+	DiscordGuildID     string `gorm:"size:32;not null;uniqueIndex"`
+	Name               string `gorm:"size:191;not null"`
+	IconURL            string `gorm:"size:1024"`
+	OwnerDiscordUserID string `gorm:"size:32;not null;index"`
+	IsActive           bool   `gorm:"not null;index"`
 }
 
 // GuildSettings contains guild-owned Quack configuration without embedding optional-module runtime state in the moderation core.
 type GuildSettings struct {
 	ULIDModel
-	GuildID                           string
-	AppealQueueChannelDiscordID       string
-	AppealRejoinURL                   string
-	AppealReviewReasonRequired        bool
-	AuditMirrorChannelDiscordID       string
-	ManagedEvidenceChannelDiscordID   string
-	NotificationIntroduction          string
-	NotificationFooter                string
-	TicketsEnabled                    bool
-	GeneralLoggingEnabled             bool
-	HoneypotEnabled                   bool
-	StarterPolicyTemplateID           string
-	StarterPolicyNoticePending        bool
-	StarterPolicyNoticeAcknowledgedAt *time.Time
+	GuildID                           string     `gorm:"type:char(26);not null;uniqueIndex"`
+	AppealQueueChannelDiscordID       string     `gorm:"size:32;not null;default:''"`
+	AppealRejoinURL                   string     `gorm:"size:256;not null;default:''"`
+	AppealReviewReasonRequired        bool       `gorm:"not null;default:false"`
+	AuditMirrorChannelDiscordID       string     `gorm:"size:32;not null;default:''"`
+	ManagedEvidenceChannelDiscordID   string     `gorm:"size:32;not null;default:''"`
+	NotificationIntroduction          string     `gorm:"type:text;not null"`
+	NotificationFooter                string     `gorm:"type:text;not null"`
+	TicketsEnabled                    bool       `gorm:"not null;default:false"`
+	GeneralLoggingEnabled             bool       `gorm:"not null;default:false"`
+	HoneypotEnabled                   bool       `gorm:"not null;default:false"`
+	StarterPolicyTemplateID           string     `gorm:"type:char(26);not null;default:''"`
+	StarterPolicyNoticePending        bool       `gorm:"not null"`
+	StarterPolicyNoticeAcknowledgedAt *time.Time `gorm:"index"`
 }
 
-// StaffMember represents the persistence-free domain state for a staff member.
 type StaffMember struct {
 	ULIDModel
-	GuildID                string
-	DiscordUserID          string
-	LastSeenPermissionBits uint64
-	LastKnownDisplayName   string
-	LastActiveAt           *time.Time
+	GuildID                string     `gorm:"type:char(26);not null;uniqueIndex:idx_staff_member_guild_user,priority:1;index"`
+	DiscordUserID          string     `gorm:"size:32;not null;uniqueIndex:idx_staff_member_guild_user,priority:2;index"`
+	LastSeenPermissionBits uint64     `gorm:"type:bigint unsigned;not null;default:0"`
+	LastKnownDisplayName   string     `gorm:"size:191"`
+	LastActiveAt           *time.Time `gorm:"index"`
 }
 
-// CaseTemplate represents the persistence-free domain state for a case template.
 type CaseTemplate struct {
 	ULIDModel
-	GuildID                string
-	Slug                   string
-	Name                   string
-	Description            string
-	ReasonTemplate         string
-	CaseDecayDays          int
-	Appealable             bool
-	Version                uint
-	CreatedByDiscordUserID string
-	UpdatedByDiscordUserID string
-	ArchivedAt             *time.Time
+	GuildID                string     `gorm:"type:char(26);not null;uniqueIndex:idx_case_template_guild_slug,priority:1"`
+	Slug                   string     `gorm:"size:64;not null;uniqueIndex:idx_case_template_guild_slug,priority:2"`
+	Name                   string     `gorm:"size:191;not null"`
+	Description            string     `gorm:"type:text;not null"`
+	ReasonTemplate         string     `gorm:"type:text;not null"`
+	CaseDecayDays          int        `gorm:"not null;default:0"`
+	Appealable             bool       `gorm:"not null;default:false"`
+	Version                uint       `gorm:"not null"`
+	CreatedByDiscordUserID string     `gorm:"size:32;not null"`
+	UpdatedByDiscordUserID string     `gorm:"size:32;not null"`
+	ArchivedAt             *time.Time `gorm:"index"`
 }
 
 // CaseTemplateContextField defines one ordered member-visible value collected whenever a template is applied.
 type CaseTemplateContextField struct {
 	ULIDModel
-	TemplateID string
-	Key        string
-	Label      string
-	FieldType  ContextFieldType
-	Position   int
-	Required   bool
+	TemplateID string           `gorm:"type:char(26);not null;uniqueIndex:idx_template_context_key,priority:1;uniqueIndex:idx_template_context_position,priority:1;index"`
+	Key        string           `gorm:"size:64;not null;uniqueIndex:idx_template_context_key,priority:2"`
+	Label      string           `gorm:"size:191;not null"`
+	FieldType  ContextFieldType `gorm:"size:32;not null"`
+	Position   int              `gorm:"not null;uniqueIndex:idx_template_context_position,priority:2"`
+	Required   bool             `gorm:"not null;default:false"`
 }
 
-// CaseTemplateLevel represents the persistence-free domain state for a case template level.
 type CaseTemplateLevel struct {
 	ULIDModel
-	TemplateID       string
-	Position         int
-	Name             string
-	IsDefault        bool
-	TriggerCaseCount int
-	NotifyUser       bool
+	TemplateID       string `gorm:"type:char(26);not null;uniqueIndex:idx_template_level_position,priority:1;index"`
+	Position         int    `gorm:"not null;uniqueIndex:idx_template_level_position,priority:2"`
+	Name             string `gorm:"size:191;not null"`
+	IsDefault        bool   `gorm:"not null;default:false;index"`
+	TriggerCaseCount int    `gorm:"not null;default:0"`
+	NotifyUser       bool   `gorm:"not null;default:false"`
 }
 
-// CaseTemplateLevelAction identifies the supported case template level action values stored and exchanged by Quack.
+// CaseTemplateLevelAction is limited to one enforcement action per level by the
+// uq_v5_level_enforcement_action unique index in schema.go.
 type CaseTemplateLevelAction struct {
 	ULIDModel
-	LevelID    string
-	ActionType ActionType
-	ConfigJSON string
-	MaxRetries uint8
+	LevelID    string     `gorm:"type:char(26);not null;index"`
+	ActionType ActionType `gorm:"size:64;not null;index"`
+	ConfigJSON string     `gorm:"type:json;not null"`
+	MaxRetries uint8      `gorm:"not null;default:0"`
 }
 
-// Case represents the persistence-free domain state for a case.
 type Case struct {
 	ULIDModel
-	GuildID                 string
-	CaseNumber              uint64
-	TemplateID              *string
-	TemplateVersion         uint
-	TemplateSnapshotJSON    string
-	TargetDiscordUserID     string
-	ModeratorDiscordUserID  string
-	Reason                  string
-	Validity                CaseValidity `gorm:"column:status"`
-	Source                  CaseSource
-	CorrelationID           string
-	ContextChannelDiscordID string
-	ContextMessageDiscordID string
-	ContextURL              string
-	MetadataJSON            string
-	ContextValuesJSON       string
-	VoidedReason            string
-	VoidedByDiscordUserID   string
-	VoidedAt                *time.Time
-	ReplacementCaseID       *string
-	ReplacesCaseID          *string
-	IdempotencyKey          *string
+	GuildID                 string       `gorm:"type:char(26);not null;index:idx_case_guild_case_number,priority:1,unique;index:idx_case_guild_target,priority:1;index:idx_case_guild_mod,priority:1;index:idx_case_guild_status,priority:1;uniqueIndex:idx_case_guild_idempotency,priority:1"`
+	CaseNumber              uint64       `gorm:"type:bigint unsigned;not null;index:idx_case_guild_case_number,priority:2,unique"`
+	TemplateID              *string      `gorm:"type:char(26);index"`
+	TemplateVersion         uint         `gorm:"not null"`
+	TemplateSnapshotJSON    string       `gorm:"type:json;not null"`
+	TargetDiscordUserID     string       `gorm:"size:32;not null;index:idx_case_guild_target,priority:2"`
+	ModeratorDiscordUserID  string       `gorm:"size:32;not null;index:idx_case_guild_mod,priority:2"`
+	Reason                  string       `gorm:"type:text;not null"`
+	Validity                CaseValidity `gorm:"column:status;size:32;not null;index:idx_case_guild_status,priority:2"`
+	Source                  CaseSource   `gorm:"size:32;not null;index"`
+	CorrelationID           string       `gorm:"size:128;index"`
+	ContextChannelDiscordID string       `gorm:"size:32"`
+	ContextMessageDiscordID string       `gorm:"size:32"`
+	ContextURL              string       `gorm:"size:1024"`
+	MetadataJSON            string       `gorm:"type:json;not null"`
+	ContextValuesJSON       string       `gorm:"type:json"`
+	VoidedReason            string       `gorm:"type:text"`
+	VoidedByDiscordUserID   string       `gorm:"size:32;not null;default:''"`
+	VoidedAt                *time.Time   `gorm:"index"`
+	ReplacementCaseID       *string      `gorm:"type:char(26);index"`
+	ReplacesCaseID          *string      `gorm:"type:char(26);index"`
+	IdempotencyKey          *string      `gorm:"size:191;uniqueIndex:idx_case_guild_idempotency,priority:2"`
 }
 
-// CaseActionExecution represents the persistence-free domain state for a case action execution.
 type CaseActionExecution struct {
 	ULIDModel
-	CaseID                   string
-	TemplateActionID         *string
-	Position                 int
-	ActionType               ActionType
-	Status                   ActionExecutionStatus
-	IdempotencyKey           string
-	ConfigSnapshotJSON       string
-	NotifyUser               bool
-	NotificationType         string
-	AttemptCount             uint8
-	MaxRetries               uint8
-	RetryBackoffMS           int
-	SafeForRetry             bool
-	Irreversible             bool
-	LastErrorCode            string
-	LastError                string
+	CaseID                   string                `gorm:"type:char(26);not null;index:idx_action_execution_case_position,priority:1;index"`
+	TemplateActionID         *string               `gorm:"type:char(26);index"`
+	Position                 int                   `gorm:"not null;index:idx_action_execution_case_position,priority:2"`
+	ActionType               ActionType            `gorm:"size:64;not null;index"`
+	Status                   ActionExecutionStatus `gorm:"size:32;not null;index:idx_action_execution_status_retry,priority:1"`
+	IdempotencyKey           string                `gorm:"size:191;not null;uniqueIndex"`
+	ConfigSnapshotJSON       string                `gorm:"type:json;not null"`
+	NotifyUser               bool                  `gorm:"not null;default:false"`
+	NotificationType         string                `gorm:"size:64"`
+	AttemptCount             uint8                 `gorm:"not null;default:0"`
+	MaxRetries               uint8                 `gorm:"not null;default:0"`
+	RetryBackoffMS           int                   `gorm:"not null;default:0"`
+	SafeForRetry             bool                  `gorm:"not null"`
+	Irreversible             bool                  `gorm:"not null;default:false"`
+	LastErrorCode            string                `gorm:"size:64"`
+	LastError                string                `gorm:"type:text"`
 	StartedAt                *time.Time
 	FinishedAt               *time.Time
-	NextRetryAt              *time.Time
-	CorrelationID            string
-	LeaseToken               string
-	LeaseExpiresAt           *time.Time
-	DismissedAt              *time.Time
-	DismissedByDiscordUserID string
-	ReversalOfExecutionID    *string
-	ReversalAppealID         *string
+	NextRetryAt              *time.Time `gorm:"index:idx_action_execution_status_retry,priority:2"`
+	CorrelationID            string     `gorm:"size:128;index"`
+	LeaseToken               string     `gorm:"size:64;index"`
+	LeaseExpiresAt           *time.Time `gorm:"index"`
+	DismissedAt              *time.Time `gorm:"index"`
+	DismissedByDiscordUserID string     `gorm:"size:32;not null;default:''"`
+	ReversalOfExecutionID    *string    `gorm:"type:char(26);index"`
+	ReversalAppealID         *string    `gorm:"type:char(26);index"`
 }
 
 // CaseEvidenceSnapshot is an immutable, transport-neutral snapshot of a Discord message linked to a case.
 type CaseEvidenceSnapshot struct {
 	ULIDModel
-	CaseID              string
-	GuildID             string
-	ChannelDiscordID    string
-	MessageDiscordID    string
-	AuthorDiscordUserID string
-	MessageURL          string
-	Content             string
-	MessageCreatedAt    time.Time
+	CaseID              string    `gorm:"type:char(26);not null;index"`
+	GuildID             string    `gorm:"type:char(26);not null;index"`
+	ChannelDiscordID    string    `gorm:"size:32;not null"`
+	MessageDiscordID    string    `gorm:"size:32;not null"`
+	AuthorDiscordUserID string    `gorm:"size:32;not null"`
+	MessageURL          string    `gorm:"size:1024;not null"`
+	Content             string    `gorm:"type:text;not null"`
+	MessageCreatedAt    time.Time `gorm:"not null"`
 	MessageEditedAt     *time.Time
-	EmbedsJSON          string
-	CaptureOutcome      string
-	CaptureWarning      string
+	EmbedsJSON          string `gorm:"type:json;not null"`
+	CaptureOutcome      string `gorm:"size:32;not null"`
+	CaptureWarning      string `gorm:"type:text;not null"`
 }
 
 // CaseEvidenceAttachment preserves attachment metadata and, when possible, a stable managed-channel copy.
 type CaseEvidenceAttachment struct {
 	ULIDModel
-	EvidenceID                   string
-	Filename                     string
-	ContentType                  string
-	SizeBytes                    int64
-	OriginalURL                  string
-	PreservedURL                 string
-	PreservedMessageDiscordID    string
-	PreservedAttachmentDiscordID string
-	CopyOutcome                  string
-	Warning                      string
+	EvidenceID                   string `gorm:"type:char(26);not null;index"`
+	Filename                     string `gorm:"size:255;not null"`
+	ContentType                  string `gorm:"size:191;not null"`
+	SizeBytes                    int64  `gorm:"not null"`
+	OriginalURL                  string `gorm:"size:2048;not null"`
+	PreservedURL                 string `gorm:"size:2048;not null"`
+	PreservedMessageDiscordID    string `gorm:"size:32;not null"`
+	PreservedAttachmentDiscordID string `gorm:"size:32;not null"`
+	CopyOutcome                  string `gorm:"size:32;not null"`
+	Warning                      string `gorm:"type:text;not null"`
 }
 
 // CaseNotification is the single durable automatic member notification owned by a case rather than an action.
 type CaseNotification struct {
 	ULIDModel
-	CaseID                   string
-	Status                   NotificationStatus
-	PreparedChannelDiscordID string
-	RenderedMessage          string
-	DeliveryMessageDiscordID string
-	AttemptCount             uint8
-	LastErrorCode            string
-	LastError                string
-	LeaseToken               string
-	LeaseExpiresAt           *time.Time
+	CaseID                   string             `gorm:"type:char(26);not null;uniqueIndex"`
+	Status                   NotificationStatus `gorm:"size:32;not null;index"`
+	PreparedChannelDiscordID string             `gorm:"size:32;not null"`
+	RenderedMessage          string             `gorm:"type:text;not null"`
+	DeliveryMessageDiscordID string             `gorm:"size:32;not null"`
+	AttemptCount             uint8              `gorm:"not null;default:0"`
+	LastErrorCode            string             `gorm:"size:64;not null"`
+	LastError                string             `gorm:"type:text;not null"`
+	LeaseToken               string             `gorm:"size:64;index"`
+	LeaseExpiresAt           *time.Time         `gorm:"index"`
 	SentAt                   *time.Time
 }
 
-// CaseActionAttempt represents the persistence-free domain state for a case action attempt.
 type CaseActionAttempt struct {
 	ULIDModel
-	ExecutionID         string
-	AttemptNumber       uint8
-	Status              ActionAttemptStatus
-	WorkerID            string
-	StartedAt           time.Time
+	ExecutionID         string              `gorm:"type:char(26);not null;uniqueIndex:idx_action_attempt_execution_number,priority:1;index"`
+	AttemptNumber       uint8               `gorm:"not null;uniqueIndex:idx_action_attempt_execution_number,priority:2"`
+	Status              ActionAttemptStatus `gorm:"size:32;not null;index"`
+	WorkerID            string              `gorm:"size:64"`
+	StartedAt           time.Time           `gorm:"not null"`
 	FinishedAt          *time.Time
-	DurationMS          int64
-	ErrorCode           string
-	ErrorMessage        string
-	RequestPayloadJSON  string
-	ResponsePayloadJSON string
+	DurationMS          int64  `gorm:"not null;default:0"`
+	ErrorCode           string `gorm:"size:64"`
+	ErrorMessage        string `gorm:"type:text"`
+	RequestPayloadJSON  string `gorm:"type:json;not null"`
+	ResponsePayloadJSON string `gorm:"type:json;not null"`
 }
 
-// CaseEvent represents the persistence-free domain state for a case event.
 type CaseEvent struct {
 	ULIDModel
-	CaseID             string
-	GuildID            string
-	EventType          CaseEventType
-	ActorDiscordUserID string
-	ActorType          string
-	Visibility         EventVisibility
-	Body               string
-	MetadataJSON       string
+	CaseID             string          `gorm:"type:char(26);not null;index:idx_case_event_case_created,priority:1"`
+	GuildID            string          `gorm:"type:char(26);not null;index"`
+	EventType          CaseEventType   `gorm:"size:64;not null;index"`
+	ActorDiscordUserID string          `gorm:"size:32;index"`
+	ActorType          string          `gorm:"size:32;not null"`
+	Visibility         EventVisibility `gorm:"size:32;not null"`
+	Body               string          `gorm:"type:text;not null"`
+	MetadataJSON       string          `gorm:"type:json;not null"`
 }
 
-// Appeal represents the persistence-free domain state for a appeal.
+// Appeal is one case-linked appeal, its immutable submission, and its terminal
+// review state. The unique case reference enforces one appeal per case.
 type Appeal struct {
 	ULIDModel
-	GuildID                 string
-	CaseID                  *string
-	TargetDiscordUserID     string
-	Status                  AppealStatus
-	Content                 string
-	QuestionSnapshotJSON    string
-	AnswersJSON             string
-	Version                 uint64
-	DecisionReason          string
-	ReviewedByDiscordUserID string
-	ReviewedAt              *time.Time
-	ReviewMessageDiscordID  string
-	MetadataJSON            string
+	GuildID                 string       `gorm:"type:char(26);not null;index:idx_appeal_guild_status,priority:1;index:idx_appeal_guild_user,priority:1"`
+	CaseID                  *string      `gorm:"type:char(26);uniqueIndex"`
+	TargetDiscordUserID     string       `gorm:"size:32;not null;index:idx_appeal_guild_user,priority:2"`
+	Status                  AppealStatus `gorm:"size:32;not null;index:idx_appeal_guild_status,priority:2"`
+	Content                 string       `gorm:"type:text;not null"`
+	QuestionSnapshotJSON    string       `gorm:"type:json;not null"`
+	AnswersJSON             string       `gorm:"type:json;not null"`
+	Version                 uint64       `gorm:"type:bigint unsigned;not null"`
+	DecisionReason          string       `gorm:"type:text"`
+	ReviewedByDiscordUserID string       `gorm:"size:32"`
+	ReviewedAt              *time.Time   `gorm:"index"`
+	ReviewMessageDiscordID  string       `gorm:"size:32"`
+	MetadataJSON            string       `gorm:"type:json;not null"`
 }
 
-// AppealEvent represents the persistence-free domain state for a appeal event.
+// AppealEvent keeps actor type separate from actor identity so member responses
+// can omit moderator attribution.
 type AppealEvent struct {
 	ULIDModel
-	AppealID           string
-	GuildID            string
-	EventType          string
-	ActorDiscordUserID string
-	ActorType          string
-	Body               string
-	MetadataJSON       string
+	AppealID           string `gorm:"type:char(26);not null;index"`
+	GuildID            string `gorm:"type:char(26);not null;index"`
+	EventType          string `gorm:"size:64;not null;index"`
+	ActorDiscordUserID string `gorm:"size:32;index"`
+	ActorType          string `gorm:"size:32;not null"`
+	Body               string `gorm:"type:text;not null"`
+	MetadataJSON       string `gorm:"type:json;not null"`
 }
 
-// Ticket represents the persistence-free domain state for a ticket.
-type Ticket struct {
-	ULIDModel
-	GuildID                 string
-	OwnerDiscordUserID      string
-	ThreadDiscordChannelID  string
-	Status                  TicketStatus
-	LogMessageDiscordID     string
-	ResolvedByDiscordUserID string
-	ResolvedAt              *time.Time
-	TranscriptURL           string
-	MetadataJSON            string
-}
-
-// TicketEvent represents the persistence-free domain state for a ticket event.
-type TicketEvent struct {
-	ULIDModel
-	TicketID           string
-	GuildID            string
-	EventType          string
-	ActorDiscordUserID string
-	Body               string
-	MetadataJSON       string
-}
-
-// AuditLogEntry represents the persistence-free domain state for a audit log entry.
 type AuditLogEntry struct {
 	ULIDModel
-	GuildID             string
-	ActorDiscordUserID  string
-	ActorPermissionBits uint64
-	Source              AuditSource
-	Action              string
-	ResourceType        string
-	ResourceID          string
-	Result              AuditResult
-	FailureReason       string
-	CorrelationID       string
-	RequestID           string
-	MetadataJSON        string
+	GuildID             string      `gorm:"type:char(26);not null;index:idx_audit_guild_action,priority:1;index"`
+	ActorDiscordUserID  string      `gorm:"size:32;index"`
+	ActorPermissionBits uint64      `gorm:"type:bigint unsigned;not null;default:0"`
+	Source              AuditSource `gorm:"size:32;not null;index"`
+	Action              string      `gorm:"size:96;not null;index:idx_audit_guild_action,priority:2"`
+	ResourceType        string      `gorm:"size:64;not null;index:idx_audit_resource,priority:1"`
+	ResourceID          string      `gorm:"size:64;not null;index:idx_audit_resource,priority:2"`
+	Result              AuditResult `gorm:"size:32;not null;index"`
+	FailureReason       string      `gorm:"type:text"`
+	CorrelationID       string      `gorm:"size:128;index"`
+	RequestID           string      `gorm:"size:128;index"`
+	MetadataJSON        string      `gorm:"type:json;not null"`
+}
+
+// CasePublication tracks a public case message independently of an expiring
+// interaction token. PresentationJSON contains only the original public display
+// fields; it is never a serialized staff case detail or evidence record.
+type CasePublication struct {
+	MessageID        string    `gorm:"size:32;primaryKey"`
+	CaseID           string    `gorm:"type:char(26);not null;index"`
+	ChannelID        string    `gorm:"size:32;not null"`
+	PresentationJSON string    `gorm:"type:longtext;not null"`
+	LastDigest       string    `gorm:"size:64;not null"`
+	RetryAt          time.Time `gorm:"not null;index;index:idx_case_publication_due,priority:2"`
+	// RefreshRequested limits scanning to new, changed or still-pending receipts.
+	RefreshRequested bool `gorm:"not null;default:true;index:idx_case_publication_due,priority:1"`
+	// Revision fences completion against mutations committed during a refresh.
+	Revision uint64 `gorm:"not null;default:0"`
+}
+
+type OAuthState struct {
+	RedirectTo   string    `json:"redirect_to"`
+	ResponseMode string    `json:"response_mode"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+type AuthSession struct {
+	ID               string    `json:"-"`
+	DiscordUserID    string    `json:"discord_user_id"`
+	Username         string    `json:"username"`
+	GlobalName       string    `json:"global_name"`
+	Avatar           string    `json:"avatar"`
+	AccessToken      string    `json:"-"`
+	RefreshToken     string    `json:"-"`
+	CSRFToken        string    `json:"-"`
+	TokenType        string    `json:"token_type"`
+	Scope            string    `json:"scope"`
+	TokenExpiresAt   time.Time `json:"token_expires_at"`
+	SessionExpiresAt time.Time `json:"session_expires_at"`
+	CreatedAt        time.Time `json:"created_at"`
+	LastSeenAt       time.Time `json:"last_seen_at"`
+}
+
+// Label gives a human-readable outcome name for Discord and member messages.
+// Persisted values and JSON contracts retain their stable action identifiers.
+func (action ActionType) Label() string {
+	switch action {
+	case ActionTimeoutUser:
+		return "Timeout"
+	case ActionKickUser:
+		return "Kick"
+	case ActionBanUser:
+		return "Ban"
+	case ActionRemoveTimeout:
+		return "Remove timeout"
+	case ActionUnbanUser:
+		return "Unban"
+	case ActionSendDM:
+		return "Notification"
+	default:
+		return "Action"
+	}
+}
+
+// Label describes execution progress without exposing internal state names.
+func (status ActionExecutionStatus) Label() string {
+	switch status {
+	case ActionExecutionPending:
+		return "Queued"
+	case ActionExecutionRunning:
+		return "In progress"
+	case ActionExecutionSucceeded:
+		return "Completed"
+	case ActionExecutionFailed:
+		return "Needs review"
+	case ActionExecutionRetrying:
+		return "Retry scheduled"
+	case ActionExecutionSkipped:
+		return "Skipped"
+	case ActionExecutionCancelled:
+		return "Cancelled"
+	default:
+		return "Unknown"
+	}
 }

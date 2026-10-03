@@ -30,9 +30,7 @@ func (s *Store) AppendCaseEvidence(
 		ids := map[string]bool{}
 		for i := range evidence {
 			evidence[i].GuildID, evidence[i].CaseID = guildID, caseID
-			if err := prepareULIDModel(&evidence[i].ULIDModel, now); err != nil {
-				return err
-			}
+			prepareULIDModel(&evidence[i].ULIDModel, now)
 			ids[evidence[i].ID] = true
 			if err := tx.Create(&evidence[i]).Error; err != nil {
 				return err
@@ -42,9 +40,7 @@ func (s *Store) AppendCaseEvidence(
 			if !ids[attachments[i].EvidenceID] {
 				return errors.New("attachment does not belong to this evidence batch")
 			}
-			if err := prepareULIDModel(&attachments[i].ULIDModel, now); err != nil {
-				return err
-			}
+			prepareULIDModel(&attachments[i].ULIDModel, now)
 			if err := tx.Create(&attachments[i]).Error; err != nil {
 				return err
 			}

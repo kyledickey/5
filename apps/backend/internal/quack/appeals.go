@@ -6,9 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
+	"regexp"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/quackdiscord/bot/internal/discordtext"
+	"github.com/quackdiscord/bot/internal/quack/idutil"
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
@@ -48,7 +53,6 @@ type AppealService struct {
 	store AppealRepository
 }
 
-// NewAppealService returns a service over store; it has no optional collaborators.
 func NewAppealService(store AppealRepository) *AppealService {
 	return &AppealService{store: store}
 }
@@ -376,7 +380,6 @@ func (s *AppealService) transition(
 	return s.response(ctx, updated, false)
 }
 
-// appealValidation wraps a safe message in ErrAppealValidation.
 func appealValidation(message string) error {
 	return fmt.Errorf("%w: %s", ErrAppealValidation, message)
 }
@@ -390,7 +393,7 @@ func appealAudit(
 	action, resourceType, resourceID string,
 	result model.AuditResult,
 ) model.AuditLogEntry {
-	requestID, correlationID := TraceIDsFromContext(ctx)
+	requestID, correlationID := idutil.TraceIDsFromContext(ctx)
 	return model.AuditLogEntry{
 		GuildID:             guildID,
 		ActorDiscordUserID:  actorID,
@@ -406,8 +409,319 @@ func appealAudit(
 	}
 }
 
-// auditMember records a member-attributed appeal access outcome.
 func (s *AppealService) auditMember(ctx context.Context, guildID, actorID, action, resourceID string, result model.AuditResult) error {
 	entry := appealAudit(ctx, guildID, actorID, 0, action, "appeal", resourceID, result)
 	return recordAudit(ctx, s.store, &entry)
+}
+
+// AppealSettingsResponse is the form new appeals in a guild will snapshot.
+// Default reports that it is Quack's built-in form rather than a guild override.
+type AppealSettingsResponse struct {
+	GuildID   string                 `json:"guild_id"`
+	Questions []model.AppealQuestion `json:"questions"`
+	Default   bool                   `json:"default"`
+}
+
+type AppealSubmissionInput struct {
+	Answers []model.AppealAnswer `json:"answers"`
+}
+
+type AppealDecisionInput struct {
+	Reason string `json:"reason"`
+}
+
+type AppealEventResponse struct {
+	ID                 string                `json:"id"`
+	Type               model.AppealEventType `json:"type"`
+	ActorType          string                `json:"actor_type"`
+	ActorDiscordUserID string                `json:"actor_discord_user_id,omitempty"`
+	Body               string                `json:"body"`
+	CreatedAt          time.Time             `json:"created_at"`
+}
+
+// AppealReversalOffer describes a separately confirmed reversal without executing it.
+type AppealReversalOffer struct {
+	OriginalExecutionID string           `json:"original_execution_id"`
+	ActionType          model.ActionType `json:"action_type"`
+}
+
+type AppealResponse struct {
+	CaseNumber              uint64                 `json:"case_number"`
+	TemplateName            string                 `json:"template_name"`
+	ID                      string                 `json:"id"`
+	GuildID                 string                 `json:"guild_id"`
+	CaseID                  string                 `json:"case_id"`
+	TargetDiscordUserID     string                 `json:"target_discord_user_id"`
+	Status                  model.AppealStatus     `json:"status"`
+	Questions               []model.AppealQuestion `json:"questions"`
+	Answers                 []model.AppealAnswer   `json:"answers"`
+	DecisionReason          string                 `json:"decision_reason,omitempty"`
+	ReviewedByDiscordUserID string                 `json:"reviewed_by_discord_user_id,omitempty"`
+	Events                  []AppealEventResponse  `json:"events"`
+	ReversalOffers          []AppealReversalOffer  `json:"reversal_offers,omitempty"`
+	CreatedAt               time.Time              `json:"created_at"`
+	UpdatedAt               time.Time              `json:"updated_at"`
+}
+
+type AppealListResponse struct {
+	Appeals []AppealResponse `json:"appeals"`
+	Total   int64            `json:"total"`
+	Limit   int              `json:"limit"`
+	Offset  int              `json:"offset"`
+}
+
+// response builds the AppealResponse projection for item. When member is true
+// every staff identity is redacted. Staff projections of an accepted appeal
+// also list reversal offers: succeeded timeouts and bans on the linked case
+// that have no reversal queued yet.
+func (s *AppealService) response(ctx context.Context, item *model.Appeal, member bool) (*AppealResponse, error) {
+	questions, err := decodeQuestions(item.QuestionSnapshotJSON)
+	if err != nil {
+		return nil, err
+	}
+	var answers []model.AppealAnswer
+	if err := json.Unmarshal([]byte(item.AnswersJSON), &answers); err != nil {
+		return nil, fmt.Errorf("decode appeal answers: %w", err)
+	}
+	events, err := s.store.ListAppealEvents(ctx, item.ID)
+	if err != nil {
+		return nil, err
+	}
+	responseEvents := make([]AppealEventResponse, 0, len(events))
+	for _, event := range events {
+		actorID := event.ActorDiscordUserID
+		if member && event.ActorType == "staff" {
+			actorID = ""
+		}
+		responseEvents = append(responseEvents, AppealEventResponse{
+			ID:                 event.ID,
+			Type:               model.AppealEventType(event.EventType),
+			ActorType:          event.ActorType,
+			ActorDiscordUserID: actorID,
+			Body:               event.Body,
+			CreatedAt:          event.CreatedAt,
+		})
+	}
+	reviewedBy := item.ReviewedByDiscordUserID
+	if member {
+		reviewedBy = ""
+	}
+	caseID := ""
+	if item.CaseID != nil {
+		caseID = *item.CaseID
+	}
+	response := &AppealResponse{
+		ID:                      item.ID,
+		GuildID:                 item.GuildID,
+		CaseID:                  caseID,
+		TargetDiscordUserID:     item.TargetDiscordUserID,
+		Status:                  item.Status,
+		Questions:               questions,
+		Answers:                 answers,
+		DecisionReason:          item.DecisionReason,
+		ReviewedByDiscordUserID: reviewedBy,
+		Events:                  responseEvents,
+		CreatedAt:               item.CreatedAt,
+		UpdatedAt:               item.UpdatedAt,
+	}
+	if caseID != "" {
+		caseRecord, err := s.store.GetCaseByID(ctx, caseID)
+		if err != nil {
+			return nil, err
+		}
+		if caseRecord != nil {
+			response.CaseNumber = caseRecord.CaseNumber
+			response.TemplateName = memberTemplateName(*caseRecord)
+		}
+	}
+	if !member && item.Status == model.AppealStatusAccepted && caseID != "" {
+		actions, actionErr := s.store.ListCaseActionExecutions(ctx, caseID)
+		if actionErr != nil {
+			return nil, actionErr
+		}
+		queued := make(map[string]bool)
+		for _, action := range actions {
+			if action.ReversalOfExecutionID != nil {
+				queued[*action.ReversalOfExecutionID] = true
+			}
+		}
+		for _, action := range actions {
+			if action.Status != model.ActionExecutionSucceeded || action.ReversalOfExecutionID != nil || queued[action.ID] {
+				continue
+			}
+			switch action.ActionType {
+			case model.ActionTimeoutUser:
+				response.ReversalOffers = append(response.ReversalOffers, AppealReversalOffer{
+					OriginalExecutionID: action.ID,
+					ActionType:          model.ActionRemoveTimeout,
+				})
+			case model.ActionBanUser:
+				response.ReversalOffers = append(response.ReversalOffers, AppealReversalOffer{
+					OriginalExecutionID: action.ID,
+					ActionType:          model.ActionUnbanUser,
+				})
+			}
+		}
+	}
+	return response, nil
+}
+
+// validateQuestions normalizes a form definition: 1-10 questions sorted by
+// Position with unique non-empty ids, contiguous positions from 0, prompts of
+// at most 300 characters, and a supported type.
+func validateQuestions(questions []model.AppealQuestion) ([]model.AppealQuestion, error) {
+	if len(questions) == 0 || len(questions) > 10 {
+		return nil, appealValidation("appeal form must contain between 1 and 10 questions")
+	}
+	normalized := append([]model.AppealQuestion(nil), questions...)
+	sort.SliceStable(normalized, func(i, j int) bool { return normalized[i].Position < normalized[j].Position })
+	seen := map[string]bool{}
+	for index := range normalized {
+		question := &normalized[index]
+		question.ID = strings.TrimSpace(question.ID)
+		question.Prompt = strings.TrimSpace(question.Prompt)
+		if question.ID == "" || len(question.ID) > 64 || question.Prompt == "" || len([]rune(question.Prompt)) > 300 ||
+			seen[question.ID] || question.Position != index {
+			return nil, appealValidation("appeal questions require unique ids and contiguous ordering")
+		}
+		seen[question.ID] = true
+		switch question.Type {
+		case model.AppealQuestionShortText, model.AppealQuestionLongText, model.AppealQuestionBoolean:
+		default:
+			return nil, appealValidation("appeal question type is unsupported")
+		}
+	}
+	return normalized, nil
+}
+
+// validateAnswers matches answers to questions by id, rejecting duplicates,
+// unknown ids, missing required answers, and values of the wrong type. Text
+// answers are trimmed and limited to 4000 characters. The result is ordered
+// like questions and omits unanswered optional questions.
+func validateAnswers(questions []model.AppealQuestion, answers []model.AppealAnswer) ([]model.AppealAnswer, error) {
+	byID := map[string]model.AppealAnswer{}
+	for _, answer := range answers {
+		answer.QuestionID = strings.TrimSpace(answer.QuestionID)
+		if answer.QuestionID == "" || byID[answer.QuestionID].QuestionID != "" {
+			return nil, appealValidation("answers must have unique question ids")
+		}
+		byID[answer.QuestionID] = answer
+	}
+	normalized := make([]model.AppealAnswer, 0, len(questions))
+	for _, question := range questions {
+		answer, present := byID[question.ID]
+		if !present {
+			if question.Required {
+				return nil, appealValidation("required appeal answer is missing")
+			}
+			continue
+		}
+		switch question.Type {
+		case model.AppealQuestionBoolean:
+			if _, ok := answer.Value.(bool); !ok {
+				return nil, appealValidation("boolean appeal answer is invalid")
+			}
+		default:
+			value, ok := answer.Value.(string)
+			if !ok || len([]rune(strings.TrimSpace(value))) > 4000 || (question.Required && strings.TrimSpace(value) == "") {
+				return nil, appealValidation("text appeal answer is invalid")
+			}
+			answer.Value = strings.TrimSpace(value)
+		}
+		normalized = append(normalized, answer)
+		delete(byID, question.ID)
+	}
+	if len(byID) != 0 {
+		return nil, appealValidation("answer references an unknown question")
+	}
+	return normalized, nil
+}
+
+// decodeQuestions parses a stored question snapshot and re-validates it so a
+// corrupt snapshot fails loudly instead of rendering a partial form.
+func decodeQuestions(body string) ([]model.AppealQuestion, error) {
+	var questions []model.AppealQuestion
+	if err := json.Unmarshal([]byte(body), &questions); err != nil {
+		return nil, fmt.Errorf("decode appeal questions: %w", err)
+	}
+	return validateQuestions(questions)
+}
+
+// caseSnapshotAppealable reads the appealable flag frozen in the case's
+// template snapshot; the live template's current setting is irrelevant.
+func caseSnapshotAppealable(body string) bool {
+	var snapshot struct {
+		Template struct {
+			Appealable bool `json:"appealable"`
+		} `json:"template"`
+	}
+	return json.Unmarshal([]byte(body), &snapshot) == nil && snapshot.Template.Appealable
+}
+
+func validAppealState(status model.AppealStatus) bool {
+	switch status {
+	case model.AppealStatusPending, model.AppealStatusNeedsInformation, model.AppealStatusAccepted,
+		model.AppealStatusRejected, model.AppealStatusClosed:
+		return true
+	default:
+		return false
+	}
+}
+
+// requireAppealReview is the shared staff gate: a resolved guild, a staff row
+// for attribution, and the appeal.review capability.
+func requireAppealReview(guildContext *GuildStaffContext) error {
+	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil || !guildContext.Can(model.PermissionActionAppealReview) {
+		return ErrAppealPermissionDenied
+	}
+	return nil
+}
+
+// GetSettings returns the one statement every Discord and web submission
+// collects. Historical configurable forms are retained on old appeals but no
+// longer determine new submissions; each appeal snapshots this form so it stays
+// readable after the built-in wording changes.
+func (s *AppealService) GetSettings(ctx context.Context, guildID string) (*AppealSettingsResponse, error) {
+	if strings.TrimSpace(guildID) == "" {
+		return nil, appealValidation("guild is required")
+	}
+	return &AppealSettingsResponse{
+		GuildID: strings.TrimSpace(guildID),
+		Questions: []model.AppealQuestion{{
+			ID:       "reason",
+			Prompt:   "What would you like the moderators to reconsider?",
+			Type:     model.AppealQuestionLongText,
+			Required: true,
+		}},
+		Default: true,
+	}, nil
+}
+
+var discordInviteCode = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// normalizeAppealRejoinURL accepts only Discord invite links, returning a canonical
+// URL safe to include in member notifications. Empty input removes the link.
+func normalizeAppealRejoinURL(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", nil
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || len(value) > 256 || parsed.Scheme != "https" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", fmt.Errorf("%w: use an HTTPS Discord invite link", ErrGuildSettingsValidation)
+	}
+	code := ""
+	switch strings.ToLower(parsed.Host) {
+	case "discord.gg":
+		code = strings.TrimPrefix(parsed.Path, "/")
+	case "discord.com":
+		code = strings.TrimPrefix(parsed.Path, "/invite/")
+		if code == parsed.Path {
+			code = ""
+		}
+	}
+	if !discordInviteCode.MatchString(code) {
+		return "", fmt.Errorf("%w: use an HTTPS Discord invite link", ErrGuildSettingsValidation)
+	}
+	return "https://discord.gg/" + code, nil
 }

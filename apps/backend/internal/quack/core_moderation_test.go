@@ -238,7 +238,7 @@ func TestEnforcementUsesExactSettingsAndNotificationOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	client := &fakeEnforcementClient{}
-	if err := quack.NewActionService(store, client).ProcessCaseActions(ctx, created.ID); err != nil {
+	if err := quack.NewActionService(store, client, nil, nil, "").ProcessCaseActions(ctx, created.ID); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Join(client.calls, ",") != "timeout,send_case_notification" || client.duration != 937 || !strings.Contains(client.reason, "case #1") || !strings.Contains(client.reason, "No spam") {
@@ -267,7 +267,7 @@ func TestBanPreparesDMAndUsesExactHistoryDeletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	client := &fakeEnforcementClient{}
-	if err := quack.NewActionService(store, client).ProcessCaseActions(ctx, created.ID); err != nil {
+	if err := quack.NewActionService(store, client, nil, nil, "").ProcessCaseActions(ctx, created.ID); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Join(client.calls, ",") != "prepare_dm,ban,send_case_notification" || client.deleteSeconds != 86400 {
@@ -286,7 +286,7 @@ func TestAppealableCaseNotificationUsesSecureDashboardControlContract(t *testing
 		t.Fatal(err)
 	}
 	client := &fakeEnforcementClient{}
-	if err := quack.NewActionService(store, client).WithDashboardBaseURL("https://dashboard.example").ProcessCaseActions(ctx, created.ID); err != nil {
+	if err := quack.NewActionService(store, client, nil, nil, "https://dashboard.example").ProcessCaseActions(ctx, created.ID); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Join(client.calls, ",") != "send_case_notification" || client.dashboardBaseURL != "https://dashboard.example" || client.notificationGuildID != moderator.Guild.ID || client.notificationCaseID != created.ID {

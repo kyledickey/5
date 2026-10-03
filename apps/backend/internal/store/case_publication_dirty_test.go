@@ -27,21 +27,21 @@ func TestPublicationMutationRequests(t *testing.T) {
 // TestMySQLPublicationMutationRequests checks the same atomic updates and fences
 // against actual MySQL rather than relying on SQLite's writer serialization.
 func TestMySQLPublicationMutationRequests(t *testing.T) {
-	exercisePublicationMutationRequests(t, openMySQLMigrationDB(t))
+	exercisePublicationMutationRequests(t, openMySQLTestDB(t))
 }
 
 // exercisePublicationMutationRequests walks actual mutation methods while the
 // observer repeatedly sleeps the receipt and checks that the next change wakes it.
 func exercisePublicationMutationRequests(t *testing.T, db *gorm.DB) {
 	t.Helper()
-	if err := db.AutoMigrate(&model.Case{}, &model.CaseActionExecution{}, &model.CaseActionAttempt{}, &model.CaseEvent{}, &model.CaseNotification{}, &model.CaseEvidenceSnapshot{}, &model.CaseEvidenceAttachment{}, &model.AuditLogEntry{}, &auditMirrorDelivery{}, &model.CasePublication{}, &AppealRecord{}); err != nil {
+	if err := db.AutoMigrate(&model.Case{}, &model.CaseActionExecution{}, &model.CaseActionAttempt{}, &model.CaseEvent{}, &model.CaseNotification{}, &model.CaseEvidenceSnapshot{}, &model.CaseEvidenceAttachment{}, &model.AuditLogEntry{}, &auditMirrorDelivery{}, &model.CasePublication{}, &model.Appeal{}); err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
 	s := New(db, nil)
 	now := time.Now().UTC()
-	item := model.Case{ULIDModel: model.ULIDModel{ID: "case", CreatedAt: now}, GuildID: "guild", CaseNumber: 1, Validity: model.CaseValidityValid, Source: model.CaseSourceDiscord}
-	action := model.CaseActionExecution{ULIDModel: model.ULIDModel{ID: "action", CreatedAt: now}, CaseID: item.ID, Status: model.ActionExecutionPending, ActionType: model.ActionBanUser, ConfigSnapshotJSON: "{}"}
+	item := model.Case{ULIDModel: model.ULIDModel{ID: "case", CreatedAt: now}, GuildID: "guild", CaseNumber: 1, Validity: model.CaseValidityValid, Source: model.CaseSourceDiscord, TemplateSnapshotJSON: "{}", MetadataJSON: "{}", ContextValuesJSON: "[]"}
+	action := model.CaseActionExecution{ULIDModel: model.ULIDModel{ID: "action", CreatedAt: now}, CaseID: item.ID, Status: model.ActionExecutionPending, ActionType: model.ActionBanUser, IdempotencyKey: "action", ConfigSnapshotJSON: "{}"}
 	if err := db.Create(&item).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func exercisePublicationMutationRequests(t *testing.T, db *gorm.DB) {
 		t.Fatal(err)
 	}
 	check(prior)
-	skipped := model.CaseActionExecution{ULIDModel: model.ULIDModel{ID: "skip"}, CaseID: item.ID, Position: 9, Status: model.ActionExecutionPending}
+	skipped := model.CaseActionExecution{ULIDModel: model.ULIDModel{ID: "skip"}, CaseID: item.ID, Position: 9, Status: model.ActionExecutionPending, IdempotencyKey: "skip", ConfigSnapshotJSON: "{}"}
 	if err := db.Create(&skipped).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func exercisePublicationMutationRequests(t *testing.T, db *gorm.DB) {
 	}
 	check(prior)
 	prior = sleep()
-	if err := s.AppendCaseEvidence(ctx, item.GuildID, item.ID, []model.CaseEvidenceSnapshot{{CaptureOutcome: "unavailable", CaptureWarning: "missing", MessageCreatedAt: now}}, nil, nil); err != nil {
+	if err := s.AppendCaseEvidence(ctx, item.GuildID, item.ID, []model.CaseEvidenceSnapshot{{CaptureOutcome: "unavailable", CaptureWarning: "missing", MessageCreatedAt: now, EmbedsJSON: "[]"}}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	check(prior)

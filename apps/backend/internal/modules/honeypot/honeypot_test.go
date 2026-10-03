@@ -1,13 +1,18 @@
 package honeypot_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/quackdiscord/bot/internal/modules"
 	"github.com/quackdiscord/bot/internal/modules/honeypot"
 	"gorm.io/driver/sqlite"
@@ -88,10 +93,10 @@ func setup(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	sqlDB.SetMaxOpenConns(1)
-	if err := modules.RegistryMigration().Apply(db); err != nil {
+	if err := db.AutoMigrate(modules.SchemaTypes()...); err != nil {
 		t.Fatal(err)
 	}
-	if err := honeypot.Migration().Apply(db); err != nil {
+	if err := db.AutoMigrate(honeypot.SchemaTypes()...); err != nil {
 		t.Fatal(err)
 	}
 	registry, err := modules.NewRegistry(modules.NewSQLSettingsStore(db), honeypot.Descriptor(),
@@ -337,7 +342,7 @@ func TestRuntimeIntentsQueueAndIndependentShutdown(t *testing.T) {
 	if got := honeypot.RequiredIntents(true); !got.Guilds || !got.GuildMessages || got.MessageContent {
 		t.Fatalf("enabled intents=%+v", got)
 	}
-	runtime := honeypot.NewRuntime(context.Background(), honeypot.NewDiscordAdapter(fixture.service), 128, 4)
+	runtime := honeypot.NewRuntime(context.Background(), honeypot.NewDiscordAdapter(fixture.service), 128, 4, nil)
 	for index := range 100 {
 		event := message(fmt.Sprintf("queued-%d", index))
 		event.AuthorDiscordUserID = fmt.Sprintf("member-%d", index)
@@ -355,10 +360,7 @@ func TestRuntimeIntentsQueueAndIndependentShutdown(t *testing.T) {
 	}
 }
 
-func TestMigrationDescriptorAndManagerPermissions(t *testing.T) {
-	if migration := honeypot.Migration(); migration.Version != 300 || migration.Name != "honeypot_triggers" {
-		t.Fatalf("migration=%+v", migration)
-	}
+func TestDescriptorAndManagerPermissions(t *testing.T) {
 	fixture := setup(t)
 	if _, _, err := fixture.service.Settings(context.Background(), honeypot.Actor{GuildID: "guild-a"}); !errors.Is(err, honeypot.ErrPermissionDenied) {
 		t.Fatalf("read permission error=%v", err)
@@ -597,5 +599,85 @@ func TestOrdinaryBotTriggersHoneypot(t *testing.T) {
 	event.IsBot = true
 	if result, err := f.service.HandleMessage(context.Background(), event); err != nil || result.CaseID == "" || f.applier.count() != 1 {
 		t.Fatal("ordinary bot bypassed honeypot", result, err)
+	}
+}
+
+func routeEngine(fixture *fixture, canManage bool) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	honeypot.RegisterRoutes(engine.Group("/guilds/:guildID/modules"), fixture.service, func(c *gin.Context) (honeypot.Actor, error) {
+		if c.GetHeader("Authorization") == "" {
+			return honeypot.Actor{}, errors.New("missing session")
+		}
+		return honeypot.Actor{GuildID: c.Param("guildID"), DiscordUserID: "admin", CanManage: canManage}, nil
+	})
+	return engine
+}
+
+func request(t *testing.T, engine *gin.Engine, method, path string, body any, authenticated bool) *httptest.ResponseRecorder {
+	t.Helper()
+	var payload []byte
+	if body != nil {
+		var err error
+		payload, err = json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	req := httptest.NewRequest(method, path, bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	if authenticated {
+		req.Header.Set("Authorization", "session")
+	}
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, req)
+	return response
+}
+
+func TestRoutesSettingsStatusRepairAndAuthorization(t *testing.T) {
+	fixture := setup(t)
+	engine := routeEngine(fixture, true)
+	path := "/guilds/guild-a/modules/honeypot/settings"
+	response := request(t, engine, http.MethodPut, path, map[string]any{"enabled": true, "settings": map[string]any{"channel_discord_id": "trap", "template_id": "template", "exempt_role_discord_ids": []string{"trusted"}}}, true)
+	if response.Code != http.StatusOK {
+		t.Fatalf("put status=%d body=%s", response.Code, response.Body.String())
+	}
+	response = request(t, engine, http.MethodGet, path, nil, true)
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"enabled":true`)) {
+		t.Fatalf("get status=%d body=%s", response.Code, response.Body.String())
+	}
+	if err := fixture.service.HandleDeletedChannel(t.Context(), "guild-a", "trap"); err != nil {
+		t.Fatal(err)
+	}
+	response = request(t, engine, http.MethodGet, "/guilds/guild-a/modules/honeypot/status", nil, true)
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte("configured honeypot channel was deleted")) {
+		t.Fatalf("drift status=%d body=%s", response.Code, response.Body.String())
+	}
+	response = request(t, engine, http.MethodPost, "/guilds/guild-a/modules/honeypot/repair", nil, true)
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"enabled":true`)) {
+		t.Fatalf("repair status=%d body=%s", response.Code, response.Body.String())
+	}
+	response = request(t, engine, http.MethodGet, path, nil, false)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated status=%d", response.Code)
+	}
+	response = request(t, routeEngine(fixture, false), http.MethodGet, path, nil, true)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("unauthorized status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestRoutesRejectUnsafeConfiguration(t *testing.T) {
+	fixture := setup(t)
+	engine := routeEngine(fixture, true)
+	path := "/guilds/guild-a/modules/honeypot/settings"
+	response := request(t, engine, http.MethodPut, path, map[string]any{"enabled": true, "settings": map[string]any{"channel_discord_id": "trap"}}, true)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("invalid settings status=%d body=%s", response.Code, response.Body.String())
+	}
+	fixture.validator.templateErr = errors.New("archived")
+	response = request(t, engine, http.MethodPut, path, map[string]any{"enabled": true, "settings": map[string]any{"channel_discord_id": "trap", "template_id": "template"}}, true)
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("archived template status=%d body=%s", response.Code, response.Body.String())
 	}
 }

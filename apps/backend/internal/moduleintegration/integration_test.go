@@ -89,13 +89,13 @@ func TestOptionalModuleHTTPRegistrarsMountCompleteSurface(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := modules.RegistryMigration().Apply(db); err != nil {
+	if err := db.AutoMigrate(modules.SchemaTypes()...); err != nil {
 		t.Fatalf("migrate registry: %v", err)
 	}
-	if err := tickets.Migration().Apply(db); err != nil {
+	if err := db.AutoMigrate(tickets.SchemaTypes()...); err != nil {
 		t.Fatalf("migrate tickets: %v", err)
 	}
-	if err := honeypot.Migration().Apply(db); err != nil {
+	if err := db.AutoMigrate(honeypot.SchemaTypes()...); err != nil {
 		t.Fatalf("migrate honeypots: %v", err)
 	}
 	registry, err := modules.NewRegistry(modules.NewSQLSettingsStore(db), tickets.Descriptor(), generallogging.Descriptor(), honeypot.Descriptor())
@@ -107,9 +107,10 @@ func TestOptionalModuleHTTPRegistrarsMountCompleteSurface(t *testing.T) {
 		Logging:  generallogging.NewService(registry, nil, nil, nil),
 		Honeypot: honeypot.NewService(registry, honeypot.NewStore(db), nil, nil, nil, nil),
 	}
-	services := quack.NewWithConfigDependencies(config.Default(), store.New(db, nil), nil, nil, nil)
+	repository := store.New(db, nil)
+	services := quack.New(config.Default(), repository, nil, nil, nil)
 	engine := gin.New()
-	if err := runtime.RegisterHTTP(engine.Group("/guilds"), services, httpplatform.FromRepository(services.Store)); err != nil {
+	if err := runtime.RegisterHTTP(engine.Group("/guilds"), services, httpplatform.New(repository)); err != nil {
 		t.Fatalf("register module routes: %v", err)
 	}
 	want := map[string]bool{
@@ -186,7 +187,7 @@ func TestGatewayIntentsSupportLiveModuleEnablement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := modules.RegistryMigration().Apply(db); err != nil {
+	if err := db.AutoMigrate(modules.SchemaTypes()...); err != nil {
 		t.Fatal(err)
 	}
 	runtime := &Runtime{db: db}
@@ -353,7 +354,7 @@ func TestRuntimeWorkerShutdownIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new Discord session: %v", err)
 	}
-	runtime, err := New(context.Background(), repository, session, quack.New(repository))
+	runtime, err := New(context.Background(), repository, session, quack.New(config.Default(), repository, nil, nil, nil))
 	if err != nil {
 		t.Fatalf("new module runtime: %v", err)
 	}

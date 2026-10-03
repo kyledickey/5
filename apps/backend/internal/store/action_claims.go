@@ -120,10 +120,7 @@ func (s *Store) ClaimNextCaseAction(ctx context.Context, params model.ClaimCaseA
 		execution.StartedAt = &now
 		execution.FinishedAt = nil
 		execution.NextRetryAt = nil
-		leaseToken, err := idutil.NewULID()
-		if err != nil {
-			return fmt.Errorf("create action lease token: %w", err)
-		}
+		leaseToken := idutil.NewULID()
 		leaseExpiry := now.Add(2 * time.Minute)
 		execution.LeaseToken = leaseToken
 		execution.LeaseExpiresAt = &leaseExpiry
@@ -140,9 +137,7 @@ func (s *Store) ClaimNextCaseAction(ctx context.Context, params model.ClaimCaseA
 			RequestPayloadJSON:  "{}",
 			ResponsePayloadJSON: "{}",
 		}
-		if err := prepareULIDModel(&attempt.ULIDModel, now); err != nil {
-			return err
-		}
+		prepareULIDModel(&attempt.ULIDModel, now)
 		if err := tx.Select("*").Create(&attempt).Error; err != nil {
 			return fmt.Errorf("create running action attempt: %w", err)
 		}

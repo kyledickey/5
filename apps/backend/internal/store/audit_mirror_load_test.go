@@ -18,7 +18,7 @@ func TestAuditMirrorHistoricalLoad(t *testing.T) {
 	if os.Getenv("QUACK_LOAD_TESTS") != "1" {
 		t.Skip("set QUACK_LOAD_TESTS=1 for the local historical-load assessment")
 	}
-	db := openMySQLMigrationDB(t)
+	db := openMySQLTestDB(t)
 	repository := New(db, nil)
 	if err := repository.InitializeSchema(); err != nil {
 		t.Fatal(err)
@@ -26,11 +26,11 @@ func TestAuditMirrorHistoricalLoad(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	const total = 85000
 	for start := 0; start < total; start += 500 {
-		entries := make([]AuditLogEntryRecord, 0, 500)
+		entries := make([]model.AuditLogEntry, 0, 500)
 		receipts := make([]auditMirrorDelivery, 0, 500)
 		for i := start; i < start+500; i++ {
 			id := fmt.Sprintf("%026d", i+1)
-			entries = append(entries, AuditLogEntryRecord{ULIDModelRecord: ULIDModelRecord{ID: id, CreatedAt: now, UpdatedAt: now}, GuildID: fmt.Sprintf("%026d", i%850+1), Action: "case.create", Source: model.AuditSourceDiscord, Result: model.AuditResultSuccess, MetadataJSON: "{}"})
+			entries = append(entries, model.AuditLogEntry{ULIDModel: model.ULIDModel{ID: id, CreatedAt: now, UpdatedAt: now}, GuildID: fmt.Sprintf("%026d", i%850+1), Action: "case.create", Source: model.AuditSourceDiscord, Result: model.AuditResultSuccess, MetadataJSON: "{}"})
 			receipts = append(receipts, auditMirrorDelivery{AuditEntryID: id, Finished: true, RetryAt: now})
 		}
 		if err := db.Create(&entries).Error; err != nil {

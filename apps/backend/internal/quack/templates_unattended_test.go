@@ -60,7 +60,6 @@ func TestValidateUnattendedTemplatePolicy(t *testing.T) {
 		{name: "no levels", change: func(p *model.ExpandedCaseTemplate) { p.Levels = nil }, want: quack.ErrUnattendedTemplateUnavailable},
 		{name: "no default", change: func(p *model.ExpandedCaseTemplate) { p.Levels[0].Level.IsDefault = false }, want: quack.ErrUnattendedTemplateUnavailable},
 		{name: "multiple defaults", change: func(p *model.ExpandedCaseTemplate) { p.Levels = append(p.Levels, p.Levels[0]) }, want: quack.ErrUnattendedTemplateUnavailable},
-		{name: "legacy compatibility", storeErr: model.ErrTemplateCompatibilityReviewRequired, want: quack.ErrUnattendedTemplateUnavailable},
 		{name: "storage failure", storeErr: backendErr, want: backendErr},
 	}
 	for _, tt := range tests {

@@ -3,12 +3,13 @@ package commands
 import (
 	"context"
 	"fmt"
+	"strings"
+	"testing"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/quackdiscord/bot/internal/quack/model"
-	"strings"
-	"testing"
 )
 
 // TestAppealsCommandFindsUndeliveredSubmissions verifies notification delivery

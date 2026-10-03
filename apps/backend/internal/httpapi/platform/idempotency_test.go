@@ -19,11 +19,11 @@ func TestIdempotencyLifecycleExpiryAndFencing(t *testing.T) {
 	store := NewIdempotencyStore(client, "test:idempotency:")
 	ctx := context.Background()
 
-	first, err := store.Begin(ctx, "case-create", "caller-secret-key", time.Minute)
+	first, err := store.Begin(ctx, "case-create", "caller-secret-key", time.Minute, "")
 	if err != nil || first.State != IdempotencyAcquired || first.LeaseToken == "" {
 		t.Fatalf("unexpected acquisition: %+v err=%v", first, err)
 	}
-	duplicate, err := store.Begin(ctx, "case-create", "caller-secret-key", time.Minute)
+	duplicate, err := store.Begin(ctx, "case-create", "caller-secret-key", time.Minute, "")
 	if err != nil || duplicate.State != IdempotencyInProgress || duplicate.LeaseToken != "" {
 		t.Fatalf("unexpected in-progress replay: %+v err=%v", duplicate, err)
 	}
@@ -34,7 +34,7 @@ func TestIdempotencyLifecycleExpiryAndFencing(t *testing.T) {
 	if err := store.Complete(ctx, "case-create", "caller-secret-key", first.LeaseToken, 201, body, time.Hour); err != nil {
 		t.Fatalf("complete: %v", err)
 	}
-	replay, err := store.Begin(ctx, "case-create", "caller-secret-key", time.Minute)
+	replay, err := store.Begin(ctx, "case-create", "caller-secret-key", time.Minute, "")
 	if err != nil || replay.State != IdempotencyComplete || replay.StatusCode != 201 || string(replay.Body) != string(body) {
 		t.Fatalf("unexpected completed replay: %+v err=%v", replay, err)
 	}
@@ -44,19 +44,12 @@ func TestIdempotencyLifecycleExpiryAndFencing(t *testing.T) {
 		}
 	}
 	server.FastForward(time.Hour)
-	afterExpiry, err := store.Begin(ctx, "case-create", "caller-secret-key", time.Minute)
+	afterExpiry, err := store.Begin(ctx, "case-create", "caller-secret-key", time.Minute, "")
 	if err != nil || afterExpiry.State != IdempotencyAcquired {
 		t.Fatalf("expected acquisition after TTL expiry, got %+v err=%v", afterExpiry, err)
 	}
-	if err := store.Abandon(ctx, "case-create", "caller-secret-key", afterExpiry.LeaseToken); err != nil {
-		t.Fatalf("abandon: %v", err)
-	}
-	again, err := store.Begin(ctx, "case-create", "caller-secret-key", time.Minute)
-	if err != nil || again.State != IdempotencyAcquired {
-		t.Fatalf("expected acquisition after abandon, got %+v err=%v", again, err)
-	}
 
-	if result, err := NewIdempotencyStore(nil, "").Begin(ctx, "scope", "key", time.Minute); !errors.Is(err, ErrUnavailable) || result.State != "" {
+	if result, err := NewIdempotencyStore(nil, "").Begin(ctx, "scope", "key", time.Minute, ""); !errors.Is(err, ErrUnavailable) || result.State != "" {
 		t.Fatalf("expected deterministic fail-closed unavailable result, got %+v err=%v", result, err)
 	}
 }
@@ -103,7 +96,7 @@ func TestIdempotencyConcurrentAcquisition(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			result, err := store.Begin(context.Background(), "evidence", "same-key", time.Minute)
+			result, err := store.Begin(context.Background(), "evidence", "same-key", time.Minute, "")
 			if err != nil {
 				t.Errorf("begin: %v", err)
 				return

@@ -1,4 +1,3 @@
-// Package platform provides Redis-backed HTTP safety primitives for feature registrars.
 package platform
 
 import (

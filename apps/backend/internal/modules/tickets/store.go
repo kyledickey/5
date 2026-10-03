@@ -15,32 +15,34 @@ import (
 )
 
 type ticketRecord struct {
-	QueueDeliveryAttemptID  string `gorm:"type:char(26)"`
-	ID                      string `gorm:"type:char(26);primaryKey"`
-	GuildID                 string `gorm:"type:char(26);not null;index:idx_ticket_guild_status,priority:1;index:idx_ticket_guild_owner,priority:1"`
-	OwnerDiscordUserID      string `gorm:"size:32;not null;index:idx_ticket_guild_owner,priority:2"`
-	ThreadDiscordChannelID  string `gorm:"size:32;uniqueIndex"`
-	Status                  Status `gorm:"size:32;not null;index:idx_ticket_guild_status,priority:2"`
-	LogChannelDiscordID     string `gorm:"size:32"`
-	LogMessageDiscordID     string `gorm:"size:32"`
-	ResolvedByDiscordUserID string `gorm:"size:32"`
-	ResolvedAt              *time.Time
-	TranscriptURL           string `gorm:"size:1024"`
-	MetadataJSON            string `gorm:"type:json;not null"`
-	CreatedAt, UpdatedAt    time.Time
+	QueueDeliveryAttemptID  string     `gorm:"type:char(26)"`
+	ID                      string     `gorm:"type:char(26);primaryKey"`
+	GuildID                 string     `gorm:"type:char(26);not null;index:idx_ticket_guild_status,priority:1;index:idx_ticket_guild_owner,priority:1"`
+	OwnerDiscordUserID      string     `gorm:"size:32;not null;index:idx_ticket_guild_owner,priority:2"`
+	ThreadDiscordChannelID  string     `gorm:"size:32;uniqueIndex"`
+	Status                  Status     `gorm:"size:32;not null;index:idx_ticket_guild_status,priority:2"`
+	LogChannelDiscordID     string     `gorm:"size:32"`
+	LogMessageDiscordID     string     `gorm:"size:32"`
+	ResolvedByDiscordUserID string     `gorm:"size:32"`
+	ResolvedAt              *time.Time `gorm:"index"`
+	TranscriptURL           string     `gorm:"size:1024"`
+	MetadataJSON            string     `gorm:"type:json;not null"`
+	CreatedAt               time.Time  `gorm:"not null;index"`
+	UpdatedAt               time.Time  `gorm:"not null"`
 }
 
 func (ticketRecord) TableName() string { return "tickets" }
 
 type eventRecord struct {
-	ID                   string    `gorm:"type:char(26);primaryKey"`
-	TicketID             string    `gorm:"type:char(26);not null;index"`
-	GuildID              string    `gorm:"type:char(26);not null;index"`
-	EventType            EventType `gorm:"size:64;not null;index"`
-	ActorDiscordUserID   string    `gorm:"size:32;index"`
-	Body                 string    `gorm:"type:text;not null"`
-	MetadataJSON         string    `gorm:"type:json;not null"`
-	CreatedAt, UpdatedAt time.Time
+	ID                 string    `gorm:"type:char(26);primaryKey"`
+	TicketID           string    `gorm:"type:char(26);not null;index"`
+	GuildID            string    `gorm:"type:char(26);not null;index"`
+	EventType          EventType `gorm:"size:64;not null;index"`
+	ActorDiscordUserID string    `gorm:"size:32;index"`
+	Body               string    `gorm:"type:text;not null"`
+	MetadataJSON       string    `gorm:"type:json;not null"`
+	CreatedAt          time.Time `gorm:"not null;index"`
+	UpdatedAt          time.Time `gorm:"not null"`
 }
 
 func (eventRecord) TableName() string { return "ticket_events" }
@@ -67,17 +69,13 @@ type memberStateRecord struct {
 
 func (memberStateRecord) TableName() string { return "ticket_member_states" }
 
-// Store persists tickets, their immutable timelines, transcripts, and import identities.
 type Store struct{ db *gorm.DB }
 
-// NewStore constructs ticket persistence from an adapter-owned database handle.
 func NewStore(db *gorm.DB) *Store { return &Store{db: db} }
 
-// Migration exposes ticket schema changes without editing the central migration registry.
-func Migration() modules.Migration {
-	return modules.Migration{Version: 110, Name: "ticket_lifecycle", Apply: func(db *gorm.DB) error {
-		return db.AutoMigrate(&ticketRecord{}, &eventRecord{}, &transcriptRecord{}, &memberStateRecord{}, &MessageJournal{})
-	}}
+// SchemaTypes returns the tables this module owns for schema creation.
+func SchemaTypes() []any {
+	return []any{&ticketRecord{}, &eventRecord{}, &transcriptRecord{}, &memberStateRecord{}, &MessageJournal{}}
 }
 
 func (s *Store) create(ctx context.Context, guildID, ownerID, threadID string, now time.Time) (*Ticket, error) {
@@ -151,10 +149,8 @@ func (s *Store) captureClosure(ctx context.Context, guildID, ticketID, actorID s
 		if err := appendEvent(tx, record, EventResolved, actorID, "Ticket closed", "{}", now); err != nil {
 			return err
 		}
-		if transcript != nil {
-			if err := tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&transcriptRecord{TicketID: record.ID, GuildID: record.GuildID, Content: transcript.Content, CapturedAt: transcript.CapturedAt, ExpiresAt: transcript.ExpiresAt}).Error; err != nil {
-				return err
-			}
+		if err := tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&transcriptRecord{TicketID: record.ID, GuildID: record.GuildID, Content: transcript.Content, CapturedAt: transcript.CapturedAt, ExpiresAt: transcript.ExpiresAt}).Error; err != nil {
+			return err
 		}
 		if err := tx.Model(&MessageJournal{}).Where("guild_id = ? AND ticket_id = ?", guildID, ticketID).Update("expires_at", transcript.ExpiresAt).Error; err != nil {
 			return err
@@ -315,7 +311,8 @@ func (s *Store) importTarget(ctx context.Context, guildID, sourceID string) (str
 	return record.TargetID, result.RowsAffected > 0, nil
 }
 
-// ticketFromRecord exposes lifecycle state and confirmed DM delivery without leaking internal metadata.
+// ticketFromRecord exposes lifecycle state and confirmed DM delivery without
+// leaking the rest of MetadataJSON.
 func ticketFromRecord(r ticketRecord) Ticket {
 	var metadata struct {
 		CloseNotice closeNoticeState `json:"close_notice"`
@@ -367,4 +364,196 @@ func (s *Store) saveEntryPanel(ctx context.Context, guildID, channelID, messageI
 		}
 		return tx.Model(&config).Update("config_json", string(payload)).Error
 	})
+}
+
+// ticketOpeningTTL bounds a provisional member reservation after a worker stops.
+// Provisioning has a shorter deadline; its fencing token cannot complete after a
+// replacement reservation has acquired the member slot.
+const ticketOpeningTTL = 5 * time.Minute
+
+// reserveOpening reserves the member's single active-ticket slot before Discord
+// provisioning. Failed setup releases it so the member can retry after repair.
+func (s *Store) reserveOpening(ctx context.Context, actor Actor, now time.Time) (string, error) {
+	if s == nil || s.db == nil || actor.GuildID == "" || actor.DiscordUserID == "" {
+		return "", errors.New("ticket member and database are required")
+	}
+	token := ulid.Make().String()
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		state, err := lockMemberState(tx, actor.GuildID, actor.DiscordUserID, now)
+		if err != nil {
+			return err
+		}
+		if state.OpenTicketID != "" {
+			var count int64
+			if err := tx.Model(&ticketRecord{}).Where("id = ?", state.OpenTicketID).Count(&count).Error; err != nil {
+				return err
+			}
+			if count != 0 || now.Sub(state.UpdatedAt) < ticketOpeningTTL {
+				return ErrDuplicateOpen
+			}
+		}
+
+		state.OpenTicketID, state.UpdatedAt = token, now
+		return tx.Model(state).Updates(map[string]any{
+			"open_ticket_id": state.OpenTicketID, "open_count": state.OpenCount,
+			"window_started_at": state.WindowStartedAt, "updated_at": now,
+		}).Error
+	})
+	return token, err
+}
+
+// finishOpening converts only the current member reservation into a durable
+// ticket and timeline, keeping the reservation held.
+func (s *Store) finishOpening(ctx context.Context, actor Actor, token, channelID string, now time.Time) (*Ticket, error) {
+	var ticket Ticket
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		state, err := lockMemberState(tx, actor.GuildID, actor.DiscordUserID, now)
+		if err != nil {
+			return err
+		}
+		if state.OpenTicketID != token || now.Sub(state.UpdatedAt) >= ticketOpeningTTL {
+			return ErrInvalidTransition
+		}
+		record := ticketRecord{ID: token, GuildID: actor.GuildID, OwnerDiscordUserID: actor.DiscordUserID,
+			ThreadDiscordChannelID: channelID, Status: StatusOpen, MetadataJSON: "{}", CreatedAt: now, UpdatedAt: now}
+		if err := tx.Create(&record).Error; err != nil {
+			return err
+		}
+		if err := appendEvent(tx, record, EventOpened, actor.DiscordUserID, "Ticket opened", "{}", now); err != nil {
+			return err
+		}
+		ticket = ticketFromRecord(record)
+		return nil
+	})
+	return &ticket, err
+}
+
+// releaseOpening clears a failed provision only while its original token owns
+// the member slot. Successful tickets and newer reservations are unaffected.
+func (s *Store) releaseOpening(ctx context.Context, actor Actor, token string) error {
+	return s.db.WithContext(ctx).Model(&memberStateRecord{}).
+		Where("guild_id = ? AND owner_discord_user_id = ? AND open_ticket_id = ?", actor.GuildID, actor.DiscordUserID, token).
+		Where("NOT EXISTS (SELECT 1 FROM tickets WHERE tickets.id = ?)", token).
+		Update("open_ticket_id", "").Error
+}
+
+// finishClosure releases the member slot only after Discord cleanup succeeds. The
+// persisted transcript receipt is required, and the WHERE clause prevents a retry
+// from releasing a newer ticket's reservation.
+func (s *Store) finishClosure(ctx context.Context, guildID, ticketID string) error {
+	ticket, err := s.get(ctx, guildID, ticketID)
+	if err != nil {
+		return err
+	}
+	if ticket.Status != StatusResolved || ticket.TranscriptURL == "" {
+		return ErrInvalidTransition
+	}
+	return s.db.WithContext(ctx).Model(&memberStateRecord{}).
+		Where("guild_id = ? AND owner_discord_user_id = ? AND open_ticket_id = ?", guildID, ticket.OwnerDiscordUserID, ticketID).
+		Updates(map[string]any{"open_ticket_id": "", "updated_at": time.Now().UTC()}).Error
+}
+
+// ErrQueueNotSent marks a transport failure known to precede delivery. Only this
+// explicit result permits another initial send; network uncertainty does not.
+var ErrQueueNotSent = errors.New("ticket queue message was not sent")
+
+// ErrQueueDeliveryUnknown prevents duplicate posts after a send without a durable
+// receipt. An administrator must inspect the destination before reconciling it.
+var ErrQueueDeliveryUnknown = errors.New("ticket queue delivery is unconfirmed; check the staff queue before retrying")
+
+// ErrQueueMessageMissing reports definite absence of a previously saved message.
+// The module must fence its replacement before the transport sends a new post.
+var ErrQueueMessageMissing = errors.New("ticket queue message is missing")
+
+// clearQueueReceipt conditionally retires a missing or superseded receipt before
+// replacement admission. Clearing its transcript link prevents cleanup from
+// trusting a delivery that is known to be unavailable.
+func (s *Store) clearQueueReceipt(ctx context.Context, ticket *Ticket) error {
+	result := s.db.WithContext(ctx).Model(&ticketRecord{}).
+		Where("id = ? AND guild_id = ? AND log_channel_discord_id = ? AND log_message_discord_id = ? AND COALESCE(queue_delivery_attempt_id, '') = ''", ticket.ID, ticket.GuildID, ticket.LogChannelDiscordID, ticket.LogMessageDiscordID).
+		Updates(map[string]any{"log_channel_discord_id": "", "log_message_discord_id": "", "transcript_url": ""})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ErrQueueDeliveryUnknown
+	}
+	ticket.LogChannelDiscordID, ticket.LogMessageDiscordID, ticket.TranscriptURL = "", "", ""
+	return nil
+}
+
+// reserveQueueSend uses an empty message receipt with a destination as a durable
+// initial-send fence. Conditional admission also excludes overlapping repairs.
+func (s *Store) reserveQueueSend(ctx context.Context, ticket *Ticket, channelID string) error {
+	attemptID := ulid.Make().String()
+	result := s.db.WithContext(ctx).Model(&ticketRecord{}).Where("id = ? AND guild_id = ? AND COALESCE(log_channel_discord_id, '') = '' AND COALESCE(log_message_discord_id, '') = '' AND COALESCE(queue_delivery_attempt_id, '') = ''", ticket.ID, ticket.GuildID).
+		Updates(map[string]any{"log_channel_discord_id": channelID, "queue_delivery_attempt_id": attemptID})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ErrQueueDeliveryUnknown
+	}
+	ticket.LogChannelDiscordID = channelID
+	ticket.QueueDeliveryAttemptID = attemptID
+	return nil
+}
+
+// releaseQueueSend clears admission only after definite nondelivery. If saving
+// this result fails, the conservative fence remains across process restarts.
+func (s *Store) releaseQueueSend(ctx context.Context, ticket *Ticket, channelID string) error {
+	if ticket.QueueDeliveryAttemptID == "" {
+		return ErrQueueDeliveryUnknown
+	}
+	result := s.db.WithContext(ctx).Model(&ticketRecord{}).Where("id = ? AND guild_id = ? AND log_channel_discord_id = ? AND COALESCE(log_message_discord_id, '') = '' AND queue_delivery_attempt_id = ?", ticket.ID, ticket.GuildID, channelID, ticket.QueueDeliveryAttemptID).
+		Updates(map[string]any{"log_channel_discord_id": "", "queue_delivery_attempt_id": ""})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ErrQueueDeliveryUnknown
+	}
+	ticket.LogChannelDiscordID = ""
+	ticket.QueueDeliveryAttemptID = ""
+	return nil
+}
+
+func (s *Store) activeForMember(ctx context.Context, guildID, memberID string) (*Ticket, error) {
+	var record ticketRecord
+	result := s.db.WithContext(ctx).Model(&ticketRecord{}).
+		Where("guild_id = ? AND owner_discord_user_id = ?", guildID, memberID).
+		Where("id IN (SELECT open_ticket_id FROM ticket_member_states WHERE guild_id = ? AND owner_discord_user_id = ?)", guildID, memberID).
+		Limit(1).Find(&record)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil, nil
+	}
+	ticket := ticketFromRecord(record)
+	return &ticket, nil
+}
+
+func (s *Store) deletedChannelTicketID(ctx context.Context, guildID, channelID string) (string, error) {
+	var record ticketRecord
+	result := s.db.WithContext(ctx).Select("id").
+		Where("guild_id = ? AND thread_discord_channel_id = ?", guildID, channelID).Limit(1).Find(&record)
+	if result.Error != nil {
+		return "", result.Error
+	}
+	if result.RowsAffected == 0 {
+		return "", ErrNotFound
+	}
+	return record.ID, nil
+}
+
+// openThreadRepairPage keysets on ID rather than using an offset, so closing an
+// earlier ticket mid-scan cannot skip a page.
+func (s *Store) openThreadRepairPage(ctx context.Context, guildID, afterID string) ([]ThreadRepairTarget, error) {
+	var records []ThreadRepairTarget
+	err := s.db.WithContext(ctx).Model(&ticketRecord{}).
+		Select("id, thread_discord_channel_id, owner_discord_user_id").
+		Where("guild_id = ? AND status = ? AND id > ?", guildID, StatusOpen, afterID).
+		Order("id ASC").Limit(ThreadRepairPageSize).Find(&records).Error
+	return records, err
 }

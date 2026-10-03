@@ -1,3 +1,19 @@
+// Package moduleintegration wires the optional modules (tickets, general
+// logging, honeypots) into the running bot. It is the only package that sees
+// both sides: the core quack services and Discord session on one hand, and the
+// small ports declared by the module packages on the other.
+//
+// It owns the Runtime that composes module services, stores and background
+// workers; the Discord adapters implementing tickets.DiscordClient,
+// generallogging.DeliveryClient and the honeypot CaseApplier/validators; gateway
+// event routing; the /setup flows; ticket button and modal handlers; the HTTP
+// mount for module routes; and the enablement validator used by core guild
+// settings. Its own database access is limited to resolving guild identities
+// (guildResolver) and appending core audit entries (moduleAuditor); module
+// tables belong to the modules.
+//
+// internal/modules/* must not import this package (they receive its adapters
+// through their own interfaces), and internal/quack must not either.
 package moduleintegration
 
 import (
@@ -13,6 +29,7 @@ import (
 	"github.com/quackdiscord/bot/internal/modules/honeypot"
 	"github.com/quackdiscord/bot/internal/modules/tickets"
 	"github.com/quackdiscord/bot/internal/quack"
+	"github.com/quackdiscord/bot/internal/quack/idutil"
 	"github.com/quackdiscord/bot/internal/quack/model"
 	"github.com/quackdiscord/bot/internal/store"
 	"gorm.io/gorm"
@@ -67,8 +84,6 @@ type Runtime struct {
 	closeDone           chan struct{}
 }
 
-// bulkDeleteEvent is one gateway bulk deletion waiting for the cache-aware
-// logging drain.
 type bulkDeleteEvent struct {
 	guildID, channelID string
 	messageIDs         []string
@@ -213,9 +228,8 @@ func (r *Runtime) CloseContext(ctx context.Context) error {
 	}
 }
 
-// runBulkDeletes drains bulk deletions on a worker that is independent of case
-// actions. Delivery failures are already recorded in the logging service's
-// status counters.
+// runBulkDeletes drains bulk deletions on a worker independent of case actions.
+// Delivery failures are already recorded in the logging service's status counters.
 func (r *Runtime) runBulkDeletes(ctx context.Context) {
 	defer r.bulkWG.Done()
 	for event := range r.bulk {
@@ -265,9 +279,8 @@ func (r *Runtime) purgeTranscripts(ctx context.Context) {
 // moduleAuditor implements modules.Auditor on the core append-only audit store.
 type moduleAuditor struct{ repository quack.Repository }
 
-// RecordModuleAudit appends one module audit entry, attributing the source from
-// the context (API, Discord or honeypot automation) and rejecting results the
-// core audit model does not define. Log payloads never pass through here.
+// RecordModuleAudit attributes the source from the context (API, Discord or
+// honeypot automation) and rejects results the core audit model does not define.
 func (a moduleAuditor) RecordModuleAudit(ctx context.Context, event modules.AuditEvent) error {
 	result := model.AuditResult(event.Result)
 	switch result {
@@ -275,7 +288,7 @@ func (a moduleAuditor) RecordModuleAudit(ctx context.Context, event modules.Audi
 	default:
 		return errors.New("module audit result is invalid")
 	}
-	requestID, correlationID := quack.TraceIDsFromContext(ctx)
+	requestID, correlationID := idutil.TraceIDsFromContext(ctx)
 	return a.repository.CreateAuditLogEntry(ctx, &model.AuditLogEntry{
 		GuildID:            event.GuildID,
 		ActorDiscordUserID: event.ActorDiscordUserID,
@@ -296,8 +309,6 @@ func (a moduleAuditor) RecordModuleAudit(ctx context.Context, event modules.Audi
 // internal IDs.
 type guildResolver struct{ db *gorm.DB }
 
-// internalID returns the internal ID of an active guild, or an error when the
-// guild is unknown or inactive.
 func (r guildResolver) internalID(ctx context.Context, discordGuildID string) (string, error) {
 	var guild model.Guild
 	result := r.db.WithContext(ctx).
@@ -326,7 +337,6 @@ func (r guildResolver) internalIDAny(ctx context.Context, discordGuildID string)
 	return guild.ID, nil
 }
 
-// discordID returns the Discord guild ID for an active internal guild.
 func (r guildResolver) discordID(ctx context.Context, guildID string) (string, error) {
 	var guild model.Guild
 	result := r.db.WithContext(ctx).Where("id = ? AND is_active = ?", guildID, true).Limit(1).Find(&guild)
@@ -337,4 +347,30 @@ func (r guildResolver) discordID(ctx context.Context, guildID string) (string, e
 		return "", errors.New("active guild is not registered")
 	}
 	return guild.DiscordGuildID, nil
+}
+
+// lockGuildOperation serializes one family of guild operations (for example
+// honeypot setup and warning refresh, which share Runtime.honeypotWarningLocks)
+// before configuration is read. Waiting honours ctx; other guilds are
+// unaffected. Locks live for the Runtime's lifetime so a waiter can never
+// acquire a detached replacement lock for the same guild. The returned func
+// releases the lock and must be called exactly once.
+func lockGuildOperation(ctx context.Context, locks *sync.Map, guildID string) (func(), error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	candidate := make(chan struct{}, 1)
+	candidate <- struct{}{}
+	value, _ := locks.LoadOrStore(guildID, candidate)
+	gate := value.(chan struct{})
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-gate:
+		if err := ctx.Err(); err != nil {
+			gate <- struct{}{}
+			return nil, err
+		}
+		return func() { gate <- struct{}{} }, nil
+	}
 }

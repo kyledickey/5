@@ -180,7 +180,7 @@ func TestCleanupRecoversAfterFailureAndRestart(t *testing.T) {
 	a.fail = false
 	a.deleted = make(chan string, 2)
 	restarted := honeypot.NewService(f.registry, honeypot.NewStore(f.db), f.audit, f.validator, f.validator, a)
-	runtime := honeypot.NewRuntime(context.Background(), honeypot.NewDiscordAdapter(restarted), 4, 1)
+	runtime := honeypot.NewRuntime(context.Background(), honeypot.NewDiscordAdapter(restarted), 4, 1, nil)
 	defer runtime.Close()
 	select {
 	case <-a.deleted:
@@ -255,7 +255,7 @@ func TestCleanupCloseCancelsBlockedDelete(t *testing.T) {
 	if _, err := service.HandleMessage(context.Background(), message("blocked")); err != nil {
 		t.Fatal(err)
 	}
-	runtime := honeypot.NewRuntime(context.Background(), honeypot.NewDiscordAdapter(service), 4, 1)
+	runtime := honeypot.NewRuntime(context.Background(), honeypot.NewDiscordAdapter(service), 4, 1, nil)
 	defer runtime.Close()
 	select {
 	case <-blocked.started:

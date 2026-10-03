@@ -18,7 +18,7 @@ const starterPolicySlug = "general-rule-violation"
 // GetGuildSettings returns core settings with enablement projected from the
 // canonical module envelopes, including changes made through native setup.
 func (s *Store) GetGuildSettings(ctx context.Context, guildID string) (*model.GuildSettings, error) {
-	var record GuildSettingsRecord
+	var record model.GuildSettings
 	result := s.db.WithContext(ctx).Where("guild_id = ?", guildID).Limit(1).Find(&record)
 	if result.Error != nil {
 		return nil, fmt.Errorf("get guild settings: %w", result.Error)
@@ -26,17 +26,16 @@ func (s *Store) GetGuildSettings(ctx context.Context, guildID string) (*model.Gu
 	if result.RowsAffected == 0 {
 		return nil, nil
 	}
-	settings := guildSettingsModelFromRecord(record)
-	if err := loadCanonicalModuleFlags(s.db.WithContext(ctx), &settings); err != nil {
+	if err := loadCanonicalModuleFlags(s.db.WithContext(ctx), &record); err != nil {
 		return nil, err
 	}
-	return &settings, nil
+	return &record, nil
 }
 
 // UpdateGuildSettings atomically replaces validated core settings, applies only
 // explicit canonical module toggles, and appends success audit evidence.
 func (s *Store) UpdateGuildSettings(ctx context.Context, params model.UpdateGuildSettingsParams) (*model.GuildSettings, error) {
-	var record GuildSettingsRecord
+	var record model.GuildSettings
 	now := time.Now().UTC()
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("guild_id = ?", params.Settings.GuildID).First(&record).Error; err != nil {
@@ -70,11 +69,10 @@ func (s *Store) UpdateGuildSettings(ctx context.Context, params model.UpdateGuil
 	if err != nil {
 		return nil, err
 	}
-	settings := guildSettingsModelFromRecord(record)
-	if err := loadCanonicalModuleFlags(s.db.WithContext(ctx), &settings); err != nil {
+	if err := loadCanonicalModuleFlags(s.db.WithContext(ctx), &record); err != nil {
 		return nil, err
 	}
-	return &settings, nil
+	return &record, nil
 }
 
 // ClearGuildChannelReferences blanks every core settings field that points at
@@ -82,7 +80,7 @@ func (s *Store) UpdateGuildSettings(ctx context.Context, params model.UpdateGuil
 // appends the audit row. When nothing referenced the channel no write or audit
 // happens.
 func (s *Store) ClearGuildChannelReferences(ctx context.Context, guildID, channelID string, audit *model.AuditLogEntry) (*model.GuildSettings, error) {
-	var record GuildSettingsRecord
+	var record model.GuildSettings
 	now := time.Now().UTC()
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("guild_id = ?", guildID).First(&record).Error; err != nil {
@@ -121,11 +119,10 @@ func (s *Store) ClearGuildChannelReferences(ctx context.Context, guildID, channe
 	if err != nil {
 		return nil, err
 	}
-	settings := guildSettingsModelFromRecord(record)
-	if err := loadCanonicalModuleFlags(s.db.WithContext(ctx), &settings); err != nil {
+	if err := loadCanonicalModuleFlags(s.db.WithContext(ctx), &record); err != nil {
 		return nil, err
 	}
-	return &settings, nil
+	return &record, nil
 }
 
 // BootstrapGuild is the guild-join and ready-event entry point: it creates or
@@ -167,9 +164,7 @@ func (s *Store) bootstrapGuildOnce(ctx context.Context, params model.BootstrapGu
 		wasActive := query.RowsAffected > 0 && guild.IsActive
 		if query.RowsAffected == 0 {
 			guild = model.Guild{DiscordGuildID: params.DiscordGuildID}
-			if err := prepareULIDModel(&guild.ULIDModel, now); err != nil {
-				return fmt.Errorf("prepare bootstrap guild: %w", err)
-			}
+			prepareULIDModel(&guild.ULIDModel, now)
 			result.GuildCreated = true
 		}
 		guild.Name = params.Name
@@ -185,16 +180,14 @@ func (s *Store) bootstrapGuildOnce(ctx context.Context, params model.BootstrapGu
 			return fmt.Errorf("refresh bootstrap guild: %w", err)
 		}
 
-		var settingsRecord GuildSettingsRecord
+		var settingsRecord model.GuildSettings
 		settingsQuery := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("guild_id = ?", guild.ID).Limit(1).Find(&settingsRecord)
 		if settingsQuery.Error != nil {
 			return fmt.Errorf("get bootstrap settings: %w", settingsQuery.Error)
 		}
 		if settingsQuery.RowsAffected == 0 {
-			settingsRecord = GuildSettingsRecord{GuildID: guild.ID, StarterPolicyNoticePending: true}
-			if err := prepareULIDRecord(&settingsRecord.ULIDModelRecord, now); err != nil {
-				return fmt.Errorf("prepare bootstrap settings: %w", err)
-			}
+			settingsRecord = model.GuildSettings{GuildID: guild.ID, StarterPolicyNoticePending: true}
+			prepareULIDModel(&settingsRecord.ULIDModel, now)
 			if err := tx.Create(&settingsRecord).Error; err != nil {
 				return fmt.Errorf("create bootstrap settings: %w", err)
 			}
@@ -272,7 +265,7 @@ func (s *Store) bootstrapGuildOnce(ctx context.Context, params model.BootstrapGu
 		}
 
 		result.Guild = guild
-		result.Settings = guildSettingsModelFromRecord(settingsRecord)
+		result.Settings = settingsRecord
 		return loadCanonicalModuleFlags(tx, &result.Settings)
 	})
 	if err != nil {
@@ -333,7 +326,7 @@ func (s *Store) DeactivateGuild(ctx context.Context, discordGuildID string, audi
 
 // ensureStarterPolicy creates the exact editable v5 starter template or returns its existing identity on repeated bootstrap.
 func ensureStarterPolicy(tx *gorm.DB, guildID string, now time.Time) (*model.ExpandedCaseTemplate, bool, error) {
-	var existing CaseTemplateRecord
+	var existing model.CaseTemplate
 	query := tx.Where("guild_id = ? AND slug = ?", guildID, starterPolicySlug).Limit(1).Find(&existing)
 	if query.Error != nil {
 		return nil, false, fmt.Errorf("find starter policy: %w", query.Error)
@@ -360,11 +353,8 @@ func ensureStarterPolicy(tx *gorm.DB, guildID string, now time.Time) (*model.Exp
 		CreatedByDiscordUserID: "quack-system",
 		UpdatedByDiscordUserID: "quack-system",
 	}
-	if err := prepareULIDModel(&template.ULIDModel, now); err != nil {
-		return nil, false, fmt.Errorf("prepare starter policy: %w", err)
-	}
-	record := caseTemplateRecordFromModel(template)
-	if err := tx.Select("*").Create(&record).Error; err != nil {
+	prepareULIDModel(&template.ULIDModel, now)
+	if err := tx.Select("*").Create(&template).Error; err != nil {
 		return nil, false, fmt.Errorf("create starter policy: %w", err)
 	}
 	levels := starterPolicyLevels()
@@ -418,39 +408,6 @@ func isExactStarterPolicy(template model.ExpandedCaseTemplate) bool {
 		}
 	}
 	return true
-}
-
-// guildSettingsModelFromRecord copies the settings row into the model. The
-// three module flags are copied verbatim here and then overwritten by
-// loadCanonicalModuleFlags; the module_configurations rows are authoritative.
-func guildSettingsModelFromRecord(record GuildSettingsRecord) model.GuildSettings {
-	return model.GuildSettings{
-		ULIDModel:                         ulidModelFromRecord(record.ULIDModelRecord),
-		GuildID:                           record.GuildID,
-		AppealQueueChannelDiscordID:       record.AppealQueueChannelDiscordID,
-		AppealRejoinURL:                   record.AppealRejoinURL,
-		AppealReviewReasonRequired:        record.AppealReviewReasonRequired,
-		AuditMirrorChannelDiscordID:       record.AuditMirrorChannelDiscordID,
-		ManagedEvidenceChannelDiscordID:   record.ManagedEvidenceChannelDiscordID,
-		NotificationIntroduction:          record.NotificationIntroduction,
-		NotificationFooter:                record.NotificationFooter,
-		TicketsEnabled:                    record.TicketsEnabled,
-		GeneralLoggingEnabled:             record.GeneralLoggingEnabled,
-		HoneypotEnabled:                   record.HoneypotEnabled,
-		StarterPolicyTemplateID:           record.StarterPolicyTemplateID,
-		StarterPolicyNoticePending:        record.StarterPolicyNoticePending,
-		StarterPolicyNoticeAcknowledgedAt: record.StarterPolicyNoticeAcknowledgedAt,
-	}
-}
-
-// prepareULIDRecord is prepareULIDModel for rows written through a *Record type.
-func prepareULIDRecord(record *ULIDModelRecord, now time.Time) error {
-	modelValue := model.ULIDModel{ID: record.ID, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
-	if err := prepareULIDModel(&modelValue, now); err != nil {
-		return err
-	}
-	record.ID, record.CreatedAt, record.UpdatedAt = modelValue.ID, modelValue.CreatedAt, modelValue.UpdatedAt
-	return nil
 }
 
 // loadCanonicalModuleFlags projects the shared module envelopes; obsolete guild

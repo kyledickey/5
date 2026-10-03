@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/quackdiscord/bot/internal/quack/idutil"
@@ -23,16 +22,13 @@ func (s *Store) ClaimPendingAppealNotifications(ctx context.Context, limit int) 
 		return nil, errors.New("appeal notification claim limit is invalid")
 	}
 	now := time.Now().UTC()
-	token, err := idutil.NewULID()
-	if err != nil {
-		return nil, fmt.Errorf("create appeal notification lease token: %w", err)
-	}
+	token := idutil.NewULID()
 	expiresAt := now.Add(2 * time.Minute)
-	var records []AppealNotificationRecord
-	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	var items []model.AppealNotification
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// An interrupted send has an unknown external outcome. Preserve it for
 		// review instead of automatically creating a duplicate queue message or DM.
-		if err := tx.Model(&AppealNotificationRecord{}).
+		if err := tx.Model(&model.AppealNotification{}).
 			Where("status = ? AND lease_expires_at <= ?", model.AppealNotificationSending, now).
 			Updates(map[string]any{
 				"status":           model.AppealNotificationFailed,
@@ -49,20 +45,20 @@ func (s *Store) ClaimPendingAppealNotifications(ctx context.Context, limit int) 
 				model.AppealNotificationClaimed, now,
 				model.AppealNotificationFailed, "delivery_deferred", now.Add(-time.Minute),
 			).
-			Order("created_at ASC").Limit(limit).Find(&records)
-		if result.Error != nil || len(records) == 0 {
+			Order("created_at ASC").Limit(limit).Find(&items)
+		if result.Error != nil || len(items) == 0 {
 			return result.Error
 		}
-		ids := make([]string, 0, len(records))
-		for index := range records {
-			ids = append(ids, records[index].ID)
-			records[index].RefreshRequested = false
-			records[index].Status = model.AppealNotificationClaimed
-			records[index].LeaseToken = token
-			records[index].LeaseExpiresAt = &expiresAt
-			records[index].UpdatedAt = now
+		ids := make([]string, 0, len(items))
+		for index := range items {
+			ids = append(ids, items[index].ID)
+			items[index].RefreshRequested = false
+			items[index].Status = model.AppealNotificationClaimed
+			items[index].LeaseToken = token
+			items[index].LeaseExpiresAt = &expiresAt
+			items[index].UpdatedAt = now
 		}
-		result = tx.Model(&AppealNotificationRecord{}).Where("id IN ?", ids).Updates(map[string]any{
+		result = tx.Model(&model.AppealNotification{}).Where("id IN ?", ids).Updates(map[string]any{
 			"refresh_requested": false,
 			"status":            model.AppealNotificationClaimed,
 			"lease_token":       token,
@@ -72,17 +68,13 @@ func (s *Store) ClaimPendingAppealNotifications(ctx context.Context, limit int) 
 		if result.Error != nil {
 			return result.Error
 		}
-		if result.RowsAffected != int64(len(records)) {
+		if result.RowsAffected != int64(len(items)) {
 			return model.ErrAppealStateConflict
 		}
 		return nil
 	})
 	if err != nil {
 		return nil, err
-	}
-	items := make([]model.AppealNotification, 0, len(records))
-	for _, record := range records {
-		items = append(items, appealNotificationModel(record))
 	}
 	return items, nil
 }
@@ -96,7 +88,7 @@ func (s *Store) CompleteAppealNotification(ctx context.Context, params model.Com
 	if params.Status != model.AppealNotificationSent && params.Status != model.AppealNotificationFailed {
 		return errors.New("appeal notification completion status is invalid")
 	}
-	result := s.db.WithContext(ctx).Model(&AppealNotificationRecord{}).
+	result := s.db.WithContext(ctx).Model(&model.AppealNotification{}).
 		Where("id = ? AND status = ? AND lease_token = ?", params.NotificationID, model.AppealNotificationSending, params.LeaseToken).
 		Updates(map[string]any{
 			"status": gorm.Expr("CASE WHEN refresh_requested = ? AND ? = ? THEN ? ELSE ? END",
@@ -121,7 +113,7 @@ func (s *Store) CompleteAppealNotification(ctx context.Context, params model.Com
 // unexpired lease. Claimed work can recover safely; sending work cannot.
 func (s *Store) BeginAppealNotificationDelivery(ctx context.Context, id, token string) error {
 	now := time.Now().UTC()
-	result := s.db.WithContext(ctx).Model(&AppealNotificationRecord{}).
+	result := s.db.WithContext(ctx).Model(&model.AppealNotification{}).
 		Where("id = ? AND status = ? AND lease_token = ? AND lease_expires_at > ?", id, model.AppealNotificationClaimed, token, now).
 		Updates(map[string]any{"status": model.AppealNotificationSending, "updated_at": now})
 	if result.Error != nil {

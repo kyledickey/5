@@ -12,7 +12,6 @@ import (
 // ErrQueueFull reports deliberate general-log shedding under gateway pressure.
 var ErrQueueFull = errors.New("general logging queue is full")
 
-// DeliveryQueue is a bounded concurrent worker queue isolated from moderation execution.
 type DeliveryQueue struct {
 	service *Service
 	events  chan Event
@@ -21,7 +20,6 @@ type DeliveryQueue struct {
 	wg      sync.WaitGroup
 }
 
-// NewDeliveryQueue starts bounded workers whose failures remain visible through module status.
 func NewDeliveryQueue(ctx context.Context, service *Service, capacity, workers int) *DeliveryQueue {
 	if capacity < 1 {
 		capacity = 1000
@@ -57,7 +55,6 @@ func (q *DeliveryQueue) Submit(event Event) error {
 	}
 }
 
-// cloneEvent copies mutable payload fields before handing them to another goroutine.
 func cloneEvent(event Event) Event {
 	if event.BulkMessages != nil {
 		messages := make([]CachedMessage, len(event.BulkMessages))
@@ -79,7 +76,6 @@ func cloneEvent(event Event) Event {
 	return event
 }
 
-// Close drains accepted events and waits for workers without affecting other module lifecycles.
 func (q *DeliveryQueue) Close() {
 	q.mu.Lock()
 	if !q.closed {

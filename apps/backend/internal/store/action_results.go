@@ -74,9 +74,7 @@ func (s *Store) CompleteCaseAction(ctx context.Context, params model.CompleteCas
 				StartedAt:     startedAt,
 				WorkerID:      params.WorkerID,
 			}
-			if err := prepareULIDModel(&attempt.ULIDModel, now); err != nil {
-				return err
-			}
+			prepareULIDModel(&attempt.ULIDModel, now)
 		} else if attemptResult.Error != nil {
 			return attemptResult.Error
 		}

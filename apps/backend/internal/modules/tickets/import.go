@@ -8,14 +8,12 @@ import (
 	"github.com/quackdiscord/bot/internal/modules"
 )
 
-// LegacyTicket is the explicit v4 ticket import contract.
 type LegacyTicket struct {
 	SourceID, GuildID, OwnerDiscordUserID, ThreadDiscordChannelID string
 	Status                                                        Status
 	CreatedAt                                                     time.Time
 }
 
-// ImportResult reports dry-run and idempotent mapping decisions.
 type ImportResult struct {
 	SourceID, TargetID   string
 	WouldCreate, Created bool
@@ -28,12 +26,12 @@ type Importer struct {
 	now     func() time.Time
 }
 
-// NewImporter constructs the ticket-only v4 importer.
 func NewImporter(store *Store, auditor modules.Auditor) *Importer {
 	return &Importer{store: store, auditor: auditor, now: func() time.Time { return time.Now().UTC() }}
 }
 
-// Import validates all rows, supports side-effect-free dry runs, and uses a durable source ledger.
+// Import validates every row first, supports side-effect-free dry runs, and
+// deduplicates against the durable modules.ImportRecord ledger.
 func (i *Importer) Import(ctx context.Context, actor Actor, rows []LegacyTicket, dryRun bool) ([]ImportResult, error) {
 	if !actor.CanManage {
 		return nil, ErrPermissionDenied

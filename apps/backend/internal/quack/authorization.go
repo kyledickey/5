@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
+	"github.com/quackdiscord/bot/internal/quack/idutil"
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
@@ -68,7 +68,7 @@ func (s *GuildService) Authorize(
 	}
 	if !guildContext.Live.Actor.Present {
 		err := &AuthorizationError{Capability: capability, Reason: authorizationReasonMemberRequired}
-		_ = s.auditAuthorizationDenial(ctx, guildContext, capability, source, err.Reason) // best-effort: denial is returned regardless
+		_ = s.auditAuthorizationDenial(ctx, guildContext, capability, source, err.Reason, "{}") // best-effort: denial is returned regardless
 		return err
 	}
 	if capability != "" && !guildContext.Can(capability) {
@@ -76,7 +76,7 @@ func (s *GuildService) Authorize(
 		if capability == model.PermissionActionCaseCreate {
 			err.RequiredPermission = permissionModerateMembers
 		}
-		_ = s.auditAuthorizationDenial(ctx, guildContext, capability, source, err.Reason) // best-effort: denial is returned regardless
+		_ = s.auditAuthorizationDenial(ctx, guildContext, capability, source, err.Reason, "{}") // best-effort: denial is returned regardless
 		return err
 	}
 	return nil
@@ -281,15 +281,9 @@ func casePermissionDenial(actionType model.ActionType, reason string, required u
 	return denial
 }
 
-// auditAuthorizationDenial appends immutable capability evidence with trace identifiers.
+// auditAuthorizationDenial appends immutable capability evidence with trace
+// identifiers and the operation-specific safe metadata, if any.
 func (s *GuildService) auditAuthorizationDenial(
-	ctx context.Context, guildContext *GuildStaffContext, capability model.PermissionAction, source model.AuditSource, reason string,
-) error {
-	return s.auditAuthorizationDenialWithMetadata(ctx, guildContext, capability, source, reason, "{}")
-}
-
-// auditAuthorizationDenialWithMetadata appends a denial while retaining operation-specific safe metadata.
-func (s *GuildService) auditAuthorizationDenialWithMetadata(
 	ctx context.Context,
 	guildContext *GuildStaffContext,
 	capability model.PermissionAction,
@@ -299,7 +293,7 @@ func (s *GuildService) auditAuthorizationDenialWithMetadata(
 	if guildContext == nil || guildContext.Guild == nil {
 		return errors.New("missing guild context")
 	}
-	requestID, correlationID := TraceIDsFromContext(ctx)
+	requestID, correlationID := idutil.TraceIDsFromContext(ctx)
 	actorID := guildContext.ActorDiscordUserID
 	if actorID == "" && guildContext.Staff != nil {
 		actorID = guildContext.Staff.DiscordUserID
@@ -337,6 +331,3 @@ func actionPermission(actionType model.ActionType) uint64 {
 		return 0
 	}
 }
-
-// authorizationNow centralizes cache activity timestamps for live resolution.
-func authorizationNow() time.Time { return time.Now().UTC() }

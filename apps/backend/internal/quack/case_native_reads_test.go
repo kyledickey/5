@@ -4,16 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/quackdiscord/bot/internal/discordbot/ui/views"
-	"gorm.io/gorm/clause"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/internal/discordbot/ui/views"
 	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/quackdiscord/bot/internal/quack/model"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // TestNativeDetailBoundsHistoryPreservesOutput checks identical native output and

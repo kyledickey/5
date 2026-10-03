@@ -4,9 +4,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/quackdiscord/bot/internal/httpapi/apierror"
-
 	"github.com/gin-gonic/gin"
+	"github.com/quackdiscord/bot/internal/httpapi/apierror"
 	"github.com/quackdiscord/bot/internal/httpapi/middleware"
 	"github.com/quackdiscord/bot/internal/quack"
 	"github.com/quackdiscord/bot/internal/quack/model"
@@ -35,8 +34,7 @@ type failedActionListResponse struct {
 	Total      int64                  `json:"total"`
 }
 
-// failedActionEnvelope wraps a changed recovery item consistently for retry
-// and dismiss responses.
+// failedActionEnvelope wraps a changed recovery item for retry and dismiss.
 type failedActionEnvelope struct {
 	Action failedActionResponse `json:"action"`
 }

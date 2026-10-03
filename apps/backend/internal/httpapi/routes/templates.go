@@ -2,14 +2,11 @@ package routes
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 
-	"github.com/quackdiscord/bot/internal/httpapi/apierror"
-
 	"github.com/gin-gonic/gin"
+	"github.com/quackdiscord/bot/internal/httpapi/apierror"
 	"github.com/quackdiscord/bot/internal/httpapi/middleware"
 	"github.com/quackdiscord/bot/internal/quack"
 )
@@ -20,7 +17,6 @@ type templateChangeHandler interface {
 	HandleTemplateChange(context.Context, string, string)
 }
 
-// listTemplates returns templates subject to authorization, ordering, and filtering constraints.
 // @Summary List case templates
 // @Tags Templates
 // @Produce json
@@ -41,7 +37,6 @@ func listTemplates(c *gin.Context, services *quack.Services) {
 	c.JSON(http.StatusOK, gin.H{"templates": templates})
 }
 
-// createTemplate creates template while preserving validation, authorization, and persistence invariants.
 // @Summary Create a case template
 // @Tags Templates
 // @Accept json
@@ -56,7 +51,7 @@ func listTemplates(c *gin.Context, services *quack.Services) {
 // @Router /guilds/{discordGuildID}/templates [post]
 func createTemplate(c *gin.Context, services *quack.Services) {
 	var input quack.TemplateInput
-	if err := bindTemplateInput(c, &input); err != nil {
+	if err := decodeStrictJSON(c, &input); err != nil {
 		apierror.Write(c, http.StatusBadRequest, apierror.CodeValidation, "invalid template payload")
 		return
 	}
@@ -70,7 +65,6 @@ func createTemplate(c *gin.Context, services *quack.Services) {
 	c.JSON(http.StatusCreated, gin.H{"template": template})
 }
 
-// getTemplate retrieves template without exposing the underlying adapter implementation.
 // @Summary Get a case template
 // @Tags Templates
 // @Produce json
@@ -91,7 +85,6 @@ func getTemplate(c *gin.Context, services *quack.Services) {
 	c.JSON(http.StatusOK, gin.H{"template": template})
 }
 
-// updateTemplate updates template while retaining validation, compatibility, and audit requirements.
 // @Summary Update a case template
 // @Tags Templates
 // @Accept json
@@ -109,7 +102,7 @@ func getTemplate(c *gin.Context, services *quack.Services) {
 // @Router /guilds/{discordGuildID}/templates/{templateID} [patch]
 func updateTemplate(c *gin.Context, services *quack.Services, changes templateChangeHandler) {
 	var input quack.TemplateInput
-	if err := bindTemplateInput(c, &input); err != nil {
+	if err := decodeStrictJSON(c, &input); err != nil {
 		apierror.Write(c, http.StatusBadRequest, apierror.CodeValidation, "invalid template payload")
 		return
 	}
@@ -129,23 +122,6 @@ func updateTemplate(c *gin.Context, services *quack.Services, changes templateCh
 	c.JSON(http.StatusOK, gin.H{"template": template})
 }
 
-// bindTemplateInput rejects retired or unknown product fields instead of silently ignoring them.
-func bindTemplateInput(c *gin.Context, input *quack.TemplateInput) error {
-	decoder := json.NewDecoder(c.Request.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(input); err != nil {
-		return err
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return errors.New("multiple JSON values are not allowed")
-		}
-		return err
-	}
-	return nil
-}
-
-// archiveTemplate encapsulates the archive template rule so callers share one consistent package implementation.
 // @Summary Archive a case template
 // @Tags Templates
 // @Produce json
@@ -241,7 +217,6 @@ func importTemplate(c *gin.Context, services *quack.Services) {
 	c.JSON(http.StatusCreated, gin.H{"template": template})
 }
 
-// writeTemplateError maps template error into the preserved HTTP error response contract.
 func writeTemplateError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, quack.ErrTemplateConflict):
@@ -252,17 +227,6 @@ func writeTemplateError(c *gin.Context, err error) {
 		apierror.Write(c, http.StatusBadRequest, apierror.CodeValidation, err.Error())
 	case errors.Is(err, quack.ErrTemplateNotFound):
 		apierror.Write(c, http.StatusNotFound, apierror.CodeNotFound, err.Error())
-	case errors.Is(err, quack.ErrTemplateCompatibilityReviewRequired):
-		var compatibilityError *quack.TemplateCompatibilityReviewError
-		if errors.As(err, &compatibilityError) {
-			c.JSON(http.StatusConflict, gin.H{
-				"error":                quack.ErrTemplateCompatibilityReviewRequired.Error(),
-				"template_id":          compatibilityError.TemplateID,
-				"compatibility_reason": compatibilityError.Reason,
-			})
-			return
-		}
-		apierror.Write(c, http.StatusConflict, apierror.CodeConflict, quack.ErrTemplateCompatibilityReviewRequired.Error())
 	default:
 		apierror.Write(c, http.StatusInternalServerError, apierror.CodeInternal, "template operation failed")
 	}

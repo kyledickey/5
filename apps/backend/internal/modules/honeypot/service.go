@@ -12,7 +12,8 @@ import (
 	"github.com/quackdiscord/bot/internal/modules"
 )
 
-// Service owns honeypot configuration, trigger safety, and the QP-A application boundary.
+// Service owns honeypot configuration, trigger safety, and the core case
+// application boundary.
 type Service struct {
 	registry  *modules.Registry
 	store     *Store
@@ -22,12 +23,10 @@ type Service struct {
 	applier   CaseApplier
 }
 
-// NewService constructs the module with explicit isolated dependencies.
 func NewService(registry *modules.Registry, store *Store, auditor modules.Auditor, channels ChannelValidator, templates TemplateValidator, applier CaseApplier) *Service {
 	return &Service{registry: registry, store: store, auditor: auditor, channels: channels, templates: templates, applier: applier}
 }
 
-// Settings returns one guild's settings and health to a current manager.
 func (s *Service) Settings(ctx context.Context, actor Actor) (Settings, Status, error) {
 	if !actor.CanManage {
 		s.audit(ctx, actor.GuildID, actor.DiscordUserID, "honeypot.settings.read", "honeypot_settings", "denied", ErrPermissionDenied, "")
@@ -44,7 +43,8 @@ func (s *Service) Settings(ctx context.Context, actor Actor) (Settings, Status, 
 	return settings, status, nil
 }
 
-// UpdateSettings validates the live channel and template before replacing only the honeypot envelope.
+// UpdateSettings validates the live channel and template before replacing the
+// honeypot envelope.
 func (s *Service) UpdateSettings(ctx context.Context, actor Actor, enabled bool, settings Settings) (Settings, Status, error) {
 	if !actor.CanManage {
 		s.audit(ctx, actor.GuildID, actor.DiscordUserID, "honeypot.settings.update", "honeypot_settings", "denied", ErrPermissionDenied, "")
@@ -76,7 +76,8 @@ func (s *Service) UpdateSettings(ctx context.Context, actor Actor, enabled bool,
 	return settings, status, err
 }
 
-// HandleMessage applies the fixed trap policy and invokes the normal moderation path exactly once.
+// HandleMessage applies the fixed trap policy and invokes the normal moderation
+// path exactly once per Discord message.
 func (s *Service) HandleMessage(ctx context.Context, message Message) (ApplyResult, error) {
 	if s == nil || s.registry == nil || s.store == nil || s.applier == nil {
 		return ApplyResult{}, errors.New("honeypot service is not configured")
@@ -153,7 +154,6 @@ func (s *Service) HandleMessage(ctx context.Context, message Message) (ApplyResu
 	return result, nil
 }
 
-// HandleDeletedChannel disables a matching trap while retaining its repair context.
 func (s *Service) HandleDeletedChannel(ctx context.Context, guildID, channelID string) error {
 	settings, enabled, err := s.loadSettings(ctx, strings.TrimSpace(guildID))
 	if err != nil || !enabled || settings.ChannelDiscordID != strings.TrimSpace(channelID) {
@@ -162,7 +162,6 @@ func (s *Service) HandleDeletedChannel(ctx context.Context, guildID, channelID s
 	return s.disableForDrift(ctx, guildID, settings, "configured honeypot channel was deleted")
 }
 
-// HandleTemplateUnavailable disables automation when archive or compatibility drift is observed.
 func (s *Service) HandleTemplateUnavailable(ctx context.Context, guildID, templateID string) error {
 	settings, enabled, err := s.loadSettings(ctx, strings.TrimSpace(guildID))
 	if err != nil || !enabled || settings.TemplateID != strings.TrimSpace(templateID) {
@@ -171,7 +170,7 @@ func (s *Service) HandleTemplateUnavailable(ctx context.Context, guildID, templa
 	return s.disableForDrift(ctx, guildID, settings, "selected template is archived, missing, or incompatible")
 }
 
-// Repair revalidates retained references and safely re-enables the module.
+// Repair revalidates retained references and re-enables the module.
 func (s *Service) Repair(ctx context.Context, actor Actor) (Settings, Status, error) {
 	if !actor.CanManage {
 		return Settings{}, Status{}, ErrPermissionDenied

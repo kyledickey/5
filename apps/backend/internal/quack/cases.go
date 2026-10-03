@@ -2,13 +2,48 @@ package quack
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
 
+	"github.com/quackdiscord/bot/internal/quack/idutil"
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
+
+// CaseRepository is the persistence CaseService needs: creation under the
+// guild case lock, authorized reads, evidence, and immutable corrections.
+type CaseRepository interface {
+	AppendCaseEvidence(
+		context.Context, string, string, []model.CaseEvidenceSnapshot, []model.CaseEvidenceAttachment, *model.AuditLogEntry,
+	) error
+	UpdateCaseContext(context.Context, string, string, string, *model.AuditLogEntry) (*model.Case, error)
+	ListCaseActionsForCases(context.Context, []string) ([]model.CaseActionExecution, error)
+	CountTemplateCasesForTarget(context.Context, model.CountTemplateCasesForTargetParams) (int64, error)
+	CreateAuditLogEntry(context.Context, *model.AuditLogEntry) error
+	CreateCase(context.Context, model.CreateCaseParams) (*model.CreatedCase, error)
+	GetAppealByCaseID(context.Context, string) (*model.Appeal, error)
+	GetCaseByID(context.Context, string) (*model.Case, error)
+	GetCaseByIDOrNumber(context.Context, string, string) (*model.Case, error)
+	GetCaseByIdempotencyKey(context.Context, string, string) (*model.Case, error)
+	GetCaseNotification(context.Context, string) (*model.CaseNotification, error)
+	GetCaseTemplateExpanded(context.Context, string, string) (*model.ExpandedCaseTemplate, error)
+	GetGuildByID(context.Context, string) (*model.Guild, error)
+	GetGuildSettings(context.Context, string) (*model.GuildSettings, error)
+	ListCaseActionAttempts(context.Context, []string) ([]model.CaseActionAttempt, error)
+	ListCaseActionExecutions(context.Context, string) ([]model.CaseActionExecution, error)
+	ListCaseEvents(context.Context, string) ([]model.CaseEvent, error)
+	ListRecentCaseEvents(context.Context, string, int) ([]model.CaseEvent, error)
+	CasePublicationEvidenceIncomplete(context.Context, string) (bool, error)
+	GetCaseEvidencePage(context.Context, string, int) (*model.CaseEvidenceSnapshot, []model.CaseEvidenceAttachment, int64, error)
+	ListCaseEvidence(context.Context, string) ([]model.CaseEvidenceSnapshot, []model.CaseEvidenceAttachment, error)
+	ListCasesFiltered(context.Context, model.ListCasesParams) (*model.ListCasesResult, error)
+	TargetCaseSummary(context.Context, string, string) (*model.TargetCaseSummary, error)
+	VoidCase(context.Context, model.VoidCaseParams) (*model.Case, error)
+	WithGuildCaseLock(context.Context, string, func(CaseRepository) error) error
+}
 
 var (
 	// ErrCaseValidation wraps every rejected case input; the suffix after the
@@ -44,11 +79,8 @@ type CaseService struct {
 
 // NewCaseService wires case persistence and an optional scheduler. A nil
 // scheduler means committed cases wait for the durable poller instead of being
-// submitted immediately; a nil store is a programming error and panics.
+// submitted immediately.
 func NewCaseService(store CaseRepository, scheduler CaseWorkScheduler) *CaseService {
-	if store == nil {
-		panic("quack: NewCaseService requires a non-nil CaseRepository")
-	}
 	return &CaseService{store: store, scheduler: scheduler}
 }
 
@@ -77,7 +109,7 @@ func (s *CaseService) Create(ctx context.Context, guildContext *GuildStaffContex
 	if input.Source == model.CaseSourceHoneypot {
 		return nil, validationCaseError("honeypot cases require the system application boundary")
 	}
-	attribution := caseCreateAttribution{actorType: "staff", auditSource: model.AuditSourceAPI}
+	attribution := caseCreateAttribution{actorType: "staff"}
 	return s.createWithAttribution(ctx, guildContext, input, attribution)
 }
 
@@ -105,7 +137,7 @@ func (s *CaseService) CreateSystemHoneypot(ctx context.Context, guildID string, 
 			model.PermissionActionCaseCreate: true,
 		},
 	}
-	attribution := caseCreateAttribution{actorType: "system", auditSource: model.AuditSourceSystem, system: true}
+	attribution := caseCreateAttribution{actorType: "system", system: true}
 	return s.createWithAttribution(ctx, systemContext, input, attribution)
 }
 
@@ -180,7 +212,7 @@ func (s *CaseService) createWithAttribution(
 		var authorizationErr *AuthorizationError
 		if errors.As(err, &authorizationErr) && s.authorizer != nil {
 			// best-effort: the denial is already being returned to the caller
-			_ = s.authorizer.auditAuthorizationDenialWithMetadata(
+			_ = s.authorizer.auditAuthorizationDenial(
 				ctx,
 				guildContext,
 				authorizationErr.Capability,
@@ -211,7 +243,8 @@ func (s *CaseService) createWithAttribution(
 		"case_id", created.Case.ID, "case_number", created.Case.CaseNumber,
 		"template_id", input.TemplateID, "source", created.Case.Source)
 
-	response := caseResponse(*created)
+	response := caseResponseFromModel(created.Case, created.ActionExecutions)
+	response.EvidenceIncomplete = evidenceIncomplete(created.Evidence)
 	return &response, nil
 }
 
@@ -395,4 +428,447 @@ func (s *CaseService) requireCaseRead(guildContext *GuildStaffContext) error {
 		return ErrCasePermissionDenied
 	}
 	return nil
+}
+
+// create materializes a case inside the already-locked guild transaction. It
+// re-reads the template and re-selects the escalation level so the persisted
+// snapshot reflects the state under the lock, rejects the request with
+// errCasePreflightStale when that differs from the preflight, and writes the
+// case, its initial event, pending actions, evidence, notification, and audit
+// rows in one CreateCase call.
+func (s *CaseService) create(
+	ctx context.Context,
+	guildContext *GuildStaffContext,
+	input CaseInput,
+	preflight *caseCreatePreflight,
+	attribution caseCreateAttribution,
+) (*model.CreatedCase, error) {
+	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
+		return nil, validationCaseError("missing guild context")
+	}
+	if !guildContext.Can(model.PermissionActionCaseCreate) {
+		return nil, ErrCasePermissionDenied
+	}
+	if input.IdempotencyKey != "" {
+		existing, err := s.store.GetCaseByIdempotencyKey(ctx, guildContext.Guild.ID, input.IdempotencyKey)
+		if err != nil {
+			return nil, err
+		}
+		if existing != nil {
+			sameTarget := existing.TargetDiscordUserID == strings.TrimSpace(input.TargetDiscordUserID)
+			sameTemplate := existing.TemplateID != nil && *existing.TemplateID == strings.TrimSpace(input.TemplateID)
+			if !sameTarget || !sameTemplate {
+				return nil, validationCaseError("idempotency key was already used for another case request")
+			}
+			actions, actionErr := s.store.ListCaseActionExecutions(ctx, existing.ID)
+			if actionErr != nil {
+				return nil, actionErr
+			}
+			evidence, attachments, evidenceErr := s.store.ListCaseEvidence(ctx, existing.ID)
+			if evidenceErr != nil {
+				return nil, evidenceErr
+			}
+			return &model.CreatedCase{
+				Case:             *existing,
+				ActionExecutions: actions,
+				Evidence:         evidence,
+				Attachments:      attachments,
+			}, nil
+		}
+	}
+
+	templateID := strings.TrimSpace(input.TemplateID)
+	if templateID == "" {
+		return nil, validationCaseError("template_id is required")
+	}
+	targetDiscordUserID := strings.TrimSpace(input.TargetDiscordUserID)
+	if targetDiscordUserID == "" {
+		return nil, validationCaseError("target_discord_user_id is required")
+	}
+
+	source := input.Source
+	if source == "" {
+		source = model.CaseSourceDashboard
+	}
+	if !validCaseSource(source) {
+		return nil, validationCaseError("source is invalid")
+	}
+
+	metadataJSON, err := normalizeJSONObject(input.Metadata)
+	if err != nil {
+		return nil, validationCaseError("metadata must be a JSON object")
+	}
+
+	template, err := s.store.GetCaseTemplateExpanded(ctx, guildContext.Guild.ID, templateID)
+	if err != nil {
+		return nil, err
+	}
+	if template == nil || template.Template.ArchivedAt != nil {
+		return nil, ErrCaseTemplateNotAvailable
+	}
+
+	reason := strings.TrimSpace(template.Template.ReasonTemplate)
+	if reason == "" {
+		return nil, validationCaseError("reason is required")
+	}
+
+	selectedLevel, err := s.selectTemplateLevel(ctx, guildContext.Guild.ID, targetDiscordUserID, template)
+	if err != nil {
+		return nil, err
+	}
+	if preflight == nil {
+		return nil, validationCaseError("case preflight is required")
+	}
+	actualAction := model.ActionType("")
+	if len(selectedLevel.Actions) == 1 {
+		actualAction = selectedLevel.Actions[0].ActionType
+	}
+	if preflight.TemplateID != template.Template.ID ||
+		preflight.TemplateVersion != template.Template.Version ||
+		preflight.SelectedLevelID != selectedLevel.Level.ID ||
+		preflight.ActionType != actualAction {
+		return nil, errCasePreflightStale
+	}
+	contextValuesJSON := preflight.ContextValuesJSON
+	captured := preflight.Captured
+
+	snapshotJSON, err := buildTemplateSnapshot(template.Template, template.ContextFields, contextValuesJSON, *selectedLevel)
+	if err != nil {
+		return nil, err
+	}
+	_, correlationID := idutil.TraceIDsFromContext(ctx)
+
+	actorDiscordUserID := guildContext.Staff.DiscordUserID
+	if attribution.system {
+		actorDiscordUserID = ""
+	}
+	caseModel := model.Case{
+		GuildID:                 guildContext.Guild.ID,
+		TemplateID:              &template.Template.ID,
+		TemplateVersion:         template.Template.Version,
+		TemplateSnapshotJSON:    snapshotJSON,
+		TargetDiscordUserID:     targetDiscordUserID,
+		ModeratorDiscordUserID:  actorDiscordUserID,
+		Reason:                  reason,
+		Validity:                model.CaseValidityValid,
+		Source:                  source,
+		CorrelationID:           correlationID,
+		ContextChannelDiscordID: strings.TrimSpace(input.ContextChannelDiscordID),
+		ContextMessageDiscordID: strings.TrimSpace(input.ContextMessageDiscordID),
+		ContextURL:              strings.TrimSpace(input.ContextURL),
+		MetadataJSON:            metadataJSON,
+		ContextValuesJSON:       contextValuesJSON,
+	}
+	if input.IdempotencyKey != "" {
+		key := input.IdempotencyKey
+		caseModel.IdempotencyKey = &key
+	}
+	if replacement := strings.TrimSpace(input.ReplacesCaseID); replacement != "" {
+		prior, getErr := s.store.GetCaseByIDOrNumber(ctx, guildContext.Guild.ID, replacement)
+		if getErr != nil {
+			return nil, getErr
+		}
+		if prior == nil || prior.Validity != model.CaseValidityVoided {
+			return nil, validationCaseError("replacement must reference a voided case in this guild")
+		}
+		caseModel.ReplacesCaseID = &prior.ID
+	}
+
+	actionExecutions := make([]model.CaseActionExecution, 0, len(selectedLevel.Actions))
+	for _, action := range selectedLevel.Actions {
+		templateActionID := action.ID
+		actionExecutions = append(actionExecutions, model.CaseActionExecution{
+			TemplateActionID:   &templateActionID,
+			Position:           0,
+			ActionType:         action.ActionType,
+			Status:             model.ActionExecutionPending,
+			ConfigSnapshotJSON: action.ConfigJSON,
+			MaxRetries:         action.MaxRetries,
+			RetryBackoffMS:     1000,
+			SafeForRetry:       true,
+			Irreversible:       irreversibleAction(action.ActionType),
+			CorrelationID:      correlationID,
+		})
+	}
+	var notification *model.CaseNotification
+	if selectedLevel.Level.NotifyUser {
+		notification = &model.CaseNotification{Status: model.NotificationPending}
+	}
+
+	event := model.CaseEvent{
+		EventType:          model.CaseEventCreated,
+		ActorDiscordUserID: actorDiscordUserID,
+		ActorType:          attribution.actorType,
+		Visibility:         model.EventVisibilityPublic,
+		Body:               fmt.Sprintf("Case created from template %s", template.Template.Slug),
+		MetadataJSON:       "{}",
+	}
+
+	params := model.CreateCaseParams{
+		Case:             caseModel,
+		Event:            event,
+		ActionExecutions: actionExecutions,
+		Evidence:         captured.Snapshots,
+		Attachments:      captured.Attachments,
+		Notification:     notification,
+		Audit:            s.auditEntryWithAttribution(ctx, guildContext, attribution, "case.create", "case", "", model.AuditResultSuccess, ""),
+	}
+	if len(captured.Snapshots) > 0 {
+		result := model.AuditResultSuccess
+		failure := ""
+		if len(captured.Warnings) > 0 {
+			result = model.AuditResultFailure
+			failure = "partial evidence capture"
+		}
+		entry := s.auditEntryWithAttribution(ctx, guildContext, attribution, "evidence.capture", "case_evidence", "", result, failure)
+		if entry != nil {
+			entry.MetadataJSON = mustMarshalJSONObject(map[string]any{
+				"snapshot_count":   len(captured.Snapshots),
+				"attachment_count": len(captured.Attachments),
+				"partial":          len(captured.Warnings) > 0,
+			})
+			params.AdditionalAudits = append(params.AdditionalAudits, *entry)
+		}
+	}
+	return s.store.CreateCase(ctx, params)
+}
+
+// selectTemplateLevel chooses the highest escalation whose configured
+// case-count threshold is met by the target's matching history (including the
+// case being created), falling back to the default level. Templates whose
+// levels carry more than one action or a non-positive trigger are rejected.
+func (s *CaseService) selectTemplateLevel(
+	ctx context.Context,
+	guildID, targetDiscordUserID string,
+	template *model.ExpandedCaseTemplate,
+) (*selectedTemplateLevel, error) {
+	if template == nil {
+		return nil, validationCaseError("template is required")
+	}
+
+	var fallback *selectedTemplateLevel
+	var best *selectedTemplateLevel
+	matchedCaseCount, err := s.matchingTemplateCaseCount(ctx, guildID, targetDiscordUserID, template.Template)
+	if err != nil {
+		return nil, err
+	}
+	for _, expandedLevel := range template.Levels {
+		level := expandedLevel.Level
+		if len(expandedLevel.Actions) > 1 {
+			return nil, validationCaseError("template level has more than one enforcement action")
+		}
+		if level.IsDefault {
+			fallback = &selectedTemplateLevel{
+				Level:            level,
+				Actions:          expandedLevel.Actions,
+				MatchedCaseCount: matchedCaseCount,
+			}
+			continue
+		}
+
+		if level.TriggerCaseCount <= 0 {
+			return nil, validationCaseError("escalation level trigger_case_count must be positive")
+		}
+
+		if matchedCaseCount < int64(level.TriggerCaseCount) {
+			continue
+		}
+		candidate := &selectedTemplateLevel{
+			Level:            level,
+			Actions:          expandedLevel.Actions,
+			MatchedCaseCount: matchedCaseCount,
+		}
+		if best == nil || level.TriggerCaseCount > best.Level.TriggerCaseCount {
+			best = candidate
+		}
+	}
+
+	if fallback == nil {
+		return nil, validationCaseError("template has no default level")
+	}
+	if best != nil {
+		return best, nil
+	}
+
+	return fallback, nil
+}
+
+// matchingTemplateCaseCount returns the target's valid prior cases for this
+// template (within the decay window when one is configured) plus one for the
+// case currently being created, matching the user-facing meaning of a trigger count.
+func (s *CaseService) matchingTemplateCaseCount(
+	ctx context.Context,
+	guildID, targetDiscordUserID string,
+	template model.CaseTemplate,
+) (int64, error) {
+	var since *time.Time
+	if template.CaseDecayDays > 0 {
+		cutoff := time.Now().UTC().Add(-time.Duration(template.CaseDecayDays) * 24 * time.Hour)
+		since = &cutoff
+	}
+	priorCount, err := s.store.CountTemplateCasesForTarget(ctx, model.CountTemplateCasesForTargetParams{
+		GuildID:             guildID,
+		TemplateID:          template.ID,
+		CreatedAtOrAfter:    since,
+		TargetDiscordUserID: targetDiscordUserID,
+	})
+	if err != nil {
+		return 0, err
+	}
+	return priorCount + 1, nil
+}
+
+// buildTemplateSnapshot serializes the immutable policy record stored on a
+// case: the template identity and reason, the selected level with the count
+// that chose it, the level's action settings, and the context schema and values.
+// Later template edits never change what a historical case displays.
+func buildTemplateSnapshot(
+	template model.CaseTemplate,
+	fields []model.CaseTemplateContextField,
+	valuesJSON string,
+	selectedLevel selectedTemplateLevel,
+) (string, error) {
+	snapshot := CaseTemplateSnapshotResponse{
+		Template: templateSnapshotTemplate{
+			ID:             template.ID,
+			Slug:           template.Slug,
+			Name:           template.Name,
+			Version:        template.Version,
+			ReasonTemplate: template.ReasonTemplate,
+			CaseDecayDays:  template.CaseDecayDays,
+			Appealable:     template.Appealable,
+		},
+		SelectedLevel: CaseSelectedLevel{
+			TemplateLevelDetails: templateLevelDetails(selectedLevel.Level),
+			MatchedCaseCount:     selectedLevel.MatchedCaseCount,
+		},
+		Actions:       make([]templateSnapshotAction, 0, len(selectedLevel.Actions)),
+		ContextFields: make([]TemplateContextFieldResponse, 0, len(fields)),
+	}
+	// valuesJSON was produced by validateCaseContextValues, so it always decodes;
+	// a malformed value would only leave ContextValues empty in the snapshot.
+	_ = json.Unmarshal([]byte(valuesJSON), &snapshot.ContextValues)
+	for _, field := range fields {
+		snapshot.ContextFields = append(snapshot.ContextFields, TemplateContextFieldResponse{
+			ID:        field.ID,
+			Key:       field.Key,
+			Label:     field.Label,
+			FieldType: field.FieldType,
+			Position:  field.Position,
+			Required:  field.Required,
+		})
+	}
+
+	for _, action := range selectedLevel.Actions {
+		settings := templateActionResponse(action)
+		snapshot.Actions = append(snapshot.Actions, templateSnapshotAction{
+			ID:                     action.ID,
+			ActionType:             action.ActionType,
+			TimeoutDurationSeconds: settings.TimeoutDurationSeconds,
+			DeleteMessageSeconds:   settings.DeleteMessageSeconds,
+			MaxRetries:             action.MaxRetries,
+		})
+	}
+
+	body, err := json.Marshal(snapshot)
+	if err != nil {
+		return "", fmt.Errorf("marshal case template snapshot: %w", err)
+	}
+	return string(body), nil
+}
+
+// audit writes one staff-attributed audit row for a case operation. It returns
+// the storage error so callers can decide whether a lost audit fails the request.
+func (s *CaseService) audit(
+	ctx context.Context,
+	guildContext *GuildStaffContext,
+	action, resourceType, resourceID string,
+	result model.AuditResult,
+	failureReason string,
+) error {
+	attribution := caseCreateAttribution{actorType: "staff"}
+	return s.auditWithAttribution(ctx, guildContext, attribution, action, resourceType, resourceID, result, failureReason)
+}
+
+// auditWithAttribution appends case evidence without inventing a Discord actor
+// for system automation. A missing guild or staff context records nothing.
+func (s *CaseService) auditWithAttribution(
+	ctx context.Context,
+	guildContext *GuildStaffContext,
+	attribution caseCreateAttribution,
+	action, resourceType, resourceID string,
+	result model.AuditResult,
+	failureReason string,
+) error {
+	entry := s.auditEntryWithAttribution(ctx, guildContext, attribution, action, resourceType, resourceID, result, failureReason)
+	if entry == nil {
+		return nil
+	}
+	return recordAudit(ctx, s.store, entry)
+}
+
+// auditEntry builds, without persisting, the staff-attributed audit row that
+// repository writes attach to their transaction.
+func (s *CaseService) auditEntry(
+	ctx context.Context,
+	guildContext *GuildStaffContext,
+	action, resourceType, resourceID string,
+	result model.AuditResult,
+	failureReason string,
+) *model.AuditLogEntry {
+	attribution := caseCreateAttribution{actorType: "staff"}
+	return s.auditEntryWithAttribution(ctx, guildContext, attribution, action, resourceType, resourceID, result, failureReason)
+}
+
+// auditEntryWithAttribution builds the atomic case audit row for either a
+// current staff actor or Quack's restricted honeypot system actor. It returns
+// nil when the guild or staff context is missing; an empty resource ID is
+// recorded as "unknown".
+func (s *CaseService) auditEntryWithAttribution(
+	ctx context.Context,
+	guildContext *GuildStaffContext,
+	attribution caseCreateAttribution,
+	action, resourceType, resourceID string,
+	result model.AuditResult,
+	failureReason string,
+) *model.AuditLogEntry {
+	if guildContext == nil || guildContext.Guild == nil || guildContext.Staff == nil {
+		return nil
+	}
+	requestID, correlationID := idutil.TraceIDsFromContext(ctx)
+	actorDiscordUserID := guildContext.Staff.DiscordUserID
+	permissionBits := guildContext.PermissionBits
+	if attribution.system {
+		actorDiscordUserID = ""
+		permissionBits = 0
+	}
+
+	entry := &model.AuditLogEntry{
+		GuildID:             guildContext.Guild.ID,
+		ActorDiscordUserID:  actorDiscordUserID,
+		ActorPermissionBits: permissionBits,
+		Source:              AuditSourceFromContext(ctx),
+		Action:              action,
+		ResourceType:        resourceType,
+		ResourceID:          resourceID,
+		Result:              result,
+		FailureReason:       failureReason,
+		CorrelationID:       correlationID,
+		RequestID:           requestID,
+		MetadataJSON:        "{}",
+	}
+	if entry.ResourceID == "" {
+		entry.ResourceID = "unknown"
+	}
+	return entry
+}
+
+// ensureTraceContext guarantees the context carries both a request ID and a
+// correlation ID, generating whichever is missing, so every row written by a
+// case operation can be joined to the same trace.
+func ensureTraceContext(ctx context.Context) context.Context {
+	if idutil.RequestIDFromContext(ctx) != "" && idutil.CorrelationIDFromContext(ctx) != "" {
+		return ctx
+	}
+	return idutil.ContextWithTrace(ctx, idutil.RequestIDFromContext(ctx), idutil.CorrelationIDFromContext(ctx))
 }

@@ -63,7 +63,7 @@ func TestExpiredOAuthTokenForcesStableReauthenticationAndRevokesSession(t *testi
 	if err := store.SaveSession(context.Background(), session, time.Hour); err != nil {
 		t.Fatalf("save session: %v", err)
 	}
-	services := quack.New(store)
+	services := quack.New(config.Default(), store, nil, nil, nil)
 	router := authTestRouter(services)
 	request := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
 	request.Header.Set("Authorization", "Bearer "+session.ID)
@@ -95,7 +95,7 @@ func TestAuthMeAndLogoutAllDoNotExposeOrRetainSessions(t *testing.T) {
 			t.Fatalf("save session: %v", err)
 		}
 	}
-	services := quack.New(store)
+	services := quack.New(config.Default(), store, nil, nil, nil)
 	router := authTestRouter(services)
 	request := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
 	request.AddCookie(&http.Cookie{Name: services.Config.Auth.SessionCookieName, Value: first.ID})
@@ -142,7 +142,7 @@ func TestAuthMeAndLogoutAllDoNotExposeOrRetainSessions(t *testing.T) {
 
 func TestRevokedDiscordGrantReturnsSafeReauthentication(t *testing.T) {
 	store := testutil.NewSQLiteRedisStore(t)
-	services := quack.New(store)
+	services := quack.New(config.Default(), store, nil, nil, nil)
 	services.Config.Discord.AppID = "app"
 	services.Config.Discord.ClientSecret = "client-secret"
 	services.Config.Discord.OAuthRedirectURI = "https://dashboard.example.com/callback"
@@ -179,7 +179,7 @@ func TestRevokedDiscordGrantReturnsSafeReauthentication(t *testing.T) {
 
 func TestOAuthJSONCallbackReturnsOnlySafeUserContract(t *testing.T) {
 	store := testutil.NewSQLiteRedisStore(t)
-	services := quack.New(store)
+	services := quack.New(config.Default(), store, nil, nil, nil)
 	services.Config.Discord.AppID = "app"
 	services.Config.Discord.ClientSecret = "client-secret"
 	services.Config.Discord.OAuthRedirectURI = "https://dashboard.example.com/callback"
@@ -250,7 +250,7 @@ func TestOAuthCallbackRequiresInitiatingBrowser(t *testing.T) {
 	for _, binding := range []string{"", "different-browser"} {
 		t.Run(binding, func(t *testing.T) {
 			store := testutil.NewSQLiteRedisStore(t)
-			services := quack.New(store)
+			services := quack.New(config.Default(), store, nil, nil, nil)
 			services.Config.Discord.AppID = "app"
 			services.Config.Discord.ClientSecret = "secret"
 			services.Config.Discord.OAuthRedirectURI = "https://api.example/auth/discord/callback"
@@ -292,7 +292,7 @@ func TestRedirectTargetRejectsExternalAndBrowserNormalizedURLs(t *testing.T) {
 }
 
 func TestOAuthLoginSetsHostBoundStateCookie(t *testing.T) {
-	services := quack.New(testutil.NewSQLiteRedisStore(t))
+	services := quack.New(config.Default(), testutil.NewSQLiteRedisStore(t), nil, nil, nil)
 	services.Config.Discord.AppID = "app"
 	services.Config.Discord.ClientSecret = "secret"
 	services.Config.Discord.OAuthRedirectURI = "https://api.example/auth/discord/callback"

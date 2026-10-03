@@ -10,7 +10,7 @@ import (
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
-// CaseCreated groups the case created state used to keep this package's responsibilities explicit.
+// CaseCreated is the moderator-facing input for a freshly saved case.
 type CaseCreated struct {
 	MemberReason string
 	Case         *quack.CaseResponse
@@ -51,7 +51,7 @@ func CaseCreatedMessage(result CaseCreated) ui.Message {
 	if created.EvidenceIncomplete {
 		status += "\nSome evidence couldn’t be saved. Staff can check **View evidence**."
 	}
-	message := ui.Conversation(icon, FormatCaseCreated(result), ui.PlainText(caseReceiptReason(result)), status, strings.Join(meta, " · "), false)
+	message := ui.Conversation(icon, formatCaseCreated(result), ui.PlainText(caseReceiptReason(result)), status, strings.Join(meta, " · "), false)
 	message.Components = []discordgo.MessageComponent{ui.Row(casePrimaryControls(created.ID, created.TargetDiscordUserID, created.Validity == model.CaseValidityVoided)...)}
 	pages := ui.TextPages(message.Content, 1750)
 	if len(pages) > 1 {
@@ -61,8 +61,8 @@ func CaseCreatedMessage(result CaseCreated) ui.Message {
 	return message
 }
 
-// FormatCaseCreated puts the affected member and rule in a single natural sentence.
-func FormatCaseCreated(result CaseCreated) string {
+// formatCaseCreated puts the affected member and rule in a single natural sentence.
+func formatCaseCreated(result CaseCreated) string {
 	if result.Case == nil {
 		return "Case added."
 	}
@@ -136,4 +136,49 @@ func caseReceiptReason(result CaseCreated) string {
 		return result.Case.Reason
 	}
 	return result.MemberReason
+}
+
+// caseActionSentence adds the recorded expiry to completed timeouts so Discord
+// localizes it for each reader. Other actions retain their accurate progress.
+func caseActionSentence(action quack.CaseActionResponse) string {
+	if action.ActionType == model.ActionTimeoutUser && action.Status == model.ActionExecutionSucceeded && action.TimeoutUntil != nil {
+		return fmt.Sprintf("Timed out until <t:%d:f> (<t:%d:R>).", action.TimeoutUntil.Unix(), action.TimeoutUntil.Unix())
+	}
+	return ui.ActionSentence(action.ActionType, action.Status)
+}
+
+// CaseModeratorReceipt renders staff decision, context, and delivery feedback.
+// View case rechecks live authority and exposes the complete paginated record.
+func CaseModeratorReceipt(receipt *quack.CaseReceiptResponse) ui.Message {
+	item := receipt.Case
+	level := ""
+	if item.SelectedLevel != nil {
+		level = item.SelectedLevel.Name
+	}
+	lines := []string{staffActionSummary(receipt.Actions)}
+	if context := contextSummary(item.ContextValues); context != "" {
+		lines = append(lines, context)
+	}
+	if receipt.Notification == nil {
+		lines = append(lines, "Member notification is disabled.")
+	} else {
+		lines = append(lines, notificationDeliverySentence(string(receipt.Notification.Status)))
+	}
+	if receipt.Appealable {
+		lines = append(lines, "The member can appeal this case.")
+	} else {
+		lines = append(lines, "This case cannot be appealed.")
+	}
+	if item.EvidenceIncomplete {
+		lines = append(lines, "Some evidence could not be saved. Open View evidence to inspect it.")
+	}
+	lead := fmt.Sprintf("Case #%d added for <@%s> · **%s**", item.CaseNumber, item.TargetDiscordUserID, ui.PlainText(receipt.RuleName))
+	voided := item.Validity == model.CaseValidityVoided
+	if voided {
+		lead = fmt.Sprintf("Case #%d was voided · <@%s> · **%s**", item.CaseNumber, item.TargetDiscordUserID, ui.PlainText(receipt.RuleName))
+	}
+	message := ui.Conversation("case_add", lead, "", strings.Join(lines, "\n"), ui.PlainText(level), false)
+	message.Content = ui.TextPages(message.Content, 1750)[0]
+	message.Components = []discordgo.MessageComponent{ui.Row(casePrimaryControls(item.ID, item.TargetDiscordUserID, voided)...), ui.Row(ui.Button(ui.MustCustomID(ui.CustomID{Namespace: "case", Action: "view", Version: "v1", Payload: item.ID}), "View case", discordgo.SecondaryButton, false))}
+	return message
 }

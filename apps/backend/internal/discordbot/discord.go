@@ -1,10 +1,32 @@
+// Package discordbot is the Discord adapter for Quack's core services. It owns
+// the gateway session (Bot), the REST calls that enforce moderation actions,
+// deliver member DMs, mirror audit events and appeal queue entries, preserve
+// evidence, and validate staff channels, plus the gateway lifecycle handlers
+// that keep guild records in step with Discord. Bot's methods satisfy the ports
+// declared in internal/quack (DiscordClient, notification and mirror senders,
+// evidence capture); they never contain moderation policy.
+//
+// Every REST call carries the caller's context and disables discordgo's own
+// retries and rate-limit waits (singleAttempt) so retry policy belongs to
+// Quack's workers, and irreversible operations are classified as
+// outcome-uncertain rather than retried. Live REST reads establish current
+// authorization; the gateway cache is used for display only.
+//
+// Sub-packages: interactions dispatches InteractionCreate events, commands
+// defines the slash/context commands and their handlers, ui holds the response
+// model, and ui/views renders domain responses into messages. This package
+// registers the appeal components and is imported by commands; it must not
+// import commands or views' callers back.
 package discordbot
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"sync/atomic"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/quackdiscord/bot/internal/quack/actionmods"
 )
 
 const discordUserGuildsURL = "https://discord.com/api/v10/users/@me/guilds"
@@ -84,4 +106,62 @@ func (b *Bot) Status() (bool, string, int64) {
 		return false, "", 0
 	}
 	return true, b.Session.State.User.Username, b.Session.HeartbeatLatency().Milliseconds()
+}
+
+// singleAttempt returns the request options every adapter call uses: the
+// caller's context, no automatic REST retries and no rate-limit sleeping, so
+// retry policy stays with Quack's workers and a lost response is never repeated
+// blindly. Extra options (audit-log reasons) are appended.
+func singleAttempt(ctx context.Context, extra ...discordgo.RequestOption) []discordgo.RequestOption {
+	return append([]discordgo.RequestOption{
+		discordgo.WithContext(ctx),
+		discordgo.WithRestRetries(0),
+		discordgo.WithRetryOnRatelimit(false),
+	}, extra...)
+}
+
+// classifyDiscordOperation turns a discordgo error into an actionmods.DiscordError
+// carrying only a stable code, a generic message, and retry/uncertainty flags.
+// The raw response text is dropped because it may echo member content. For an
+// irreversible operation (ban, kick, DM send) a 5xx or network error is marked
+// OutcomeUncertain and not Retryable, because the request may have succeeded.
+func classifyDiscordOperation(operation string, err error, irreversible bool) error {
+	var rateLimit *discordgo.RateLimitError
+	if errors.As(err, &rateLimit) {
+		return actionmods.DiscordError{Code: operation + "_rate_limited", Message: "Discord rate limit reached", Retryable: true}
+	}
+	var restError *discordgo.RESTError
+	if errors.As(err, &restError) && restError.Response != nil {
+		status := restError.Response.StatusCode
+		code := "discord_failure"
+		retryable := false
+		uncertain := false
+		switch {
+		case status == http.StatusBadRequest:
+			code = "validation_failed"
+		case status == http.StatusUnauthorized || status == http.StatusForbidden:
+			code = "permission_or_hierarchy_denied"
+		case status == http.StatusNotFound:
+			code = "unknown_member_or_resource"
+		case status == http.StatusTooManyRequests:
+			code = "rate_limited"
+			retryable = true
+		case status >= 500:
+			code = "discord_server_error"
+			retryable = !irreversible
+			uncertain = irreversible
+		}
+		return actionmods.DiscordError{
+			Code:             operation + "_" + code,
+			Message:          "Discord rejected the moderation request",
+			Retryable:        retryable,
+			OutcomeUncertain: uncertain,
+		}
+	}
+	return actionmods.DiscordError{
+		Code:             operation + "_network_error",
+		Message:          "Discord request failed",
+		Retryable:        !irreversible,
+		OutcomeUncertain: irreversible,
+	}
 }

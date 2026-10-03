@@ -81,13 +81,12 @@ The worker lease/fencing path reclaims safe expired work. Use staff retry only
 after checking the original attempt; dismiss retains history; voiding changes
 case validity but does not erase action history.
 
-### Failed migration and rollback
+### Failed schema change and rollback
 
-Startup refuses a dirty, edited, reordered, or incomplete ledger. Preserve a
-database backup and the failing logs. Use `quack-migrate status`, reviewed
-forward repair, or the migration's declared reversible operation. Forward-only
-migrations require restoring the pre-deploy backup and the prior application
-version. Never delete ledger rows or run startup `AutoMigrate`.
+Schema creation is additive and idempotent, so a failed run can be rerun after
+the cause is fixed. Preserve a database backup and the failing logs. A change
+that cannot be repaired by rerunning requires restoring the pre-deploy backup
+and the prior application version. See [migrations.md](migrations.md).
 
 Production rollback preserves MySQL and persistent Redis. Drain the new
 version, stop command synchronization, deploy the prior compatible binary, and

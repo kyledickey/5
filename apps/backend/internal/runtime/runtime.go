@@ -13,6 +13,7 @@ import (
 	"github.com/quackdiscord/bot/internal/discordbot/commands"
 	"github.com/quackdiscord/bot/internal/discordbot/interactions"
 	"github.com/quackdiscord/bot/internal/httpapi"
+	"github.com/quackdiscord/bot/internal/httpapi/middleware"
 	"github.com/quackdiscord/bot/internal/logging"
 	"github.com/quackdiscord/bot/internal/moduleintegration"
 	"github.com/quackdiscord/bot/internal/quack"
@@ -35,7 +36,8 @@ func Run(ctx context.Context) (runErr error) {
 	}
 	slog.SetDefault(logger.With("service", cfg.Observability.ServiceName))
 	slog.InfoContext(ctx, "Starting Quack", "environment", cfg.Environment)
-	if _, err := httpapi.NewPlatformRegistrar(cfg); err != nil {
+	// Fail on an unsafe HTTP configuration before any dependency is opened.
+	if err := middleware.ValidateSecurityConfig(cfg); err != nil {
 		return fmt.Errorf("validate HTTP security configuration: %w", err)
 	}
 	db, err := store.OpenMySQL(cfg.Storage.DBDSN)
@@ -96,7 +98,7 @@ func Run(ctx context.Context) (runErr error) {
 			slog.Info("Quack stopped cleanly")
 		}
 	}()
-	services := quack.NewWithConfigDependencies(cfg, repositories, bot, bot, queue)
+	services := quack.New(cfg, repositories, bot, bot, queue)
 	moduleRuntime, err = moduleintegration.New(ctx, repositories, bot.Session, services)
 	if err != nil {
 		return fmt.Errorf("compose optional modules: %w", err)

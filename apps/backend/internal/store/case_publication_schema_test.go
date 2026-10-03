@@ -24,7 +24,7 @@ func TestPublicationSchemaUpgrade(t *testing.T) {
 // TestMySQLPublicationSchemaUpgrade validates real default backfill and index
 // reconciliation while retaining receipt snapshots in an existing current schema.
 func TestMySQLPublicationSchemaUpgrade(t *testing.T) {
-	exercisePublicationSchemaUpgrade(t, openMySQLMigrationDB(t))
+	exercisePublicationSchemaUpgrade(t, openMySQLTestDB(t))
 }
 
 // exercisePublicationSchemaUpgrade uses the exact former receipt columns.

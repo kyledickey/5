@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// CachedMessage is bounded edit/delete context and is never treated as a permanent archive.
+// CachedMessage is bounded edit/delete context, never a permanent archive.
 type CachedMessage struct {
 	GuildID, ChannelDiscordID, MessageDiscordID, AuthorDiscordUserID, Content string
 	Attachments                                                               []AttachmentMetadata
@@ -26,7 +26,7 @@ const maxIdleGuildLimits = 1024
 
 // MessageCache combines per-guild FIFO caps with a shared oldest-first byte budget.
 // Replacements retain their original place in both queues. There are no timers or
-// background workers; context remains best-effort and may be evicted under pressure.
+// background workers; context is best-effort and may be evicted under pressure.
 type MessageCache struct {
 	mu                        sync.Mutex
 	guilds                    map[string]*guildCache
@@ -57,7 +57,6 @@ type guildLimit struct {
 	idleNode *list.Element
 }
 
-// NewMessageCache constructs a bounded cache and normalizes unsafe defaults.
 func NewMessageCache(defaultLimit int) *MessageCache {
 	if defaultLimit < 1 {
 		defaultLimit = 1000
@@ -152,7 +151,7 @@ func (c *MessageCache) Replace(message CachedMessage) (CachedMessage, bool) {
 	return previous, found
 }
 
-// Get returns a defensive copy of cached message context without changing FIFO order.
+// Get returns a copy so callers cannot mutate cached slices; FIFO age is unchanged.
 func (c *MessageCache) Get(guildID, messageID string) (CachedMessage, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -164,7 +163,6 @@ func (c *MessageCache) Get(guildID, messageID string) (CachedMessage, bool) {
 	return CachedMessage{}, false
 }
 
-// Delete removes and returns one cached message, releasing its accounted bytes.
 func (c *MessageCache) Delete(guildID, messageID string) (CachedMessage, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -179,7 +177,6 @@ func (c *MessageCache) Delete(guildID, messageID string) (CachedMessage, bool) {
 	return CachedMessage{}, false
 }
 
-// Len returns one guild's current bounded cache size.
 func (c *MessageCache) Len(guildID string) int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -189,7 +186,7 @@ func (c *MessageCache) Len(guildID string) int {
 	return 0
 }
 
-// remove unlinks one entry from both queues while the cache mutex is held.
+// remove unlinks one entry from both queues. Callers hold the cache mutex.
 func (c *MessageCache) remove(entry *cacheEntry) {
 	guildID := entry.message.GuildID
 	g := c.guilds[guildID]
@@ -205,7 +202,6 @@ func (c *MessageCache) remove(entry *cacheEntry) {
 	}
 }
 
-// evict enforces one guild's FIFO cap without displacing other guilds.
 func (c *MessageCache) evict(guildID string) {
 	g := c.guilds[guildID]
 	if g == nil {
@@ -220,7 +216,6 @@ func (c *MessageCache) evict(guildID string) {
 	}
 }
 
-// dropIdleLimit releases the oldest unused configuration and its accounting.
 func (c *MessageCache) dropIdleLimit() {
 	node := c.idleLimits.Front()
 	guildID := node.Value.(string)
@@ -287,7 +282,6 @@ func ownMessage(m CachedMessage) CachedMessage {
 	return m
 }
 
-// cloneMessage prevents cached slices from being mutated by gateway callers.
 func cloneMessage(m CachedMessage) CachedMessage {
 	m.Attachments = append([]AttachmentMetadata(nil), m.Attachments...)
 	m.EmbedTypes = append([]string(nil), m.EmbedTypes...)

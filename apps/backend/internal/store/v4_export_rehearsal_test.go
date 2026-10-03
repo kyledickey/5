@@ -31,7 +31,7 @@ func TestV4SQLExportImportRehearsal(t *testing.T) {
 // TestMySQLV4SQLExportImportRehearsal uses the checked-in legacy MySQL schema and
 // independent test databases; the helper only creates and drops randomized names.
 func TestMySQLV4SQLExportImportRehearsal(t *testing.T) {
-	rehearseV4SQLImport(t, openMySQLMigrationDB(t), openMySQLMigrationDB(t))
+	rehearseV4SQLImport(t, openMySQLTestDB(t), openMySQLTestDB(t))
 }
 
 // rehearseV4SQLImport proves all six legacy types retain their data and stable

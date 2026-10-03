@@ -36,9 +36,7 @@ func TestAppealMemberRoutesReplayOriginalSubmission(t *testing.T) {
 		c.Next()
 	})
 	primitives := httpplatform.Primitives{RateLimits: httpplatform.NewRateLimiter(client, "test:appeal:rate:"), Idempotency: httpplatform.NewIdempotencyStore(client, "test:appeal:idempotency:")}
-	if err := RegisterAppealAndMemberRoutes(group, services, appeals, primitives); err != nil {
-		t.Fatalf("register appeal member routes: %v", err)
-	}
+	registerAppealMemberRoutes(group, services, appeals, primitives)
 
 	body := []byte(`{"answers":[{"question_id":"reason","value":"Please reconsider."}]}`)
 	for attempt := 0; attempt < 2; attempt++ {
@@ -70,9 +68,7 @@ func TestAppealMemberRoutesFailClosedWithoutRedis(t *testing.T) {
 		c.Next()
 	})
 	primitives := httpplatform.Primitives{RateLimits: httpplatform.NewRateLimiter(nil, ""), Idempotency: httpplatform.NewIdempotencyStore(nil, "")}
-	if err := RegisterAppealAndMemberRoutes(group, services, quack.NewAppealService(repository), primitives); err != nil {
-		t.Fatalf("register routes: %v", err)
-	}
+	registerAppealMemberRoutes(group, services, quack.NewAppealService(repository), primitives)
 	request := httptest.NewRequest(http.MethodGet, "/members/me/cases/case-1", nil)
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, request)
@@ -81,7 +77,11 @@ func TestAppealMemberRoutesFailClosedWithoutRedis(t *testing.T) {
 	}
 }
 
+// appealRouteRepository stubs only the reads these route tests reach. The
+// embedded interface satisfies the rest of quack.CaseRepository and panics if a
+// route ever starts calling one of them.
 type appealRouteRepository struct {
+	quack.CaseRepository
 	mu          sync.Mutex
 	caseModel   model.Case
 	appeal      *model.Appeal
@@ -171,12 +171,8 @@ func TestAppealConversationRoutesAreRemoved(t *testing.T) {
 	appeals := quack.NewAppealService(repository)
 	router := gin.New()
 	primitives := httpplatform.Primitives{RateLimits: httpplatform.NewRateLimiter(nil, ""), Idempotency: httpplatform.NewIdempotencyStore(nil, "")}
-	if err := RegisterAppealAndMemberRoutes(router.Group("/members/me"), services, appeals, primitives); err != nil {
-		t.Fatal(err)
-	}
-	if err := RegisterAppealStaffRoutes(router.Group("/guilds"), services, appeals, primitives); err != nil {
-		t.Fatal(err)
-	}
+	registerAppealMemberRoutes(router.Group("/members/me"), services, appeals, primitives)
+	registerAppealStaffRoutes(router.Group("/guilds"), services, appeals, primitives)
 	for _, path := range []string{"/members/me/appeals/appeal-1/information", "/guilds/guild-1/appeals/appeal-1/request-information", "/guilds/guild-1/appeals/appeal-1/reopen"} {
 		response := httptest.NewRecorder()
 		router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, path, nil))

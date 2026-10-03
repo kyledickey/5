@@ -2,9 +2,11 @@ package quack
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
@@ -12,7 +14,6 @@ import (
 // ErrAppealDeliveryDeferred means no message was delivered and a later retry is safe.
 var ErrAppealDeliveryDeferred = errors.New("appeal delivery deferred")
 
-// AppealQueueReceipt identifies the existing staff queue message for in-place refresh.
 type AppealQueueReceipt struct{ ChannelID, MessageID string }
 
 // AppealNotificationClient delivers validated member intent or a legacy body,
@@ -28,16 +29,7 @@ type AppealNotificationDispatcher struct {
 	client AppealNotificationClient
 }
 
-// NewAppealNotificationDispatcher returns a dispatcher over store and client.
-// Both are required; it panics on nil so a misconfigured process fails at
-// startup rather than on the first outbox poll.
 func NewAppealNotificationDispatcher(store AppealRepository, client AppealNotificationClient) *AppealNotificationDispatcher {
-	if store == nil {
-		panic("quack: NewAppealNotificationDispatcher requires a repository")
-	}
-	if client == nil {
-		panic("quack: NewAppealNotificationDispatcher requires a notification client")
-	}
 	return &AppealNotificationDispatcher{store: store, client: client}
 }
 
@@ -128,4 +120,43 @@ func appealNotificationErrorCode(err error) string {
 	default:
 		return "discord_delivery_failed"
 	}
+}
+
+// ErrAppealNotificationIntent rejects unsupported or corrupt durable decision
+// payloads without reconstructing a notice from current settings or legacy copy.
+var ErrAppealNotificationIntent = errors.New("appeal notification intent is invalid")
+
+// AppealMemberNotification carries validated immutable facts to the renderer.
+// LegacyBody is used only when an existing outbox row has no decision payload.
+type AppealMemberNotification struct {
+	Intent     *model.AppealDecisionIntent
+	LegacyBody string
+}
+
+// appealMemberNotification validates the versioned persistence boundary before
+// the adapter sees intent. Invalid nonempty payloads never fall back to Body.
+func appealMemberNotification(item model.AppealNotification) (AppealMemberNotification, error) {
+	if item.DecisionIntentJSON == "" {
+		return AppealMemberNotification{LegacyBody: item.Body}, nil
+	}
+	var intent model.AppealDecisionIntent
+	if json.Unmarshal([]byte(item.DecisionIntentJSON), &intent) != nil || intent.Version != 1 ||
+		!utf8.ValidString(intent.Reason) || strings.TrimSpace(intent.Reason) == "" || len([]rune(intent.Reason)) > 2000 {
+		return AppealMemberNotification{}, ErrAppealNotificationIntent
+	}
+	switch intent.Status {
+	case model.AppealStatusAccepted, model.AppealStatusRejected, model.AppealStatusNeedsInformation, model.AppealStatusClosed:
+	default:
+		return AppealMemberNotification{}, ErrAppealNotificationIntent
+	}
+	if intent.RejoinURL != "" {
+		if intent.Status != model.AppealStatusAccepted {
+			return AppealMemberNotification{}, ErrAppealNotificationIntent
+		}
+		normalized, err := normalizeAppealRejoinURL(intent.RejoinURL)
+		if err != nil || normalized != intent.RejoinURL {
+			return AppealMemberNotification{}, ErrAppealNotificationIntent
+		}
+	}
+	return AppealMemberNotification{Intent: &intent}, nil
 }

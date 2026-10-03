@@ -2,52 +2,23 @@ package model
 
 import (
 	"errors"
-	"fmt"
 	"time"
 )
 
 // ErrTemplateConflict rejects an edit based on an outdated policy snapshot.
 var ErrTemplateConflict = errors.New("template changed; reload it before saving")
 
-// ErrTemplateCompatibilityReviewRequired marks a preserved legacy template that cannot be represented safely by the live v5 policy contract.
-var ErrTemplateCompatibilityReviewRequired = errors.New("template compatibility review required")
-
-// TemplateCompatibilityReviewError identifies a quarantined template and explains why its preserved policy cannot be returned as live v5 configuration.
-type TemplateCompatibilityReviewError struct {
-	TemplateID string
-	Reason     string
-}
-
-// Error returns an administrator-facing compatibility review message without projecting invalid legacy policy.
-func (e *TemplateCompatibilityReviewError) Error() string {
-	if e == nil {
-		return ErrTemplateCompatibilityReviewRequired.Error()
-	}
-	if e.Reason == "" {
-		return fmt.Sprintf("%s for template %s", ErrTemplateCompatibilityReviewRequired, e.TemplateID)
-	}
-	return fmt.Sprintf("%s for template %s: %s", ErrTemplateCompatibilityReviewRequired, e.TemplateID, e.Reason)
-}
-
-// Unwrap preserves sentinel matching across storage, service, and transport boundaries.
-func (e *TemplateCompatibilityReviewError) Unwrap() error {
-	return ErrTemplateCompatibilityReviewRequired
-}
-
-// ExpandedCaseTemplate groups the expanded case template state used to keep this package's responsibilities explicit.
 type ExpandedCaseTemplate struct {
 	Template      CaseTemplate
 	ContextFields []CaseTemplateContextField
 	Levels        []ExpandedCaseTemplateLevel
 }
 
-// ExpandedCaseTemplateLevel groups the expanded case template level state used to keep this package's responsibilities explicit.
 type ExpandedCaseTemplateLevel struct {
 	Level   CaseTemplateLevel
 	Actions []CaseTemplateLevelAction
 }
 
-// CreateCaseTemplateParams groups the validated inputs needed for create case template params.
 type CreateCaseTemplateParams struct {
 	Template      CaseTemplate
 	ContextFields []CaseTemplateContextField
@@ -55,7 +26,6 @@ type CreateCaseTemplateParams struct {
 	Audit         *AuditLogEntry
 }
 
-// UpdateCaseTemplateParams groups the validated inputs needed for update case template params.
 type UpdateCaseTemplateParams struct {
 	GuildID, TemplateID string
 	ExpectedVersion     uint
@@ -65,7 +35,6 @@ type UpdateCaseTemplateParams struct {
 	Audit               *AuditLogEntry
 }
 
-// ListAuditLogEntriesParams groups the validated inputs needed for list audit log entries params.
 type ListAuditLogEntriesParams struct {
 	GuildID, ActorDiscordUserID, Source, Action, ResourceType, ResourceID string
 	CaseID, MemberDiscordUserID, CreatedAfter, CreatedBefore, BeforeID    string
@@ -73,13 +42,11 @@ type ListAuditLogEntriesParams struct {
 	Limit, Offset                                                         int
 }
 
-// ListAuditLogEntriesResult captures the outcome of list audit log entries result for the caller.
 type ListAuditLogEntriesResult struct {
 	Entries []AuditLogEntry
 	Total   int64
 }
 
-// CreateCaseParams groups the validated inputs needed for create case params.
 type CreateCaseParams struct {
 	Case             Case
 	Event            CaseEvent
@@ -91,7 +58,6 @@ type CreateCaseParams struct {
 	AdditionalAudits []AuditLogEntry
 }
 
-// CreatedCase groups the created case state used to keep this package's responsibilities explicit.
 type CreatedCase struct {
 	Case             Case
 	Event            CaseEvent
@@ -101,14 +67,12 @@ type CreatedCase struct {
 	Notification     *CaseNotification
 }
 
-// CountTemplateCasesForTargetParams groups the validated inputs needed for count template cases for target params.
 type CountTemplateCasesForTargetParams struct {
 	// CreatedAtOrAfter is an inclusive rolling-window boundary; nil counts all history.
 	CreatedAtOrAfter                         *time.Time
 	GuildID, TemplateID, TargetDiscordUserID string
 }
 
-// ListCasesParams groups the validated inputs needed for list cases params.
 type ListCasesParams struct {
 	GuildID, TargetDiscordUserID, ModeratorDiscordUserID, TemplateID    string
 	CaseNumber, ActionResult, AppealStatus, CreatedAfter, CreatedBefore string
@@ -116,29 +80,24 @@ type ListCasesParams struct {
 	Limit, Offset                                                       int
 }
 
-// ListCasesResult captures the outcome of list cases result for the caller.
 type ListCasesResult struct {
 	Cases []Case
 	Total int64
 }
 
-// TargetCaseSummary groups the target case summary state used to keep this package's responsibilities explicit.
 type TargetCaseSummary struct {
 	Total      int64
 	ByValidity map[CaseValidity]int64
 	ByTemplate map[string]int64
 }
 
-// ClaimedCaseAction identifies the supported claimed case action values stored and exchanged by Quack.
 type ClaimedCaseAction struct {
 	Case      Case
 	Execution CaseActionExecution
 }
 
-// ClaimCaseActionParams groups the validated inputs needed for claim case action params.
 type ClaimCaseActionParams struct{ CaseID, WorkerID string }
 
-// CompleteCaseActionParams groups the validated inputs needed for complete case action params.
 type CompleteCaseActionParams struct {
 	ExecutionID                                                      string
 	LeaseToken                                                       string
@@ -204,14 +163,12 @@ type CompleteCaseNotificationParams struct {
 	EventType                                                           CaseEventType
 }
 
-// SkipCaseActionsParams groups the validated inputs needed for skip case actions params.
 type SkipCaseActionsParams struct {
 	CaseID                           string
 	AfterPosition                    int
 	Reason, CorrelationID, RequestID string
 }
 
-// UpsertGuildParams groups the validated inputs needed for upsert guild params.
 type UpsertGuildParams struct{ DiscordGuildID, Name, IconURL, OwnerDiscordUserID string }
 
 // BootstrapGuildParams carries authoritative Discord guild metadata used by the idempotent install transaction.
@@ -245,7 +202,6 @@ type UpdateGuildSettingsParams struct {
 	Audit         *AuditLogEntry
 }
 
-// UpsertStaffMemberParams groups the validated inputs needed for upsert staff member params.
 type UpsertStaffMemberParams struct {
 	GuildID, DiscordUserID string
 	LastSeenPermissionBits uint64
@@ -253,13 +209,11 @@ type UpsertStaffMemberParams struct {
 	LastActiveAt           time.Time
 }
 
-// ActionStatusCount groups the action status count state used to keep this package's responsibilities explicit.
 type ActionStatusCount struct {
 	Status ActionExecutionStatus
 	Count  int64
 }
 
-// OldestActionExecution groups the oldest action execution state used to keep this package's responsibilities explicit.
 type OldestActionExecution struct {
 	ID, CaseID  string
 	CaseNumber  uint64
@@ -269,7 +223,6 @@ type OldestActionExecution struct {
 	NextRetryAt *time.Time
 }
 
-// RecentActionFailure groups the recent action failure state used to keep this package's responsibilities explicit.
 type RecentActionFailure struct {
 	ID, CaseID               string
 	CaseNumber               uint64
@@ -279,7 +232,6 @@ type RecentActionFailure struct {
 	UpdatedAt                time.Time
 }
 
-// ActionQueueSnapshot groups the action queue snapshot state used to keep this package's responsibilities explicit.
 type ActionQueueSnapshot struct {
 	StatusCounts         []ActionStatusCount
 	OldestPendingOrRetry *OldestActionExecution
@@ -292,3 +244,40 @@ type GuildModuleConfigurationError struct{ Message string }
 
 // Error exposes the configuration correction needed before retrying enablement.
 func (e *GuildModuleConfigurationError) Error() string { return e.Message }
+
+// StaffStatisticsParams bounds a derived statistics query to one guild and time range.
+type StaffStatisticsParams struct {
+	GuildID string
+	From    time.Time
+	To      time.Time
+}
+
+// StatisticBucket is one stable label/count pair in a derived breakdown.
+type StatisticBucket struct {
+	Key   string `json:"key"`
+	Count int64  `json:"count"`
+}
+
+// StaffStatistics contains only derived guild-scoped operational counts. It
+// intentionally contains no actor ranking or persisted aggregate state.
+type StaffStatistics struct {
+	From            time.Time         `json:"from"`
+	To              time.Time         `json:"to"`
+	CaseTotal       int64             `json:"case_total"`
+	ActionTotal     int64             `json:"action_total"`
+	AppealTotal     int64             `json:"appeal_total"`
+	AuditTotal      int64             `json:"audit_total"`
+	CasesByDay      []StatisticBucket `json:"cases_by_day"`
+	CasesByTemplate []StatisticBucket `json:"cases_by_template"`
+	CasesByValidity []StatisticBucket `json:"cases_by_validity"`
+	CasesBySource   []StatisticBucket `json:"cases_by_source"`
+	ActionsByDay    []StatisticBucket `json:"actions_by_day"`
+	ActionsByType   []StatisticBucket `json:"actions_by_type"`
+	ActionsByResult []StatisticBucket `json:"actions_by_result"`
+	AppealsByDay    []StatisticBucket `json:"appeals_by_day"`
+	AppealsByStatus []StatisticBucket `json:"appeals_by_status"`
+	AuditsByDay     []StatisticBucket `json:"audits_by_day"`
+	AuditsByAction  []StatisticBucket `json:"audits_by_action"`
+	AuditsByResult  []StatisticBucket `json:"audits_by_result"`
+	AuditsBySource  []StatisticBucket `json:"audits_by_source"`
+}

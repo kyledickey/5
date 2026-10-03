@@ -2,9 +2,7 @@ package store_test
 
 import (
 	"context"
-	"errors"
 	"testing"
-	"time"
 
 	"github.com/quackdiscord/bot/internal/quack/model"
 	storage "github.com/quackdiscord/bot/internal/store"
@@ -125,44 +123,6 @@ func TestCaseTemplateStorageArchiveHidesFromListButDetailStillWorks(t *testing.T
 	}
 	if detail == nil || detail.Template.ID != created.Template.ID {
 		t.Fatalf("expected archived detail fetch to work")
-	}
-}
-
-func TestCaseTemplateStorageListOmitsQuarantinedTemplates(t *testing.T) {
-	ctx := context.Background()
-	store, guildID := templateTestStore(t)
-
-	created, err := store.CreateCaseTemplate(ctx, model.CreateCaseTemplateParams{
-		Template: templateModel(guildID, "legacy-policy"),
-		Levels:   templateLevels(),
-	})
-	if err != nil {
-		t.Fatalf("create template: %v", err)
-	}
-
-	now := time.Now().UTC()
-	// This fixture deliberately recreates the retired quarantine table.
-	if err := store.DB().Exec(`CREATE TABLE quack_v5_0002_template_compatibility (template_id TEXT PRIMARY KEY, previous_archived_at DATETIME, previous_deleted_at DATETIME, reason TEXT, recorded_at DATETIME)`).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := store.DB().Exec(
-		"INSERT INTO quack_v5_0002_template_compatibility (template_id, previous_archived_at, previous_deleted_at, reason, recorded_at) VALUES (?, ?, ?, ?, ?)",
-		created.Template.ID, nil, nil, "level uses an escalation window", now,
-	).Error; err != nil {
-		t.Fatalf("record template compatibility state: %v", err)
-	}
-
-	list, err := store.ListCaseTemplates(ctx, guildID)
-	if err != nil {
-		t.Fatalf("list templates with quarantined policy: %v", err)
-	}
-	if len(list) != 0 {
-		t.Fatalf("quarantined template crossed live list boundary: %+v", list)
-	}
-
-	detail, err := store.GetCaseTemplateExpanded(ctx, guildID, created.Template.ID)
-	if detail != nil || !errors.Is(err, model.ErrTemplateCompatibilityReviewRequired) {
-		t.Fatalf("expected detail compatibility conflict, detail=%+v err=%v", detail, err)
 	}
 }
 

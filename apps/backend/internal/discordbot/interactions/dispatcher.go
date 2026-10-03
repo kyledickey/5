@@ -1,3 +1,22 @@
+// Package interactions receives every InteractionCreate from the gateway and
+// routes it to the ui.Handler registered for its command name (via CommandLookup)
+// or component/modal custom ID (via ComponentRegistry). It owns the response
+// lifecycle after the handler returns: it sends the immediate response or
+// acknowledgement, runs the async Task on its own goroutine, and reports task
+// failures back to the user. It also deduplicates Discord's redelivered
+// interactions (InteractionDeduper) and recovers from handler panics so one bad
+// interaction cannot crash the process.
+//
+// Error routing: an immediate response that Discord rejects is only logged, with
+// numeric diagnostics and never tokens or bodies. A Task error is delivered
+// privately to the invoking user. When the acknowledgement was a public defer
+// that nobody has edited yet, the placeholder is deleted first so the channel
+// never shows a stale "thinking" message or an error; when the task already
+// published a result it is left untouched. In DMs ephemeral flags are stripped
+// because Discord rejects them there.
+//
+// The package imports ui and quack but never commands or views: handlers are
+// opaque functions to the dispatcher.
 package interactions
 
 import (
@@ -14,6 +33,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
 	"github.com/quackdiscord/bot/internal/quack"
+	"github.com/quackdiscord/bot/internal/quack/idutil"
 	"github.com/quackdiscord/bot/internal/quack/model"
 )
 
@@ -93,7 +113,6 @@ func (d *Dispatcher) ensureClient(session *discordgo.Session) {
 	}
 }
 
-// client reads the configured Client under mu so it is never observed half-written.
 func (d *Dispatcher) client() Client {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -226,8 +245,8 @@ func (d *Dispatcher) safeHandle(
 		if recovered := recover(); recovered != nil {
 			slog.Error("Discord interaction handler panicked",
 				"interaction", name,
-				"request_id", quack.RequestIDFromContext(ctx),
-				"correlation_id", quack.CorrelationIDFromContext(ctx),
+				"request_id", idutil.RequestIDFromContext(ctx),
+				"correlation_id", idutil.CorrelationIDFromContext(ctx),
 				"panic_type", fmt.Sprintf("%T", recovered),
 				"stack", debug.Stack(),
 			)
@@ -257,8 +276,8 @@ func (d *Dispatcher) runTask(
 		if recovered := recover(); recovered != nil {
 			slog.Error("Discord interaction task panicked",
 				"interaction", name,
-				"request_id", quack.RequestIDFromContext(ctx),
-				"correlation_id", quack.CorrelationIDFromContext(ctx),
+				"request_id", idutil.RequestIDFromContext(ctx),
+				"correlation_id", idutil.CorrelationIDFromContext(ctx),
 				"panic_type", fmt.Sprintf("%T", recovered),
 				"stack", debug.Stack(),
 			)
@@ -269,8 +288,8 @@ func (d *Dispatcher) runTask(
 		slog.Error("Discord interaction task failed",
 			"error_type", fmt.Sprintf("%T", err),
 			"interaction", name,
-			"request_id", quack.RequestIDFromContext(ctx),
-			"correlation_id", quack.CorrelationIDFromContext(ctx),
+			"request_id", idutil.RequestIDFromContext(ctx),
+			"correlation_id", idutil.CorrelationIDFromContext(ctx),
 		)
 		d.taskError(interaction, response, tracked.published.Load(), err)
 	}
@@ -279,13 +298,13 @@ func (d *Dispatcher) runTask(
 // interactionTraceContext derives request and correlation IDs from the
 // interaction snowflake so logs and audit rows for one click share an ID.
 func interactionTraceContext(interaction *discordgo.InteractionCreate) context.Context {
-	requestID := quack.NewTraceID()
+	requestID := idutil.NewTraceID()
 	correlationID := requestID
 	if interaction != nil && interaction.ID != "" {
 		requestID = "discord:" + interaction.ID
 		correlationID = requestID
 	}
-	return quack.ContextWithTrace(context.Background(), requestID, correlationID)
+	return idutil.ContextWithTrace(context.Background(), requestID, correlationID)
 }
 
 // respond resolves icons and command mentions for the sending application and
@@ -302,7 +321,6 @@ func (d *Dispatcher) respond(interaction *discordgo.InteractionCreate, response 
 	return d.client().InteractionRespond(interaction.Interaction, response)
 }
 
-// responder binds the configured Client to one interaction for use by a Task.
 func (d *Dispatcher) responder(interaction *discordgo.InteractionCreate) ui.Responder {
 	return responder{client: d.client(), interaction: interaction.Interaction}
 }
@@ -314,7 +332,6 @@ type responder struct {
 	interaction *discordgo.Interaction
 }
 
-// EditOriginal replaces the initial response through the interaction webhook.
 func (r responder) EditOriginal(edit ui.Edit) (*discordgo.Message, error) {
 	return r.client.InteractionResponseEdit(r.interaction, edit.ForApplication(r.interaction.AppID).WebhookEdit())
 }
@@ -360,12 +377,10 @@ func (r responder) EditChannel(ctx context.Context, messageID string, edit ui.Ed
 	})
 }
 
-// EditFollowup updates a previously published public result after asynchronous work reaches a terminal state.
 func (r responder) EditFollowup(messageID string, edit ui.Edit) (*discordgo.Message, error) {
 	return r.client.FollowupMessageEdit(r.interaction, messageID, edit.ForApplication(r.interaction.AppID).WebhookEdit())
 }
 
-// DeleteOriginal removes the initial response, typically an unused public placeholder.
 func (r responder) DeleteOriginal() error {
 	return r.client.InteractionResponseDelete(r.interaction)
 }
@@ -376,7 +391,6 @@ func (r responder) UpdateMessage(edit ui.Edit) (*discordgo.Message, error) {
 	return r.EditOriginal(edit)
 }
 
-// sessionClient adapts a discordgo.Session to Client.
 type sessionClient struct {
 	session *discordgo.Session
 }
@@ -392,18 +406,15 @@ func (c sessionClient) ChannelMessageSend(
 		discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 }
 
-// ChannelMessageEdit performs a context-bound bot edit of the persisted notice.
 func (c sessionClient) ChannelMessageEdit(ctx context.Context, edit *discordgo.MessageEdit) (*discordgo.Message, error) {
 	return c.session.ChannelMessageEditComplex(edit,
 		discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false))
 }
 
-// InteractionRespond sends the initial response for an interaction.
 func (c sessionClient) InteractionRespond(interaction *discordgo.Interaction, response *discordgo.InteractionResponse) error {
 	return c.session.InteractionRespond(interaction, response)
 }
 
-// InteractionResponseEdit edits the initial response through the webhook token.
 func (c sessionClient) InteractionResponseEdit(
 	interaction *discordgo.Interaction,
 	edit *discordgo.WebhookEdit,
@@ -411,7 +422,6 @@ func (c sessionClient) InteractionResponseEdit(
 	return c.session.InteractionResponseEdit(interaction, edit)
 }
 
-// FollowupMessageCreate sends a followup through the webhook token.
 func (c sessionClient) FollowupMessageCreate(
 	interaction *discordgo.Interaction,
 	wait bool,
@@ -420,7 +430,6 @@ func (c sessionClient) FollowupMessageCreate(
 	return c.session.FollowupMessageCreate(interaction, wait, params)
 }
 
-// FollowupMessageEdit updates an interaction followup through the application webhook token.
 func (c sessionClient) FollowupMessageEdit(
 	interaction *discordgo.Interaction,
 	messageID string,
@@ -429,7 +438,6 @@ func (c sessionClient) FollowupMessageEdit(
 	return c.session.WebhookMessageEdit(interaction.AppID, interaction.Token, messageID, edit)
 }
 
-// InteractionResponseDelete deletes the initial response through the webhook token.
 func (c sessionClient) InteractionResponseDelete(interaction *discordgo.Interaction) error {
 	return c.session.InteractionResponseDelete(interaction)
 }
@@ -490,7 +498,6 @@ type taskResponder struct {
 	published atomic.Bool
 }
 
-// EditOriginal records a confirmed edit; the underlying transport remains unchanged.
 func (r *taskResponder) EditOriginal(edit ui.Edit) (*discordgo.Message, error) {
 	message, err := r.Responder.EditOriginal(edit)
 	if err == nil {

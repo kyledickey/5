@@ -27,13 +27,10 @@ type Store struct {
 }
 
 // New wires a Store around an open database and an optional Redis client and
-// installs the append-only audit callback on db. db must not be nil; redis may
-// be nil, in which case the Redis-backed methods return an error. The callback
-// is registered once per *gorm.DB, so wrapping a transaction with New is cheap.
+// installs the append-only audit callback on db. redis may be nil, in which
+// case the Redis-backed methods return an error. The callback is registered
+// once per *gorm.DB, so wrapping a transaction with New is cheap.
 func New(db *gorm.DB, redis *r.Client) *Store {
-	if db == nil {
-		panic("store: New requires a non-nil *gorm.DB")
-	}
 	installAuditImmutability(db)
 	return &Store{db: db, redis: redis}
 }

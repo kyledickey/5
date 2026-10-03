@@ -36,9 +36,9 @@ environment. Explicit process values take precedence.
 | `API_IDLE_TIMEOUT_SECONDS` | no | Keep-alive idle bound. Defaults to `60`. |
 | `DATABASE_DSN` | yes | MySQL DSN for GORM. |
 | `REDIS_URL` | yes | Redis connection URL. |
-| `DISCORD_TOKEN` or `DEV_DISCORD_TOKEN` | yes | Discord bot token. `DEV_` override is used when `ENVIRONMENT=dev`. |
-| `DISCORD_APP_ID` or `DEV_DISCORD_APP_ID` | yes | Discord application ID. |
-| `DISCORD_CLIENT_SECRET` or `DEV_DISCORD_CLIENT_SECRET` | needed for OAuth | Discord OAuth client secret. |
+| `DISCORD_TOKEN` | yes | Discord bot token. |
+| `DISCORD_APP_ID` | yes | Discord application ID. |
+| `DISCORD_CLIENT_SECRET` | needed for OAuth | Discord OAuth client secret. |
 | `DISCORD_OAUTH_REDIRECT_URI` | needed for OAuth | OAuth callback URI used by `/auth/discord/callback`. |
 | `DISCORD_OAUTH_SCOPES` | no | OAuth scopes. Defaults to `identify guilds`. |
 | `DISCORD_COMMAND_GUILD_ID` | no | Optional test-guild command sync target. |
@@ -84,9 +84,9 @@ profile are the app runtime settings and Discord/auth credentials from
 - `API_TRUSTED_PROXIES`
 - `API_MAX_BODY_BYTES`
 - `API_READ_HEADER_TIMEOUT_SECONDS`, `API_READ_TIMEOUT_SECONDS`, `API_WRITE_TIMEOUT_SECONDS`, `API_IDLE_TIMEOUT_SECONDS`
-- `DEV_DISCORD_TOKEN`
-- `DEV_DISCORD_APP_ID`
-- `DEV_DISCORD_CLIENT_SECRET`
+- `DISCORD_TOKEN`
+- `DISCORD_APP_ID`
+- `DISCORD_CLIENT_SECRET`
 - `DISCORD_OAUTH_REDIRECT_URI`
 - `DISCORD_COMMAND_GUILD_ID`
 - `DISCORD_COMMAND_PRUNE`
@@ -145,16 +145,9 @@ product requirement.
 
 ## Config Loading Rules
 
-`lib.LoadConfig()` reads `.env` through `github.com/joho/godotenv` and then
-builds `lib.Config`.
-
-When `ENVIRONMENT=dev`, some Discord values are read from `DEV_*` names first:
-
-- `DEV_DISCORD_TOKEN`
-- `DEV_DISCORD_APP_ID`
-- `DEV_DISCORD_CLIENT_SECRET`
-
-For non-dev environments, the non-prefixed names are used directly.
+`config.Load()` uses Viper to decode the process environment. In development it
+also reads `.env`, with process variables taking precedence. Discord credentials
+always use the same `DISCORD_*` names in every environment.
 
 Relevant files:
 

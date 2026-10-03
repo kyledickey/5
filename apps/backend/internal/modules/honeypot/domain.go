@@ -28,13 +28,12 @@ var (
 )
 
 const (
-	// SourceHoneypot is the canonical case source required from the QP-A adapter.
+	// SourceHoneypot is the canonical case source the core case adapter requires.
 	SourceHoneypot = "honeypot"
 	// ActorTypeSystem represents automation without inventing a staff identity.
 	ActorTypeSystem = "system"
 )
 
-// Settings is one guild's complete honeypot configuration.
 type Settings struct {
 	WarningMessageID string `json:"warning_message_id,omitempty"`
 	WarningText      string `json:"warning_text,omitempty"`
@@ -43,20 +42,18 @@ type Settings struct {
 	DisabledReason   string `json:"disabled_reason,omitempty"`
 }
 
-// Actor identifies a current guild manager for configuration and status operations.
 type Actor struct {
 	GuildID, DiscordUserID string
 	CanManage              bool
 }
 
-// Message is the minimum Discord event projection needed by the trap policy.
 type Message struct {
 	GuildID, ChannelDiscordID, MessageDiscordID, AuthorDiscordUserID string
 	MessageURL                                                       string
 	IsBot, IsQuack, IsWebhook, AuthorCanModerate                     bool
 }
 
-// ApplyRequest asks the injected QP-A boundary to execute its normal case transaction.
+// ApplyRequest asks the injected core boundary to run its normal case transaction.
 // The adapter must preserve every field and must not write directly to case storage.
 type ApplyRequest struct {
 	GuildID, TemplateID, TargetDiscordUserID                     string
@@ -64,27 +61,22 @@ type ApplyRequest struct {
 	IdempotencyKey, Source, ActorType, ActorDiscordUserID        string
 }
 
-// ApplyResult identifies the case created and queued by the normal moderation path.
 type ApplyResult struct {
 	CaseID string
 }
 
-// CaseApplier is the narrow QP-A application interface used by honeypot automation.
 type CaseApplier interface {
 	ApplyHoneypotCase(context.Context, ApplyRequest) (ApplyResult, error)
 }
 
-// TemplateValidator verifies that a template is active and compatible with unattended use.
 type TemplateValidator interface {
 	ValidateHoneypotTemplate(context.Context, string, string) error
 }
 
-// ChannelValidator verifies that Quack can observe the channel and run the configured action path.
 type ChannelValidator interface {
 	ValidateHoneypotChannel(context.Context, string, string) error
 }
 
-// Outcome is the durable terminal state of one qualifying Discord message.
 type Outcome string
 
 const (
@@ -94,7 +86,6 @@ const (
 	OutcomeExempt  Outcome = "exempt"
 )
 
-// Statistics is derived from isolated honeypot trigger records.
 type Statistics struct {
 	Total   uint64 `json:"total"`
 	Pending uint64 `json:"pending"`
@@ -103,7 +94,6 @@ type Statistics struct {
 	Exempt  uint64 `json:"exempt"`
 }
 
-// Status is the manager-visible configuration health and derived outcome summary.
 type Status struct {
 	Enabled          bool       `json:"enabled"`
 	Configured       bool       `json:"configured"`
@@ -113,7 +103,6 @@ type Status struct {
 	Statistics       Statistics `json:"statistics"`
 }
 
-// Descriptor exposes honeypot configuration validation to the shared registry.
 func Descriptor() modules.Descriptor {
 	return modules.Descriptor{ID: modules.Honeypots, DisplayName: "Honeypots", Validate: validateSettingsJSON}
 }
@@ -133,4 +122,14 @@ func validateSettings(settings Settings, enabled bool) error {
 		return errors.New("enabled honeypots require a channel and active template")
 	}
 	return nil
+}
+
+// ValidateEnabledConfiguration re-runs the enabled-state invariants without
+// writing configuration, for the core settings enablement hook.
+func ValidateEnabledConfiguration(raw string) error {
+	var settings Settings
+	if err := json.Unmarshal([]byte(raw), &settings); err != nil {
+		return err
+	}
+	return validateSettings(settings, true)
 }

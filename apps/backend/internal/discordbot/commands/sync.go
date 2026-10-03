@@ -2,18 +2,20 @@ package commands
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 
-	"log/slog"
-
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/discordbot/ui"
+	r "github.com/redis/go-redis/v9"
 )
 
-// DiscordCommandClient defines the external operations needed by this package, keeping the concrete client at the adapter boundary.
 type DiscordCommandClient interface {
 	ListCommands(ctx context.Context, appID, guildID string) ([]*discordgo.ApplicationCommand, error)
 	CreateCommand(ctx context.Context, appID, guildID string, command *discordgo.ApplicationCommand) (*discordgo.ApplicationCommand, error)
@@ -31,27 +33,22 @@ type CommandSyncer struct {
 	PruneEnabled bool
 }
 
-// sessionCommandClient defines the external operations needed by this package, keeping the concrete client at the adapter boundary.
 type sessionCommandClient struct {
 	session *discordgo.Session
 }
 
-// ListCommands returns commands subject to authorization, ordering, and filtering constraints.
 func (c sessionCommandClient) ListCommands(ctx context.Context, appID, guildID string) ([]*discordgo.ApplicationCommand, error) {
 	return c.session.ApplicationCommands(appID, guildID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(true))
 }
 
-// CreateCommand creates command while preserving validation, authorization, and persistence invariants.
 func (c sessionCommandClient) CreateCommand(ctx context.Context, appID, guildID string, command *discordgo.ApplicationCommand) (*discordgo.ApplicationCommand, error) {
 	return c.session.ApplicationCommandCreate(appID, guildID, command, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(true))
 }
 
-// EditCommand encapsulates the edit command rule so callers share one consistent package implementation.
 func (c sessionCommandClient) EditCommand(ctx context.Context, appID, guildID, commandID string, command *discordgo.ApplicationCommand) (*discordgo.ApplicationCommand, error) {
 	return c.session.ApplicationCommandEdit(appID, guildID, commandID, command, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(true))
 }
 
-// DeleteCommand encapsulates the delete command rule so callers share one consistent package implementation.
 func (c sessionCommandClient) DeleteCommand(ctx context.Context, appID, guildID, commandID string) error {
 	return c.session.ApplicationCommandDelete(appID, guildID, commandID, discordgo.WithContext(ctx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(true))
 }
@@ -144,7 +141,6 @@ func (s CommandSyncer) retireRenamedContextCommands(ctx context.Context, remote 
 	return remaining, nil
 }
 
-// syncOne encapsulates the sync one rule so callers share one consistent package implementation.
 func (s CommandSyncer) syncOne(ctx context.Context, cache commandHashCache, scope string, remote *discordgo.ApplicationCommand, spec CommandSpec) error {
 	command := spec.Definition
 	commandName := command.Name
@@ -200,7 +196,6 @@ func (s CommandSyncer) syncOne(ctx context.Context, cache commandHashCache, scop
 	return nil
 }
 
-// pruneRemoteOnlyCommands encapsulates the prune remote only commands rule so callers share one consistent package implementation.
 func (s CommandSyncer) pruneRemoteOnlyCommands(ctx context.Context, scope string, remoteCommands []*discordgo.ApplicationCommand, localCommandNames map[string]struct{}) error {
 	remoteOnly := make([]*discordgo.ApplicationCommand, 0)
 	for _, command := range remoteCommands {
@@ -233,7 +228,6 @@ func (s CommandSyncer) pruneRemoteOnlyCommands(ctx context.Context, scope string
 	return nil
 }
 
-// cacheCommand encapsulates the cache command rule so callers share one consistent package implementation.
 func (s CommandSyncer) cacheCommand(ctx context.Context, cache commandHashCache, scope, commandName, commandID, hash string) {
 	if err := cache.Set(ctx, scope, commandName, commandCacheEntry{
 		DiscordCommandID: commandID,
@@ -243,7 +237,6 @@ func (s CommandSyncer) cacheCommand(ctx context.Context, cache commandHashCache,
 	}
 }
 
-// shouldSkipCommandSync encapsulates the should skip command sync rule so callers share one consistent package implementation.
 func shouldSkipCommandSync(cached *commandCacheEntry, remoteCommandID, localHash, remoteHash string) bool {
 	return cached != nil &&
 		cached.DiscordCommandID == remoteCommandID &&
@@ -251,7 +244,6 @@ func shouldSkipCommandSync(cached *commandCacheEntry, remoteCommandID, localHash
 		remoteHash == localHash
 }
 
-// cachedCommandID encapsulates the cached command id rule so callers share one consistent package implementation.
 func cachedCommandID(cached *commandCacheEntry) string {
 	if cached == nil {
 		return ""
@@ -259,7 +251,6 @@ func cachedCommandID(cached *commandCacheEntry) string {
 	return cached.DiscordCommandID
 }
 
-// cachedHash computes a stable digest for cached hash so unchanged Discord commands can skip synchronization.
 func cachedHash(cached *commandCacheEntry) string {
 	if cached == nil {
 		return ""
@@ -267,7 +258,6 @@ func cachedHash(cached *commandCacheEntry) string {
 	return cached.Hash
 }
 
-// commandScope encapsulates the command scope rule so callers share one consistent package implementation.
 func commandScope(guildID string) string {
 	guildID = strings.TrimSpace(guildID)
 	if guildID == "" {
@@ -276,7 +266,6 @@ func commandScope(guildID string) string {
 	return "guild:" + guildID
 }
 
-// commandID encapsulates the command id rule so callers share one consistent package implementation.
 func commandID(command *discordgo.ApplicationCommand) string {
 	if command == nil {
 		return ""
@@ -284,7 +273,6 @@ func commandID(command *discordgo.ApplicationCommand) string {
 	return command.ID
 }
 
-// sortedSpecs produces a stable sorted specs representation for deterministic validation, comparison, or caching.
 func sortedSpecs(specs []CommandSpec) []CommandSpec {
 	out := make([]CommandSpec, 0, len(specs))
 	out = append(out, specs...)
@@ -302,7 +290,6 @@ func sortedSpecs(specs []CommandSpec) []CommandSpec {
 	return out
 }
 
-// commandNames encapsulates the command names rule so callers share one consistent package implementation.
 func commandNames(commands []*discordgo.ApplicationCommand) []string {
 	names := make([]string, 0, len(commands))
 	for _, command := range commands {
@@ -320,9 +307,245 @@ func commandNames(commands []*discordgo.ApplicationCommand) []string {
 // restart to rewrite unchanged commands. Global command behavior stays intact.
 func commandFingerprintForScope(command *discordgo.ApplicationCommand, guildID string) (string, string, error) {
 	if command == nil || guildID == "" {
-		return CommandFingerprint(command)
+		return commandFingerprint(command)
 	}
 	copy := *command
 	copy.DMPermission = nil
-	return CommandFingerprint(&copy)
+	return commandFingerprint(&copy)
+}
+
+type canonicalCommand struct {
+	Type                     discordgo.ApplicationCommandType        `json:"type"`
+	Name                     string                                  `json:"name"`
+	NameLocalizations        *map[discordgo.Locale]string            `json:"name_localizations,omitempty"`
+	Description              string                                  `json:"description,omitempty"`
+	DescriptionLocalizations *map[discordgo.Locale]string            `json:"description_localizations,omitempty"`
+	DefaultPermission        *bool                                   `json:"default_permission,omitempty"`
+	DefaultMemberPermissions *int64                                  `json:"default_member_permissions,omitempty"`
+	DMPermission             *bool                                   `json:"dm_permission,omitempty"`
+	NSFW                     *bool                                   `json:"nsfw,omitempty"`
+	Contexts                 *[]discordgo.InteractionContextType     `json:"contexts,omitempty"`
+	IntegrationTypes         *[]discordgo.ApplicationIntegrationType `json:"integration_types,omitempty"`
+	Options                  []canonicalCommandOption                `json:"options,omitempty"`
+}
+
+type canonicalCommandOption struct {
+	Type                     discordgo.ApplicationCommandOptionType `json:"type"`
+	Name                     string                                 `json:"name"`
+	NameLocalizations        map[discordgo.Locale]string            `json:"name_localizations,omitempty"`
+	Description              string                                 `json:"description,omitempty"`
+	DescriptionLocalizations map[discordgo.Locale]string            `json:"description_localizations,omitempty"`
+	ChannelTypes             []discordgo.ChannelType                `json:"channel_types,omitempty"`
+	Required                 bool                                   `json:"required,omitempty"`
+	Options                  []canonicalCommandOption               `json:"options,omitempty"`
+	Autocomplete             bool                                   `json:"autocomplete,omitempty"`
+	Choices                  []canonicalCommandOptionChoice         `json:"choices,omitempty"`
+	MinValue                 *float64                               `json:"min_value,omitempty"`
+	MaxValue                 float64                                `json:"max_value,omitempty"`
+	MinLength                *int                                   `json:"min_length,omitempty"`
+	MaxLength                int                                    `json:"max_length,omitempty"`
+}
+
+type canonicalCommandOptionChoice struct {
+	Name              string                      `json:"name"`
+	NameLocalizations map[discordgo.Locale]string `json:"name_localizations,omitempty"`
+	Value             any                         `json:"value"`
+}
+
+func commandHash(command *discordgo.ApplicationCommand) (string, error) {
+	hash, _, err := commandFingerprint(command)
+	return hash, err
+}
+
+func commandFingerprint(command *discordgo.ApplicationCommand) (string, string, error) {
+	canonical := canonicalizeCommand(command)
+	body, err := json.Marshal(canonical)
+	if err != nil {
+		return "", "", err
+	}
+
+	sum := sha256.Sum256(body)
+	return hex.EncodeToString(sum[:]), string(body), nil
+}
+
+func canonicalizeCommand(command *discordgo.ApplicationCommand) canonicalCommand {
+	if command == nil {
+		return canonicalCommand{}
+	}
+
+	commandType := command.Type
+	if commandType == 0 {
+		commandType = discordgo.ChatApplicationCommand
+	}
+
+	return canonicalCommand{
+		Type:                     commandType,
+		Name:                     command.Name,
+		NameLocalizations:        command.NameLocalizations,
+		Description:              command.Description,
+		DescriptionLocalizations: command.DescriptionLocalizations,
+		DefaultPermission:        command.DefaultPermission,
+		DefaultMemberPermissions: command.DefaultMemberPermissions,
+		DMPermission:             command.DMPermission,
+		NSFW:                     normalizedBoolPointer(command.NSFW),
+		Contexts:                 command.Contexts,
+		IntegrationTypes:         normalizedIntegrationTypes(command.IntegrationTypes),
+		Options:                  canonicalizeOptions(command.Options),
+	}
+}
+
+func canonicalizeOptions(options []*discordgo.ApplicationCommandOption) []canonicalCommandOption {
+	if len(options) == 0 {
+		return nil
+	}
+
+	out := make([]canonicalCommandOption, 0, len(options))
+	for _, option := range options {
+		if option == nil {
+			continue
+		}
+
+		out = append(out, canonicalCommandOption{
+			Type:                     option.Type,
+			Name:                     option.Name,
+			NameLocalizations:        option.NameLocalizations,
+			Description:              option.Description,
+			DescriptionLocalizations: option.DescriptionLocalizations,
+			ChannelTypes:             option.ChannelTypes,
+			Required:                 option.Required,
+			Options:                  canonicalizeOptions(option.Options),
+			Autocomplete:             option.Autocomplete,
+			Choices:                  canonicalizeChoices(option.Choices),
+			MinValue:                 option.MinValue,
+			MaxValue:                 option.MaxValue,
+			MinLength:                option.MinLength,
+			MaxLength:                option.MaxLength,
+		})
+	}
+
+	return out
+}
+
+func normalizedBoolPointer(value *bool) *bool {
+	if value == nil || !*value {
+		return nil
+	}
+	return value
+}
+
+func normalizedIntegrationTypes(value *[]discordgo.ApplicationIntegrationType) *[]discordgo.ApplicationIntegrationType {
+	if value == nil || len(*value) == 0 {
+		return nil
+	}
+
+	copied := append([]discordgo.ApplicationIntegrationType(nil), (*value)...)
+	sort.Slice(copied, func(i, j int) bool {
+		return copied[i] < copied[j]
+	})
+	if len(copied) == 2 &&
+		copied[0] == discordgo.ApplicationIntegrationGuildInstall &&
+		copied[1] == discordgo.ApplicationIntegrationUserInstall {
+		return nil
+	}
+	return &copied
+}
+
+func canonicalizeChoices(choices []*discordgo.ApplicationCommandOptionChoice) []canonicalCommandOptionChoice {
+	if len(choices) == 0 {
+		return nil
+	}
+
+	out := make([]canonicalCommandOptionChoice, 0, len(choices))
+	for _, choice := range choices {
+		if choice == nil {
+			continue
+		}
+
+		out = append(out, canonicalCommandOptionChoice{
+			Name:              choice.Name,
+			NameLocalizations: choice.NameLocalizations,
+			Value:             choice.Value,
+		})
+	}
+
+	return out
+}
+
+// commandCacheEntry pairs a Discord command ID with the last synchronized definition hash.
+type commandCacheEntry struct {
+	DiscordCommandID string `json:"discord_command_id"`
+	Hash             string `json:"hash"`
+}
+
+// commandHashCache remembers synchronized definitions independently for each Discord scope.
+type commandHashCache interface {
+	Get(ctx context.Context, scope, commandName string) (*commandCacheEntry, error)
+	Set(ctx context.Context, scope, commandName string, entry commandCacheEntry) error
+}
+
+// noopCommandCache leaves synchronization enabled when no cache capability is supplied.
+type noopCommandCache struct{}
+
+// Get reports a cache miss so synchronization compares the live Discord definition.
+func (noopCommandCache) Get(ctx context.Context, scope, commandName string) (*commandCacheEntry, error) {
+	return nil, nil
+}
+
+// Set discards fingerprints when caching is disabled.
+func (noopCommandCache) Set(ctx context.Context, scope, commandName string, entry commandCacheEntry) error {
+	return nil
+}
+
+// CommandHashStore provides only the hash operations used to remember synchronized
+// Discord command definitions. Missing fields must return redis.Nil.
+type CommandHashStore interface {
+	HashGet(ctx context.Context, key, field string) ([]byte, error)
+	HashSet(ctx context.Context, key, field string, value []byte) error
+}
+
+// redisCommandCache encodes fingerprints in per-scope hashes using only hash storage.
+type redisCommandCache struct {
+	store CommandHashStore
+}
+
+// newRedisCommandCache uses the supplied hash capability, or disables caching when absent.
+func newRedisCommandCache(store CommandHashStore) commandHashCache {
+	if store == nil {
+		return noopCommandCache{}
+	}
+	return redisCommandCache{store: store}
+}
+
+// Get decodes a stored fingerprint, treating absent Redis fields as cache misses.
+func (c redisCommandCache) Get(ctx context.Context, scope, commandName string) (*commandCacheEntry, error) {
+	body, err := c.store.HashGet(ctx, commandCacheKey(scope), commandName)
+	if err != nil {
+		if errors.Is(err, r.Nil) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read command cache: %w", err)
+	}
+
+	var entry commandCacheEntry
+	if err := json.Unmarshal(body, &entry); err != nil {
+		return nil, fmt.Errorf("decode command cache: %w", err)
+	}
+	return &entry, nil
+}
+
+// Set persists the synchronized command ID and hash without expiring the fingerprint.
+func (c redisCommandCache) Set(ctx context.Context, scope, commandName string, entry commandCacheEntry) error {
+	body, err := json.Marshal(entry)
+	if err != nil {
+		return fmt.Errorf("encode command cache: %w", err)
+	}
+	if err := c.store.HashSet(ctx, commandCacheKey(scope), commandName, body); err != nil {
+		return fmt.Errorf("write command cache: %w", err)
+	}
+	return nil
+}
+
+// commandCacheKey isolates global and guild fingerprints within the existing Redis namespace.
+func commandCacheKey(scope string) string {
+	return "discord:commands:" + scope + ":hashes"
 }

@@ -43,7 +43,7 @@ func TestMySQLConcurrentCaseCreationSelectsDistinctEscalation(t *testing.T) {
 			model.PermissionActionCaseCreate:        true,
 		},
 	}
-	services := quack.NewWithConfigDependencies(config.Default(), repositories, nil, nil, nil)
+	services := quack.New(config.Default(), repositories, nil, nil, nil)
 	template, err := services.Templates.Create(ctx, guildContext, quack.TemplateInput{
 		Slug: "concurrent-" + suffix, Name: "Concurrent", Description: "Integration", ReasonTemplate: "Reason",
 		Levels: []quack.TemplateLevelInput{
@@ -114,7 +114,7 @@ func TestMySQLConcurrentCaseCreationAndVoidPreserveNumberingAndValidity(t *testi
 		Guild: guild, Staff: &model.StaffMember{GuildID: guild.ID, DiscordUserID: "moderator"}, IsAdmin: true, IsModerator: true,
 		Permissions: map[model.PermissionAction]bool{model.PermissionActionCaseTemplateWrite: true, model.PermissionActionCaseCreate: true, model.PermissionActionCaseVoid: true},
 	}
-	services := quack.NewWithConfigDependencies(config.Default(), repositories, nil, nil, nil)
+	services := quack.New(config.Default(), repositories, nil, nil, nil)
 	template, err := services.Templates.Create(ctx, guildContext, quack.TemplateInput{
 		Slug: "create-void-" + suffix, Name: "Create Void", ReasonTemplate: "Reason",
 		Levels: []quack.TemplateLevelInput{{Name: "Default", Position: 1, IsDefault: true}, {Name: "Second", Position: 2, TriggerCaseCount: 2}},

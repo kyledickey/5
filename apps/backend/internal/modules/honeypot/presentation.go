@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -99,4 +100,37 @@ func (s *Service) ReserveWarningSend(ctx context.Context, guildID string, settin
 // receipt write or uncertain transport result deliberately leaves admission held.
 func (s *Service) ReleaseWarningSend(ctx context.Context, guildID string, settings Settings) error {
 	return s.store.db.WithContext(ctx).Model(&WarningRefresh{}).Where("guild_id = ? AND send_identity = ?", guildID, warningSendIdentity(settings)).Update("send_identity", "").Error
+}
+
+// RecordWarningReplacement records presentation repair only while its original
+// configuration remains current, so it cannot overwrite a concurrent admin edit.
+func (s *Service) RecordWarningReplacement(ctx context.Context, guildID string, previous Settings, messageID string) error {
+	if messageID == "" {
+		return errors.New("warning message ID is required")
+	}
+	return s.store.recordWarningReplacement(ctx, guildID, previous, messageID)
+}
+
+// recordWarningReplacement compares the warning identity under the configuration
+// row lock, updating only the delivery receipt without producing staff audit noise.
+func (s *Store) recordWarningReplacement(ctx context.Context, guildID string, previous Settings, messageID string) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var config modules.Configuration
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("guild_id = ? AND module_id = ?", guildID, modules.Honeypots).First(&config).Error; err != nil {
+			return err
+		}
+		var current Settings
+		if err := json.Unmarshal([]byte(config.ConfigJSON), &current); err != nil {
+			return err
+		}
+		if !config.Enabled || current.ChannelDiscordID != previous.ChannelDiscordID || current.WarningMessageID != previous.WarningMessageID || current.WarningText != previous.WarningText {
+			return errors.New("honeypot warning configuration changed")
+		}
+		current.WarningMessageID = messageID
+		encoded, err := json.Marshal(current)
+		if err != nil {
+			return err
+		}
+		return tx.Model(&config).Update("config_json", string(encoded)).Error
+	})
 }

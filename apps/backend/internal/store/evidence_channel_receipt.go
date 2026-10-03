@@ -19,7 +19,7 @@ func (s *Store) CompareAndSetEvidenceChannel(ctx context.Context, guildID, expec
 	}
 	var winner string
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var current GuildSettingsRecord
+		var current model.GuildSettings
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("guild_id = ?", guildID).First(&current).Error; err != nil {
 			return err
 		}

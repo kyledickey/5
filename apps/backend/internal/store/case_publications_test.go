@@ -70,7 +70,7 @@ func TestCasePublicationEvidenceHealthTracksRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&CaseEvidenceSnapshotRecord{}); err != nil {
+	if err := db.AutoMigrate(&model.CaseEvidenceSnapshot{}); err != nil {
 		t.Fatal(err)
 	}
 	repository := New(db, nil)

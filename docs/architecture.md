@@ -23,7 +23,7 @@ guild.
 - `apps/backend/internal/quack` contains transport-independent use cases, domain models,
   repository ports, Discord gateway ports, and queue ports.
 - `apps/backend/internal/store` implements repository ports with GORM/MySQL and Redis.
-  GORM-tagged migration records remain private to this adapter.
+  It owns schema creation and every raw SQL statement.
 - `apps/backend/internal/httpapi` translates HTTP requests, authentication, cookies, and
   response DTOs into application calls.
 - `apps/backend/internal/discordbot` translates Discord interactions into the same
@@ -106,15 +106,13 @@ Current action capability remains unchanged:
 
 ## Persistence compatibility
 
-Store-owned schema records preserve the existing table names, columns, indexes,
-and JSON columns. Production startup runs an ordered, checksum-tracked migration
-registry under a MySQL advisory lock; checksums bind embedded executable
-migration source and frozen schema records. It does not call `AutoMigrate`.
-Rollback intent is durably recorded before MySQL DDL, and normal startup refuses
-an incomplete rollback until the operator reruns its idempotent inverse. The
-initial additive migration adopts a current pre-ledger v5 database without
-rewriting its records. Plain domain models do not contain GORM tags. Redis
-authentication and Discord command-cache key formats are unchanged.
+The domain structs in `internal/quack/model` carry the GORM column, size, and
+index tags, and each optional module exports its own tables through
+`SchemaTypes()`. Startup reconciles that one definition with `AutoMigrate` under
+a MySQL advisory lock and then applies the constraints and composite indexes
+that struct tags cannot express. The run is additive and idempotent; it never
+drops or renames a table or column. Redis authentication and Discord
+command-cache key formats are unchanged.
 
 ## Delivery adapters
 

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/quackdiscord/bot/internal/quack/model"
-	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
@@ -87,33 +86,4 @@ func (s *Store) ListPendingAuditMirrorEntries(ctx context.Context, limit int) ([
 		}
 	}
 	return nil, nil
-}
-
-// initializeAuditMirrorQueue backfills missing delivery rows once under the
-// startup migration lock. INSERT SELECT keeps historical materialization in SQL;
-// existing completions and retry deadlines are never overwritten. Readiness and
-// inserted rows commit together, making interrupted initialization safe to retry.
-func initializeAuditMirrorQueue(db *gorm.DB) error {
-	return db.Transaction(func(tx *gorm.DB) error {
-		var marker currentSchema
-		if err := tx.First(&marker, 1).Error; err != nil {
-			return err
-		}
-		if marker.AuditMirrorQueueReady {
-			return nil
-		}
-		query := `INSERT INTO audit_mirror_deliveries (audit_entry_id, finished, retry_at)
-   SELECT audit_log_entries.id, ?, audit_log_entries.created_at FROM audit_log_entries
-   LEFT JOIN audit_mirror_deliveries existing ON existing.audit_entry_id = audit_log_entries.id
-   WHERE existing.audit_entry_id IS NULL AND audit_log_entries.action IN ?`
-		if tx.Dialector.Name() == "mysql" {
-			query += " ON DUPLICATE KEY UPDATE audit_entry_id = audit_mirror_deliveries.audit_entry_id"
-		} else {
-			query += " ON CONFLICT(audit_entry_id) DO NOTHING"
-		}
-		if err := tx.Exec(query, false, model.ImportantAuditActions()).Error; err != nil {
-			return fmt.Errorf("backfill audit mirror queue: %w", err)
-		}
-		return tx.Model(&currentSchema{}).Where("id = ?", 1).Update("audit_mirror_queue_ready", true).Error
-	})
 }

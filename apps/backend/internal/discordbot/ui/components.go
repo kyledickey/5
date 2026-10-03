@@ -8,6 +8,9 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
+// CustomIDLimit is Discord's documented maximum length for a component custom ID.
+const CustomIDLimit = 100
+
 // Sentinel errors returned by EncodeCustomID and DecodeCustomID. The dispatcher
 // answers both with a generic "component not available" reply.
 var (
@@ -75,16 +78,22 @@ func MustCustomID(id CustomID) string {
 }
 
 // Button constructs a routed Discord button using Quack's custom-ID format.
-func Button(customID, label string, style discordgo.ButtonStyle, disabled bool) discordgo.Button {
-	// Colors distinguish primary actions, confirmations, and destructive controls.
-	if style == 0 {
-		style = discordgo.SecondaryButton
+type ButtonOpts struct {
+	ID       string
+	Label    string
+	Style    discordgo.ButtonStyle
+	Disabled bool
+}
+
+func Button(opts ButtonOpts) discordgo.Button {
+	if opts.Style == 0 {
+		opts.Style = discordgo.SecondaryButton
 	}
 	return discordgo.Button{
-		CustomID: customID,
-		Label:    TruncateRunes(label, 80),
-		Style:    style,
-		Disabled: disabled,
+		CustomID: opts.ID,
+		Label:    TruncateRunes(opts.Label, 80),
+		Style:    opts.Style,
+		Disabled: opts.Disabled,
 	}
 }
 

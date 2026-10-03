@@ -15,7 +15,7 @@ import (
 // Shared queue messages use page one; browsing opens a separate copy for each staff
 // member so one reader cannot change another reader's place in the statement.
 func AppealStaffPage(appeal *quack.AppealResponse, page int, applicationID string) ui.Message {
-	message := AppealStaffMessage(appeal)
+	message := appealStaffMessage(appeal)
 	if appeal == nil {
 		return message
 	}
@@ -30,8 +30,7 @@ func AppealStaffPage(appeal *quack.AppealResponse, page int, applicationID strin
 	return message
 }
 
-// AppealStaffMessage renders the submitted statement and current staff controls.
-func AppealStaffMessage(appeal *quack.AppealResponse) ui.Message {
+func appealStaffMessage(appeal *quack.AppealResponse) ui.Message {
 	if appeal == nil {
 		return ui.Signal("error", "That appeal couldn’t be found.", true)
 	}

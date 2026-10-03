@@ -8,7 +8,7 @@ import (
 )
 
 func TestMySQLExecutableCaseSelectionIsGuildFair(t *testing.T) {
-	db := openMySQLMigrationDB(t)
+	db := openMySQLTestDB(t)
 	repository := New(db, nil)
 	if err := repository.Migrate(); err != nil {
 		t.Fatalf("migrate MySQL fairness fixture: %v", err)

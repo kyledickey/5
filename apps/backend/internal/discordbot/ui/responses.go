@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/quackdiscord/bot/internal/quack"
@@ -188,4 +189,30 @@ func ErrorEdit(content string) Edit {
 // Discord fixes the response visibility when the interaction is acknowledged.
 func Publish(responder Responder, message Message) (*discordgo.Message, error) {
 	return responder.EditOriginal(EditMessage(message))
+}
+
+// UserError carries a sentence that is meant to be shown to the person who
+// invoked a command, unchanged. It exists so Discord-facing copy ("Could not
+// create #appeals. Quack needs Manage Channels permission.") can travel through
+// an error return without being reduced to a lowercase log string.
+//
+// Error returns Message verbatim: callers in other packages already surface
+// SetupChannel failures with err.Error(), and the copy they show must not change.
+// Callers that want to distinguish user copy from internal failures use UserMessage.
+type UserError struct {
+	Message string
+}
+
+func (e *UserError) Error() string {
+	return e.Message
+}
+
+// UserMessage reports whether err (or any error it wraps) is a UserError and,
+// if so, returns the copy that should be shown to the invoking user.
+func UserMessage(err error) (string, bool) {
+	var user *UserError
+	if errors.As(err, &user) {
+		return user.Message, true
+	}
+	return "", false
 }

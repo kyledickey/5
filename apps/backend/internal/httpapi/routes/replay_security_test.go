@@ -2,6 +2,7 @@ package routes
 
 import (
 	"context"
+	"github.com/quackdiscord/bot/internal/config"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -26,13 +27,13 @@ func TestTemplateReplayRequiresLiveSessionAndCurrentManager(t *testing.T) {
 		t.Fatal(err)
 	}
 	discord := routeFakeDiscordClient{userGuilds: []quack.DiscordUserGuild{{ID: "guild-1", Permissions: uint64(discordgo.PermissionManageGuild)}}, botGuild: &quack.DiscordBotGuild{ID: "guild-1", Name: "Guild", OwnerID: "owner"}}
-	services := quack.NewWithDiscordClient(store, discord)
+	services := quack.New(config.Default(), store, discord, nil, nil)
 	session := routeTestSession("manager")
 	if err := store.SaveSession(context.Background(), session, time.Hour); err != nil {
 		t.Fatal(err)
 	}
 	router := gin.New()
-	router.Use(middleware.RequestContext, middleware.ErrorEnvelope, httpplatform.EndpointPolicy(httpplatform.FromRepository(store), services.Config))
+	router.Use(middleware.RequestContext, middleware.ErrorEnvelope, httpplatform.EndpointPolicy(httpplatform.New(store), services.Config))
 	SetupRoutes(router, services)
 	send := func() *httptest.ResponseRecorder {
 		request := httptest.NewRequest(http.MethodPost, "/guilds/guild-1/templates", strings.NewReader(templateRoutePayload("private-policy")))

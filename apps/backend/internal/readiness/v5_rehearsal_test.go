@@ -40,7 +40,7 @@ func TestCleanInstallComposesEveryAcceptedV5Surface(t *testing.T) {
 
 	cfg := config.Default()
 	cfg.Discord.AppID = "123456789012345678"
-	services := quack.NewWithConfigDependencies(cfg, repository, nil, nil, nil)
+	services := quack.New(cfg, repository, nil, nil, nil)
 	session, err := discordgo.New("Bot readiness-test-token")
 	if err != nil {
 		t.Fatalf("construct offline Discord session: %v", err)
@@ -78,15 +78,11 @@ func TestCleanInstallComposesEveryAcceptedV5Surface(t *testing.T) {
 	})
 }
 
-// assertCurrentSchemaReady verifies clean startup uses the current definitions
-// and has completed initialization without replaying the retired migration chain.
+// assertCurrentSchemaReady verifies clean startup created the full schema.
 func assertCurrentSchemaReady(t *testing.T, db *gorm.DB) {
 	t.Helper()
-	if db.Migrator().HasTable("quack_schema_migrations") {
-		t.Fatal("clean installation replayed historical migrations")
-	}
-	if version, err := store.New(db, nil).MigrationReadiness(context.Background()); err != nil || version != 1 {
-		t.Fatalf("current schema is not ready: version=%d err=%v", version, err)
+	if err := store.New(db, nil).SchemaReady(context.Background()); err != nil {
+		t.Fatalf("current schema is not ready: %v", err)
 	}
 }
 
